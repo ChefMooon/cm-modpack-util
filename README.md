@@ -2,7 +2,7 @@
 
 A local-first foundation for CM modpack projects, built with **Tauri 2**, **SvelteKit**, **TypeScript**, **Vite**, and **SQLite**.
 
-Version 0.0.1 provides the Projects, Activity, and Settings shell, persisted desktop preferences, and tested safety boundaries for future project registration. Project folders, Packwiz files, network providers, Git history, and update operations are intentionally unavailable until later releases. The app does not fabricate project evidence or modify external project directories.
+Version 0.0.2 provides local Packwiz project registration and validation alongside the Projects, Activity, and Settings shell. It reads Packwiz evidence offline, persists application-owned project metadata, and manages lifecycle state without modifying external project directories. Network providers, Git history, and update operations remain outside this release.
 
 ## Prerequisites
 
@@ -31,7 +31,7 @@ The Vite-only frontend can also be run with `npm run dev`.
 
 ## Project structure
 
-- `src/routes/+page.svelte` — Projects empty state and v0.0.1 foundation status
+- `src/routes/+page.svelte` — Projects registration, validation, metadata, and lifecycle workflow
 - `src/routes/activity/+page.svelte` — unavailable operation history state
 - `src/routes/settings/+page.svelte` — settings screen with persisted theme preference
 - `src/lib/settings.ts` — product-owned typed settings invocation helper
@@ -72,13 +72,13 @@ The `/settings` route provides the application's desktop preferences. Settings a
 
 All of these settings can be reset from the Advanced section of the Settings page. Resetting restores the defaults and disables launch-at-login.
 
-## v0.0.1 boundaries
+## v0.0.2 boundaries
 
-- **Projects:** No project is registered in v0.0.1. Registration and validation begin in v0.0.2.
-- **Activity:** No operation history is shown because project registration, Packwiz execution, filesystem scans, and network requests are unavailable.
-- **Source of truth:** Packwiz files will remain authoritative for external modpack state once integration exists. SQLite currently owns only application settings.
-- **Safety:** Rust owns canonicalization and registered-project containment. The boundary accepts existing absolute paths only after they are under an explicitly registered root; relative, nonexistent, escaping, and unregistered paths are rejected. Symlink and junction policy is deferred.
-- **Database:** Startup applies the idempotent settings schema with `CREATE TABLE IF NOT EXISTS`; no migration framework or workflow tables are present.
+- **Projects:** Local Packwiz directories can be previewed, validated, registered, reopened offline, refreshed, archived, restored, disconnected, reconnected, and edited without external file mutation.
+- **Activity:** Operation history is not yet implemented because Packwiz execution, filesystem scans beyond registration evidence, and network requests remain unavailable.
+- **Source of truth:** Packwiz files remain authoritative for external modpack state. SQLite owns application metadata, observed evidence, validation results, and lifecycle state.
+- **Safety:** Rust owns canonicalization and registered-project containment. Equivalent path spellings are rejected as duplicates, and relative, nonexistent, escaping, and unregistered paths are rejected. Symlinks and junctions follow canonical operating-system path resolution and remain inside the registered root.
+- **Database:** Startup applies the idempotent settings and project schemas with `CREATE TABLE IF NOT EXISTS`; no migration framework is present.
 - **Accessibility:** The shell preserves visible focus, keyboard navigation, accessible names, tooltips for unfamiliar controls, and color-independent status meaning.
 
 ## Common UI components

@@ -13,6 +13,7 @@ use tauri_plugin_window_state::{AppHandleExt, StateFlags, WindowExt};
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -87,7 +88,17 @@ pub fn run() {
             db::get_settings,
             db::set_setting,
             db::delete_setting,
-            db::reset_settings
+            db::reset_settings,
+            db::preview_project,
+            db::register_project,
+            db::list_projects,
+            db::open_project,
+            db::refresh_project,
+            db::update_project_metadata,
+            db::archive_project,
+            db::restore_project,
+            db::disconnect_project,
+            db::reconnect_project
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,0 +1,5 @@
+name = "malformed-pack"
+[index]
+file = "missing-index.toml"
+hash-format = "sha256"
+hash = "not-a-valid-hash"

@@ -18,7 +18,7 @@
   <section class="empty-state" aria-labelledby="empty-title">
     <div class="empty-icon" aria-hidden="true"><ClockCounterClockwiseIcon size={34} weight="duotone" /></div>
     <p class="eyebrow">No operations yet</p>
-    <h2 id="empty-title">Activity is unavailable in v0.0.1</h2>
+    <h2 id="empty-title">Activity is unavailable in v0.0.2</h2>
     <p>There is no project registration, Packwiz process, filesystem scan, network request, or update operation to report.</p>
   </section>
 </main>

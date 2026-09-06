@@ -1,0 +1,12 @@
+name = "Example Mod"
+filename = "example-1.0.0.jar"
+side = "both"
+
+[download]
+hash-format = "sha512"
+hash = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+mode = "metadata:modrinth"
+
+[update.modrinth]
+mod-id = "example-project"
+version = "example-version"

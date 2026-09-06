@@ -136,4 +136,14 @@ mod tests {
             Err(PathScopeError::RootUnavailable)
         );
     }
+
+    #[test]
+    fn canonicalizes_equivalent_path_spellings_for_duplicate_checks() {
+        let fixture = Fixture::new();
+        let equivalent = fixture.root.join("mods").join("..").join("mods");
+        assert_eq!(
+            canonical_registered_path(&fixture.root, &fixture.inside),
+            canonical_registered_path(&fixture.root, &equivalent)
+        );
+    }
 }

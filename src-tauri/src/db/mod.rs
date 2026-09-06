@@ -1,4 +1,7 @@
-use crate::domain::CommandError;
+use crate::domain::{
+    validation, ApplicationProjectMetadata, CommandError, ProjectLifecycle, ProjectRecord,
+    RegistrationPreview,
+};
 use rusqlite::{params, Connection};
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -35,6 +38,303 @@ fn timestamp() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs().to_string())
         .unwrap_or_else(|_| "0".to_string())
+}
+
+fn project_id(path: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut hasher);
+    format!("project-{:x}", hasher.finish())
+}
+
+fn serialize<T: serde::Serialize>(value: &T, label: &str) -> Result<String, CommandError> {
+    serde_json::to_string(value).map_err(|error| {
+        CommandError::new(
+            "serialization_failed",
+            format!("{label} could not be serialized"),
+        )
+        .with_details(error.to_string())
+    })
+}
+
+fn row_to_project(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectRecord> {
+    let application: String = row.get(2)?;
+    let packwiz: String = row.get(3)?;
+    let validation: String = row.get(4)?;
+    Ok(ProjectRecord {
+        id: row.get(0)?,
+        canonical_path: row.get(1)?,
+        application: serde_json::from_str(&application)
+            .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        packwiz: serde_json::from_str(&packwiz).map_err(|_| rusqlite::Error::InvalidQuery)?,
+        validation: serde_json::from_str(&validation).map_err(|_| rusqlite::Error::InvalidQuery)?,
+        created_at: row.get(5)?,
+        updated_at: row.get(6)?,
+        last_opened_at: row.get(7)?,
+        last_refreshed_at: row.get(8)?,
+    })
+}
+
+#[tauri::command]
+pub fn preview_project(path: String) -> Result<RegistrationPreview, CommandError> {
+    validation::preview(&path)
+}
+
+#[tauri::command]
+pub fn register_project(
+    state: State<'_, Database>,
+    path: String,
+    application: Option<ApplicationProjectMetadata>,
+) -> Result<ProjectRecord, CommandError> {
+    register_project_inner(&state, path, application)
+}
+
+fn register_project_inner(
+    database: &Database,
+    path: String,
+    application: Option<ApplicationProjectMetadata>,
+) -> Result<ProjectRecord, CommandError> {
+    let preview = validation::preview(&path)?;
+    if validation::has_errors(&preview.validation) {
+        return Err(CommandError::new(
+            "project_validation_failed",
+            "Project evidence did not pass validation",
+        ));
+    }
+    let application = application.unwrap_or(preview.application_defaults);
+    let id = project_id(&preview.canonical_path);
+    let now = timestamp();
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let application_json = serialize(&application, "application metadata")?;
+    let packwiz_json = serialize(&preview.packwiz, "Packwiz observations")?;
+    let validation_json = serialize(&preview.validation, "validation results")?;
+    connection.execute(
+        "INSERT INTO projects (id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at, last_opened_at, last_refreshed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?6, ?6)",
+        params![id, preview.canonical_path, application_json, packwiz_json, validation_json, now],
+    ).map_err(|error| {
+        if matches!(error, rusqlite::Error::SqliteFailure(_, _)) { CommandError::new("duplicate_project", "This project directory is already registered").with_details(error.to_string()) } else { CommandError::new("database_write_failed", "Project could not be registered").with_details(error.to_string()) }
+    })?;
+    Ok(ProjectRecord {
+        id,
+        canonical_path: preview.canonical_path,
+        application,
+        packwiz: preview.packwiz,
+        validation: preview.validation,
+        created_at: now.clone(),
+        updated_at: now.clone(),
+        last_opened_at: Some(now.clone()),
+        last_refreshed_at: Some(now),
+    })
+}
+
+#[tauri::command]
+pub fn list_projects(state: State<'_, Database>) -> Result<Vec<ProjectRecord>, CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let mut statement = connection.prepare("SELECT id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at, last_opened_at, last_refreshed_at FROM projects ORDER BY updated_at DESC").map_err(|error| CommandError::new("database_read_failed", "Projects could not be read").with_details(error.to_string()))?;
+    let rows = statement.query_map([], row_to_project).map_err(|error| {
+        CommandError::new("database_read_failed", "Projects could not be read")
+            .with_details(error.to_string())
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|error| {
+        CommandError::new("database_record_invalid", "A stored project is invalid")
+            .with_details(error.to_string())
+    })
+}
+
+#[tauri::command]
+pub fn open_project(state: State<'_, Database>, id: String) -> Result<ProjectRecord, CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let mut project = connection.query_row("SELECT id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at, last_opened_at, last_refreshed_at FROM projects WHERE id = ?1", [&id], row_to_project).map_err(|error| CommandError::new("project_not_found", "Project is not registered").with_details(error.to_string()))?;
+    let current = validation::preview(&project.canonical_path).map_err(|error| {
+        CommandError::new(
+            "project_state_unavailable",
+            "Registered project files could not be reopened",
+        )
+        .with_details(format!("{}: {}", error.code, error.message))
+    })?;
+    project.packwiz = current.packwiz;
+    project.validation = current.validation;
+    let now = timestamp();
+    connection
+        .execute(
+            "UPDATE projects SET last_opened_at = ?1, updated_at = ?1 WHERE id = ?2",
+            params![now, id],
+        )
+        .map_err(|error| {
+            CommandError::new(
+                "database_write_failed",
+                "Project open timestamp could not be saved",
+            )
+            .with_details(error.to_string())
+        })?;
+    project.last_opened_at = Some(now.clone());
+    project.updated_at = now;
+    Ok(project)
+}
+
+fn refresh_record(
+    connection: &Connection,
+    id: &str,
+    preview: &RegistrationPreview,
+) -> Result<ProjectRecord, CommandError> {
+    let existing = connection.query_row("SELECT id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at, last_opened_at, last_refreshed_at FROM projects WHERE id = ?1", [id], row_to_project).map_err(|error| CommandError::new("project_not_found", "Project is not registered").with_details(error.to_string()))?;
+    let now = timestamp();
+    connection.execute("UPDATE projects SET canonical_path = ?1, packwiz_json = ?2, validation_json = ?3, updated_at = ?4, last_refreshed_at = ?4 WHERE id = ?5", params![preview.canonical_path, serialize(&preview.packwiz, "Packwiz observations")?, serialize(&preview.validation, "validation results")?, now, id]).map_err(|error| CommandError::new("database_write_failed", "Project refresh could not be saved").with_details(error.to_string()))?;
+    Ok(ProjectRecord {
+        canonical_path: preview.canonical_path.clone(),
+        packwiz: preview.packwiz.clone(),
+        validation: preview.validation.clone(),
+        updated_at: now.clone(),
+        last_refreshed_at: Some(now),
+        ..existing
+    })
+}
+
+#[tauri::command]
+pub fn refresh_project(
+    state: State<'_, Database>,
+    id: String,
+) -> Result<ProjectRecord, CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let path: String = connection
+        .query_row(
+            "SELECT canonical_path FROM projects WHERE id = ?1",
+            [&id],
+            |row| row.get(0),
+        )
+        .map_err(|error| {
+            CommandError::new("project_not_found", "Project is not registered")
+                .with_details(error.to_string())
+        })?;
+    let preview = validation::preview(&path)?;
+    refresh_record(&connection, &id, &preview)
+}
+
+#[tauri::command]
+pub fn update_project_metadata(
+    state: State<'_, Database>,
+    id: String,
+    application: ApplicationProjectMetadata,
+) -> Result<ProjectRecord, CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let existing = connection.query_row("SELECT id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at, last_opened_at, last_refreshed_at FROM projects WHERE id = ?1", [&id], row_to_project).map_err(|error| CommandError::new("project_not_found", "Project is not registered").with_details(error.to_string()))?;
+    let now = timestamp();
+    connection
+        .execute(
+            "UPDATE projects SET application_json = ?1, updated_at = ?2 WHERE id = ?3",
+            params![serialize(&application, "application metadata")?, now, id],
+        )
+        .map_err(|error| {
+            CommandError::new(
+                "database_write_failed",
+                "Project metadata could not be saved",
+            )
+            .with_details(error.to_string())
+        })?;
+    Ok(ProjectRecord {
+        application,
+        updated_at: now,
+        ..existing
+    })
+}
+
+fn set_lifecycle(
+    database: &Database,
+    id: String,
+    lifecycle: ProjectLifecycle,
+) -> Result<ProjectRecord, CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let mut project = connection.query_row("SELECT id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at, last_opened_at, last_refreshed_at FROM projects WHERE id = ?1", [&id], row_to_project).map_err(|error| CommandError::new("project_not_found", "Project is not registered").with_details(error.to_string()))?;
+    project.application.lifecycle = lifecycle;
+    let now = timestamp();
+    connection
+        .execute(
+            "UPDATE projects SET application_json = ?1, updated_at = ?2 WHERE id = ?3",
+            params![
+                serialize(&project.application, "application metadata")?,
+                now,
+                id
+            ],
+        )
+        .map_err(|error| {
+            CommandError::new(
+                "database_write_failed",
+                "Project lifecycle could not be saved",
+            )
+            .with_details(error.to_string())
+        })?;
+    project.updated_at = now;
+    Ok(project)
+}
+
+#[tauri::command]
+pub fn archive_project(
+    state: State<'_, Database>,
+    id: String,
+) -> Result<ProjectRecord, CommandError> {
+    set_lifecycle(&state, id, ProjectLifecycle::Archived)
+}
+
+#[tauri::command]
+pub fn restore_project(
+    state: State<'_, Database>,
+    id: String,
+) -> Result<ProjectRecord, CommandError> {
+    set_lifecycle(&state, id, ProjectLifecycle::Active)
+}
+
+#[tauri::command]
+pub fn disconnect_project(
+    state: State<'_, Database>,
+    id: String,
+) -> Result<ProjectRecord, CommandError> {
+    set_lifecycle(&state, id, ProjectLifecycle::Disconnected)
+}
+
+#[tauri::command]
+pub fn reconnect_project(
+    state: State<'_, Database>,
+    id: String,
+    path: String,
+) -> Result<ProjectRecord, CommandError> {
+    reconnect_project_inner(&state, id, path)
+}
+
+fn reconnect_project_inner(
+    database: &Database,
+    id: String,
+    path: String,
+) -> Result<ProjectRecord, CommandError> {
+    let preview = validation::preview(&path)?;
+    if validation::has_errors(&preview.validation) {
+        return Err(CommandError::new(
+            "project_validation_failed",
+            "The selected directory did not pass validation",
+        ));
+    }
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    refresh_record(&connection, &id, &preview)
 }
 
 #[tauri::command]
@@ -136,6 +436,14 @@ mod tests {
             .0
             .lock()
             .expect("database lock should be available");
+        let project_table: String = connection
+            .query_row(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'projects'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("project schema should be initialized");
+        assert_eq!(project_table, "projects");
         connection
             .execute(
                 "INSERT INTO settings (key, value_json, updated_at) VALUES (?1, ?2, ?3)",
@@ -156,5 +464,31 @@ mod tests {
             )
             .expect("setting should be readable");
         assert_eq!(value, "\\\"light\\\"");
+    }
+
+    #[test]
+    fn registration_lifecycle_preserves_identity_without_deleting_external_files() {
+        let database = initialize(Path::new(":memory:")).expect("database should initialize");
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/packwiz/valid");
+        let path = fixture.to_string_lossy().into_owned();
+        let registered = super::register_project_inner(&database, path.clone(), None)
+            .expect("valid fixture should register");
+        let duplicate = super::register_project_inner(&database, path.clone(), None)
+            .expect_err("equivalent project should be rejected");
+        assert_eq!(duplicate.code, "duplicate_project");
+        let disconnected = super::set_lifecycle(
+            &database,
+            registered.id.clone(),
+            crate::domain::ProjectLifecycle::Disconnected,
+        )
+        .expect("project should disconnect");
+        assert_eq!(
+            disconnected.application.lifecycle,
+            crate::domain::ProjectLifecycle::Disconnected
+        );
+        let reconnected = super::reconnect_project_inner(&database, registered.id.clone(), path)
+            .expect("valid fixture should reconnect");
+        assert_eq!(reconnected.id, registered.id);
+        assert!(fixture.join("pack.toml").is_file());
     }
 }

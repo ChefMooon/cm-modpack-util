@@ -1,5 +1,8 @@
 mod contracts;
+pub mod validation;
 
 pub use contracts::{
-    CommandError, OperationStatus, ProjectReference, ValidationResult, ValidationSeverity,
+    ApplicationProjectMetadata, CommandError, Observation, OperationStatus, PackwizObservations,
+    ProjectLifecycle, ProjectRecord, ProjectReference, RegistrationPreview, ValidationResult,
+    ValidationSeverity,
 };
