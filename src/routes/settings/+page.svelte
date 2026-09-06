@@ -1,0 +1,172 @@
+<script lang="ts">
+  import { invoke } from "@tauri-apps/api/core";
+  import Modal from "../../components/ui/Modal.svelte";
+  import ThemeSelect from "../../components/settings/ThemeSelect.svelte";
+  import { settingDefinitions, type Theme } from "../../components/settings/types/settings";
+  import { onMount } from "svelte";
+  import Header from "../../components/header/Header.svelte";
+  import MagnifyingGlassIcon from "phosphor-svelte/lib/MagnifyingGlassIcon";
+  import XIcon from "phosphor-svelte/lib/XIcon";
+  import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
+  import { restoreStateCurrent, StateFlags } from "@tauri-apps/plugin-window-state";
+  import { useToast } from "../../components/ui/toast/toast.svelte";
+  import Button from "../../components/ui/Button.svelte";
+  import Tooltip from "../../components/ui/Tooltip.svelte";
+
+  let theme = $state<Theme>("system");
+  let reducedMotion = $state(false);
+  let hideToTray = $state(false);
+  let restoreWindowState = $state(true);
+  let launchAtLogin = $state(false);
+  let startMinimized = $state(false);
+  let pendingSetting = $state<string | null>(null);
+  let showReset = $state(false);
+  let resetMessage = $state("");
+  let resetPending = $state(false);
+  let search = $state("");
+  const { toast } = useToast();
+
+  const visibleDefinitions = $derived(settingDefinitions.filter((setting) => {
+    const query = search.trim().toLowerCase();
+    return !query || [setting.label, setting.description, ...setting.keywords].join(" ").toLowerCase().includes(query);
+  }));
+  const hasMatch = (id: string) => visibleDefinitions.some((setting) => setting.id === id);
+  const description = (id: string) => settingDefinitions.find((setting) => setting.id === id)?.description ?? "";
+
+  onMount(async () => {
+    try {
+      const settings = await invoke<Record<string, string>>("get_settings");
+      const savedTheme = JSON.parse(settings["appearance.theme"] ?? '"system"');
+      const savedMotion = JSON.parse(settings["accessibility.reducedMotion"] ?? "false");
+      const savedHideToTray = JSON.parse(settings["general.hideToTray"] ?? "false");
+      const savedRestoreWindowState = JSON.parse(settings["general.restoreWindowState"] ?? "true");
+      const savedStartMinimized = JSON.parse(settings["general.startMinimized"] ?? "false");
+      if (savedTheme === "system" || savedTheme === "light" || savedTheme === "dark") theme = savedTheme;
+      if (typeof savedMotion === "boolean") reducedMotion = savedMotion;
+      if (typeof savedHideToTray === "boolean") hideToTray = savedHideToTray;
+      if (typeof savedRestoreWindowState === "boolean") restoreWindowState = savedRestoreWindowState;
+      if (typeof savedStartMinimized === "boolean") startMinimized = savedStartMinimized;
+      launchAtLogin = await isAutostartEnabled();
+      // Native setup restores the window before it is revealed.
+    } catch {
+      // Defaults remain usable if the database is unavailable.
+    }
+  });
+
+  async function setBooleanSetting(key: string, value: boolean) {
+    const previous = { hideToTray, restoreWindowState, launchAtLogin, startMinimized }[key.split(".")[1] as "hideToTray" | "restoreWindowState" | "launchAtLogin" | "startMinimized"];
+    if (key === "general.hideToTray") hideToTray = value;
+    if (key === "general.restoreWindowState") restoreWindowState = value;
+    if (key === "general.launchAtLogin") launchAtLogin = value;
+    if (key === "general.startMinimized") startMinimized = value;
+    pendingSetting = key;
+    try {
+      if (key === "general.launchAtLogin") value ? await enableAutostart() : await disableAutostart();
+      await invoke("set_setting", { key, valueJson: JSON.stringify(value) });
+      if (key === "general.restoreWindowState" && value) await restoreStateCurrent(StateFlags.ALL);
+    } catch {
+      if (key === "general.launchAtLogin") {
+        try { previous ? await enableAutostart() : await disableAutostart(); } catch { /* keep the original error state */ }
+      }
+      toast({ title: "Setting could not be saved", description: "Your change was reverted.", severity: "error" });
+      if (key === "general.hideToTray") hideToTray = Boolean(previous);
+      if (key === "general.restoreWindowState") restoreWindowState = Boolean(previous);
+      if (key === "general.launchAtLogin") launchAtLogin = Boolean(previous);
+      if (key === "general.startMinimized") startMinimized = Boolean(previous);
+    } finally { pendingSetting = null; }
+  }
+
+  async function setReducedMotion(value: boolean) {
+    const previous = reducedMotion;
+    reducedMotion = value;
+    try {
+      await invoke("set_setting", { key: "accessibility.reducedMotion", valueJson: JSON.stringify(value) });
+      document.documentElement.dataset.reducedMotion = value ? "true" : "false";
+    } catch {
+      reducedMotion = previous;
+      toast({ title: "Accessibility setting could not be saved", severity: "error" });
+    }
+  }
+
+  async function resetSettings() {
+    resetPending = true;
+    resetMessage = "";
+    try {
+      await invoke("reset_settings");
+      theme = "system";
+      reducedMotion = false;
+      hideToTray = false;
+      restoreWindowState = true;
+      launchAtLogin = false;
+      startMinimized = false;
+      await disableAutostart();
+      document.documentElement.dataset.theme = "system";
+      document.documentElement.dataset.reducedMotion = "false";
+      resetMessage = "";
+      showReset = false;
+      toast({ title: "Settings reset", description: "Your preferences were restored to their defaults.", severity: "success" });
+    } catch (error) {
+      resetMessage = "";
+      toast({ title: "Settings could not be reset", description: String(error), severity: "error" });
+    } finally {
+      resetPending = false;
+    }
+  }
+</script>
+
+<svelte:head><title>Settings · Tauri Svelte Template</title></svelte:head>
+
+<main class="settings-shell">
+  <Header />
+
+  <header class="settings-header">
+    <div><p class="eyebrow">Preferences</p><h1>Settings</h1></div>
+  </header>
+
+  <div class="search-wrap">
+    <label for="settings-search">Search settings</label>
+    <div class="search-box"><MagnifyingGlassIcon size={18} weight="regular" aria-hidden="true" /><input id="settings-search" bind:value={search} placeholder="Search settings" onkeydown={(event) => event.key === "Escape" && (search = "")} />{#if search}<Tooltip text="Clear search"><Button variant="ghost" size="icon" type="button" aria-label="Clear settings search" onclick={() => (search = "")}><XIcon size={16} weight="bold" aria-hidden="true" /></Button></Tooltip>{/if}</div>
+  </div>
+
+  <div class="settings-layout">
+    <nav class="sidebar" aria-label="Settings categories">
+      <a class:active={hasMatch("general.hideToTray") || hasMatch("general.restoreWindowState") || hasMatch("general.launchAtLogin") || hasMatch("general.startMinimized")} class="category" href="#general">General</a>
+      <a class:active={hasMatch("appearance.theme")} class="category" href="#appearance">Appearance</a>
+      <a class:active={hasMatch("accessibility.reducedMotion")} class="category" href="#accessibility">Accessibility</a>
+      <a class="category" href="#about">About</a>
+    </nav>
+
+    <div class="detail-pane">
+      {#if hasMatch("general.hideToTray") || hasMatch("general.restoreWindowState") || hasMatch("general.launchAtLogin") || hasMatch("general.startMinimized")}
+        <section id="general" class="settings-section" aria-labelledby="general-title"><p class="eyebrow">General</p><h2 id="general-title">Control how the app starts and closes</h2>
+          {#if hasMatch("general.hideToTray")}<div class="setting-card setting-row"><div class="setting-copy"><h3>Hide to tray when closing</h3><p>{description("general.hideToTray")}</p></div><label class="switch"><input type="checkbox" checked={hideToTray} disabled={pendingSetting === "general.hideToTray"} onchange={(event) => setBooleanSetting("general.hideToTray", event.currentTarget.checked)} /><span aria-hidden="true"></span><b>{hideToTray ? "On" : "Off"}</b></label></div>{/if}
+          {#if hasMatch("general.restoreWindowState")}<div class="setting-card setting-row"><div class="setting-copy"><h3>Restore last window size and position</h3><p>{description("general.restoreWindowState")}</p></div><label class="switch"><input type="checkbox" checked={restoreWindowState} disabled={pendingSetting === "general.restoreWindowState"} onchange={(event) => setBooleanSetting("general.restoreWindowState", event.currentTarget.checked)} /><span aria-hidden="true"></span><b>{restoreWindowState ? "On" : "Off"}</b></label></div>{/if}
+          {#if hasMatch("general.launchAtLogin")}<div class="setting-card setting-row"><div class="setting-copy"><h3>Launch at login</h3><p>{description("general.launchAtLogin")}</p></div><label class="switch"><input type="checkbox" checked={launchAtLogin} disabled={pendingSetting === "general.launchAtLogin"} onchange={(event) => setBooleanSetting("general.launchAtLogin", event.currentTarget.checked)} /><span aria-hidden="true"></span><b>{launchAtLogin ? "On" : "Off"}</b></label></div>{/if}
+          {#if hasMatch("general.startMinimized")}<div class="setting-card setting-row"><div class="setting-copy"><h3>Start minimized</h3><p>{description("general.startMinimized")}</p></div><label class="switch"><input type="checkbox" checked={startMinimized} disabled={pendingSetting === "general.startMinimized"} onchange={(event) => setBooleanSetting("general.startMinimized", event.currentTarget.checked)} /><span aria-hidden="true"></span><b>{startMinimized ? "On" : "Off"}</b></label></div>{/if}
+        </section>
+      {/if}
+      {#if hasMatch("appearance.theme")}
+        <section id="appearance" class="settings-section" aria-labelledby="appearance-title"><p class="eyebrow">Appearance</p><h2 id="appearance-title">How the app looks</h2><div class="setting-card"><div class="setting-copy"><h3>Theme</h3><p>{settingDefinitions[0].description}</p></div><ThemeSelect bind:value={theme} /></div></section>
+      {/if}
+      {#if hasMatch("accessibility.reducedMotion")}
+        <section id="accessibility" class="settings-section" aria-labelledby="accessibility-title"><p class="eyebrow">Accessibility</p><h2 id="accessibility-title">Make the app easier to use</h2><div class="setting-card setting-row"><div class="setting-copy"><h3>Reduce motion</h3><p>{settingDefinitions[1].description}</p></div><label class="switch"><input type="checkbox" checked={reducedMotion} onchange={(event) => setReducedMotion(event.currentTarget.checked)} /><span aria-hidden="true"></span><b>{reducedMotion ? "On" : "Off"}</b></label></div></section>
+      {/if}
+      {#if search && !hasMatch("appearance.theme") && !hasMatch("accessibility.reducedMotion")}<p class="empty-state">No settings matched “{search}”. <Button variant="quiet" size="sm" type="button" onclick={() => (search = "")}>Clear search</Button></p>{/if}
+
+      <section id="about" class="settings-section" aria-labelledby="about-title"><p class="eyebrow">About</p><h2 id="about-title">Tauri Svelte Template</h2><div class="setting-card about-card"><p>A minimal desktop app starter built with Tauri, SvelteKit, TypeScript, and SQLite.</p><p class="muted">Version 0.1.0</p></div></section>
+      <section class="settings-section danger-section" aria-labelledby="reset-title"><p class="eyebrow">Advanced</p><h2 id="reset-title">Reset settings</h2><div class="setting-card reset-card"><div><h3>Restore defaults</h3><p>Remove all saved preferences from the local SQLite database.</p></div><Button variant="danger" type="button" disabled={resetPending} onclick={() => (showReset = true)}>Reset settings</Button></div>{#if resetMessage}<p class="status" role="status">{resetMessage}</p>{/if}</section>
+    </div>
+  </div>
+</main>
+
+<Modal bind:open={showReset} title="Reset all settings?" onclose={() => (showReset = false)}>
+  <p>This removes saved preferences and restores the default theme and accessibility settings. This action cannot be undone.</p>
+  <div class="modal-actions"><Button variant="secondary" type="button" onclick={() => (showReset = false)}>Cancel</Button><Button variant="danger" type="button" disabled={resetPending} onclick={resetSettings}>Reset settings</Button></div>
+</Modal>
+
+<style>
+  .settings-shell { max-width: 1060px; min-height: 100vh; margin: 0 auto; padding: 0 42px 32px; }.settings-header { display: flex; align-items: flex-start; gap: 34px; margin: 32px 0 28px; }.eyebrow { margin: 0 0 10px; color: var(--color-accent-strong); font-size: 11px; font-weight: 750; letter-spacing: .14em; text-transform: uppercase; }h1, h2, h3 { margin: 0; letter-spacing: -.025em; }h1 { font-size: 38px; }h2 { font-size: 20px; }h3 { font-size: 15px; }
+  .search-wrap { width: 100%; margin-bottom: 32px; }.search-wrap label { display: block; margin-bottom: 8px; color: var(--color-text-muted); font-size: 12px; }.search-box { display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); }.search-box input { width: 100%; padding: 12px 0; border: 0; outline: 0; color: var(--color-text); background: transparent; }.settings-layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 48px; }.sidebar { display: flex; flex-direction: column; gap: 4px; }.category { padding: 10px 12px; border-radius: var(--radius-sm); color: var(--color-text-muted); text-decoration: none; }.category:hover, .category.active { color: var(--color-text); background: var(--color-surface-raised); }.detail-pane { min-width: 0; }.settings-section { margin-bottom: 48px; scroll-margin-top: 24px; }.settings-section > h2 { margin-bottom: 18px; }.setting-card { padding: 22px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }.setting-copy p, .about-card p, .reset-card p { max-width: 620px; margin: 8px 0 20px; color: var(--color-text-muted); font-size: 13px; line-height: 1.55; }.about-card p { margin: 0; }.about-card .muted { margin-top: 8px; color: var(--color-text-subtle); }.setting-row, .reset-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; }.setting-row .setting-copy p, .reset-card p { margin-bottom: 0; }
+  .switch { display: flex; align-items: center; gap: 10px; color: var(--color-text-muted); cursor: pointer; }.switch input { position: absolute; opacity: 0; }.switch span { width: 42px; height: 24px; padding: 3px; border-radius: 20px; background: var(--color-border); }.switch span::after { display: block; width: 18px; height: 18px; border-radius: 50%; background: var(--color-text-muted); content: ""; transition: transform .15s; }.switch input:checked + span { background: var(--color-accent-strong); }.switch input:checked + span::after { background: var(--color-on-accent); transform: translateX(18px); }.switch input:focus-visible + span { box-shadow: var(--focus-ring); }.switch b { font-size: 12px; }.status, .empty-state { color: var(--color-text-muted); font-size: 12px; }.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+  @media (max-width: 700px) { .settings-shell { padding: 0 20px 22px; }.settings-header { gap: 18px; flex-direction: column; margin: 24px 0; }.settings-layout { display: block; }.sidebar { flex-direction: row; margin-bottom: 32px; overflow-x: auto; }.setting-row, .reset-card { align-items: flex-start; flex-direction: column; } }
+</style>

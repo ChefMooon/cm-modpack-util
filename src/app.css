@@ -1,0 +1,79 @@
+:root {
+  color-scheme: dark;
+  --color-bg: #101114;
+  --color-surface: #17181c;
+  --color-surface-raised: #202126;
+  --color-text: #f4f2ed;
+  --color-text-muted: #9a9ba2;
+  --color-text-subtle: #74757c;
+  --color-border: #303136;
+  --color-accent: #d6f379;
+  --color-accent-strong: #a7c957;
+  --color-on-accent: #111214;
+  --color-danger: #ff8c8c;
+  --color-info: #7db7ff;
+  --color-success: #8dcc69;
+  --color-warning: #e6bd68;
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--color-accent) 45%, transparent);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-bg: #f5f4ef;
+  --color-surface: #ffffff;
+  --color-surface-raised: #eeede7;
+  --color-text: #191a1d;
+  --color-text-muted: #5e6067;
+  --color-text-subtle: #777980;
+  --color-border: #d7d6d0;
+  --color-accent: #527000;
+  --color-accent-strong: #668b13;
+  --color-on-accent: #ffffff;
+  --color-danger: #a32626;
+  --color-info: #2767a8;
+  --color-success: #397a28;
+  --color-warning: #946b15;
+}
+
+:root[data-theme="system"] { color-scheme: light dark; }
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] { color-scheme: dark; }
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    color-scheme: light;
+    --color-bg: #f5f4ef;
+    --color-surface: #ffffff;
+    --color-surface-raised: #eeede7;
+    --color-text: #191a1d;
+    --color-text-muted: #5e6067;
+    --color-text-subtle: #777980;
+    --color-border: #d7d6d0;
+    --color-accent: #527000;
+    --color-accent-strong: #668b13;
+    --color-on-accent: #ffffff;
+    --color-danger: #a32626;
+    --color-info: #2767a8;
+    --color-success: #397a28;
+    --color-warning: #946b15;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; min-width: 320px; min-height: 100%; background: var(--color-bg); color: var(--color-text); }
+button, input, select { font: inherit; }
+a { color: inherit; }
+:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; scroll-behavior: auto !important; } }
+:root[data-reduced-motion="true"] *, :root[data-reduced-motion="true"] *::before, :root[data-reduced-motion="true"] *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; scroll-behavior: auto !important; }

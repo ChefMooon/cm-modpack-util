@@ -1,0 +1,7 @@
+# Keep repository text files consistently stored and checked out with LF endings.
+* text=auto eol=lf
+
+# Binary assets must not be subject to text normalization.
+*.png binary
+*.ico binary
+*.icns binary
