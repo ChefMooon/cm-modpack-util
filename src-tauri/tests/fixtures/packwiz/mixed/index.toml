@@ -1,0 +1,16 @@
+hash-format = "sha256"
+
+[[files]]
+file = "mods/modrinth.pw.toml"
+hash = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+metafile = true
+
+[[files]]
+file = "mods/curseforge.pw.toml"
+hash = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+metafile = true
+
+[[files]]
+file = "mods/server.pw.toml"
+hash = "1111111111111111111111111111111111111111111111111111111111111111"
+metafile = true

@@ -60,6 +60,133 @@ pub struct ProjectRecord {
     pub last_refreshed_at: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Evidence<T> {
+    Observed(T),
+    Unknown,
+    Unavailable,
+    Malformed { message: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum InventoryProvider {
+    Modrinth,
+    Curseforge,
+    Unsupported,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum InventorySide {
+    Client,
+    Server,
+    Both,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TrustedPageLink {
+    pub url: String,
+    pub provider: InventoryProvider,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InventoryEntry {
+    pub local_id: String,
+    pub metadata_path: String,
+    pub name: Evidence<String>,
+    pub version: Evidence<String>,
+    pub provider: Evidence<InventoryProvider>,
+    pub side: Evidence<InventorySide>,
+    pub pin: Evidence<bool>,
+    pub source_url: Evidence<String>,
+    pub page_link: Option<TrustedPageLink>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct InventoryCounts {
+    pub total: u32,
+    pub provider_modrinth: u32,
+    pub provider_curseforge: u32,
+    pub provider_unsupported: u32,
+    pub provider_unknown: u32,
+    pub side_client: u32,
+    pub side_server: u32,
+    pub side_both: u32,
+    pub side_unknown: u32,
+    pub pinned: u32,
+    pub unpinned: u32,
+    pub pin_unknown: u32,
+    pub malformed: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GitWorkingTreeState {
+    NotRepository,
+    Clean,
+    Dirty,
+    Conflicted,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GitStatusObservation {
+    pub state: GitWorkingTreeState,
+    pub repository_root: Option<String>,
+    pub merge_or_rebase_in_progress: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProjectOverview {
+    pub validation: Vec<ValidationResult>,
+    pub minecraft_version: Evidence<String>,
+    pub loader: Evidence<String>,
+    pub inventory_counts: InventoryCounts,
+    pub git: GitStatusObservation,
+    pub known_update_count: Option<u32>,
+    pub activity: Vec<ActivityRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityEventType {
+    Registered,
+    Opened,
+    RefreshSucceeded,
+    RefreshFailed,
+    MetadataChanged,
+    LifecycleChanged,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ActivityRecord {
+    pub event_type: ActivityEventType,
+    pub occurred_at: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ObservationFreshness {
+    Current,
+    Stale,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RefreshResult {
+    pub status: OperationStatus,
+    pub freshness: ObservationFreshness,
+    pub observed_at: Option<String>,
+    pub inventory: Option<Vec<InventoryEntry>>,
+    pub overview: Option<ProjectOverview>,
+    pub error: Option<CommandError>,
+}
+
 impl ValidationResult {
     pub fn info(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
@@ -96,7 +223,7 @@ pub struct ProjectReference {
     pub root_path: String,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum OperationStatus {
     Pending,
@@ -123,7 +250,7 @@ pub struct ValidationResult {
     pub message: String,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CommandError {
     pub code: String,
     pub message: String,
@@ -148,8 +275,8 @@ impl CommandError {
 #[cfg(test)]
 mod tests {
     use super::{
-        ApplicationProjectMetadata, CommandError, Observation, OperationStatus, ProjectLifecycle,
-        ValidationSeverity,
+        ApplicationProjectMetadata, CommandError, Evidence, InventoryCounts, InventoryProvider,
+        Observation, OperationStatus, ProjectLifecycle, ValidationSeverity,
     };
 
     #[test]
@@ -189,5 +316,17 @@ mod tests {
             serde_json::to_string(&Observation::Unavailable::<String>).unwrap(),
             "\"unavailable\""
         );
+    }
+
+    #[test]
+    fn inventory_contract_preserves_unknown_states() {
+        let counts = InventoryCounts {
+            total: 2,
+            provider_modrinth: 1,
+            provider_unknown: 1,
+            ..InventoryCounts::default()
+        };
+        assert_eq!(counts.total, 2);
+        assert_eq!(Evidence::Unknown::<InventoryProvider>, Evidence::Unknown);
     }
 }

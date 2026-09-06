@@ -94,6 +94,8 @@ pub fn run() {
             db::list_projects,
             db::open_project,
             db::refresh_project,
+            db::get_project_inventory,
+            db::get_project_overview,
             db::update_project_metadata,
             db::archive_project,
             db::restore_project,

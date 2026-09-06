@@ -113,8 +113,9 @@ The project inventory must make each mod's download source and execution side ea
 - A `[update.modrinth]` table identifies Modrinth as the download provider.
 - A `[update.curseforge]` table identifies CurseForge as the download provider.
 - The `side` field identifies whether the mod is `client`, `server`, or `both`.
+- The optional `pin` field identifies the Packwiz pin state: `pin = true` is pinned, while an absent `pin` field is unpinned (`false`).
 
-The inventory should show provider and side as text, badges, icons, or equivalent accessible labels that do not rely on color alone. It should support seeing provider and side alongside the mod name and version in both the normal inventory and update review. Missing, malformed, or unsupported values must be shown as unknown rather than inferred silently. Provider counts and side counts may be used in the project overview and inventory filtering, but they must be derived from the current Packwiz files.
+The inventory should show provider, side, and pin state as text, badges, icons, or equivalent accessible labels that do not rely on color alone. It should support seeing provider, side, and pin state alongside the mod name and version in both the normal inventory and update review. A valid boolean `pin` value is current local evidence, and an absent `pin` field is current evidence of the default unpinned state (`false`). A present but malformed or unsupported `pin` value must remain explicitly unknown or unavailable rather than being coerced. Provider counts, side counts, and pinned counts may be used in the project overview and inventory filtering, but they must be derived from the current Packwiz files.
 
 Each mod may expose an **Open mod page** action. The action opens the system browser only when a trustworthy page URL is available, such as an explicit source URL or a safely derived Modrinth project page from a known Modrinth project identity. A CurseForge project ID alone is not sufficient to guess a stable page slug; the action must be unavailable or request resolution when no trustworthy URL is known. Opening a page must never trigger a provider API request merely to render the inventory.
 
@@ -192,7 +193,7 @@ automatic or complete.
 
 ### Pins, Skips, and Notes
 
-Persistent pinning is owned by Packwiz. When the user pins a mod, the application invokes `packwiz pin` for the selected file. When the user unpins a mod, the application invokes `packwiz unpin` for the selected file. The application then re-reads and validates the mod metadata so Packwiz's resulting state is confirmed and displayed.
+Persistent pinning is owned by Packwiz. The application reads the current pin state from each local mod metadata file, treating `pin = true` as pinned and an absent `pin` field as the authoritative unpinned (`false`) observation. A present malformed or unsupported value is not coerced. When the user pins a mod, the application invokes `packwiz pin` for the selected file. When the user unpins a mod, the application invokes `packwiz unpin` for the selected file. The application then re-reads and validates the mod metadata so Packwiz's resulting state is confirmed and displayed; it must not edit the `pin` field directly.
 
 The Packwiz pin and unpin commands may prompt when a file must be selected. The
 Rust wrapper must capture the prompt, present or select one exact local
@@ -367,7 +368,7 @@ Important rules:
 - Provider statistics and side statistics are derived from the current inventory and may become unknown when the corresponding Packwiz values are missing or malformed.
 - Application metadata must not silently overwrite Packwiz state.
 - Historical snapshots must remain understandable after the current project files change.
-- Packwiz owns persistent pin state, and the application reflects the state found in the mod metadata.
+- Packwiz owns persistent pin state, and the application reflects `pin = true` or an absent `pin` field found in the local mod metadata as current evidence of pinned or unpinned state. Present malformed or unsupported pin values remain unknown or unavailable.
 - SQLite may retain pin observations and operation history, but it is not authoritative for current pin state.
 - Pinning and unpinning must target one exact Packwiz metadata file.
 - The application must not use Packwiz's `--yes` option when doing so could select an unintended file.

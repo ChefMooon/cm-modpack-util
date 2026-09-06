@@ -1,6 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { ApplicationProjectMetadata, ProjectRecord, RegistrationPreview } from "./domain";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import type {
+  ApplicationProjectMetadata,
+  InventoryEntry,
+  ProjectOverview,
+  ProjectRecord,
+  RegistrationPreview,
+} from "./domain";
 
 export async function chooseProjectDirectory(): Promise<string | null> {
   const selected = await open({ directory: true, multiple: false, title: "Select a Packwiz project" });
@@ -21,6 +28,18 @@ export function listProjects(): Promise<ProjectRecord[]> {
 
 export function refreshProject(id: string): Promise<ProjectRecord> {
   return invoke("refresh_project", { id });
+}
+
+export function getProjectInventory(id: string): Promise<InventoryEntry[]> {
+  return invoke("get_project_inventory", { id });
+}
+
+export function getProjectOverview(id: string): Promise<ProjectOverview> {
+  return invoke("get_project_overview", { id });
+}
+
+export function openTrustedPage(url: string): Promise<void> {
+  return openUrl(url);
 }
 
 export function updateProjectMetadata(id: string, application: ApplicationProjectMetadata): Promise<ProjectRecord> {

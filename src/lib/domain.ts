@@ -13,7 +13,6 @@ export type ProjectReference = {
   name: string;
   rootPath: string;
 };
-
 export type ValidationResult = {
   valid: boolean;
   severity: ValidationSeverity;
@@ -69,4 +68,94 @@ export type ProjectRecord = {
   updated_at: string;
   last_opened_at: string | null;
   last_refreshed_at: string | null;
+};
+
+export type Evidence<T> =
+  | { observed: T }
+  | "unknown"
+  | "unavailable"
+  | { malformed: { message: string } };
+
+export type InventoryProvider = "modrinth" | "curseforge" | "unsupported" | "unknown";
+export type InventorySide = "client" | "server" | "both" | "unknown";
+
+export type TrustedPageLink = {
+  url: string;
+  provider: InventoryProvider;
+};
+
+export type InventoryEntry = {
+  local_id: string;
+  metadata_path: string;
+  name: Evidence<string>;
+  version: Evidence<string>;
+  provider: Evidence<InventoryProvider>;
+  side: Evidence<InventorySide>;
+  pin: Evidence<boolean>;
+  source_url: Evidence<string>;
+  page_link: TrustedPageLink | null;
+};
+
+export type InventoryCounts = {
+  total: number;
+  provider_modrinth: number;
+  provider_curseforge: number;
+  provider_unsupported: number;
+  provider_unknown: number;
+  side_client: number;
+  side_server: number;
+  side_both: number;
+  side_unknown: number;
+  pinned: number;
+  unpinned: number;
+  pin_unknown: number;
+  malformed: number;
+};
+
+export type GitWorkingTreeState =
+  | "not_repository"
+  | "clean"
+  | "dirty"
+  | "conflicted"
+  | "unavailable";
+
+export type GitStatusObservation = {
+  state: GitWorkingTreeState;
+  repository_root: string | null;
+  merge_or_rebase_in_progress: boolean;
+};
+
+export type ActivityEventType =
+  | "registered"
+  | "opened"
+  | "refresh_succeeded"
+  | "refresh_failed"
+  | "metadata_changed"
+  | "lifecycle_changed";
+
+export type ActivityRecord = {
+  event_type: ActivityEventType;
+  occurred_at: string;
+  message: string;
+};
+
+export type ProjectOverview = {
+  validation: ValidationResult[];
+  minecraft_version: Evidence<string>;
+  loader: Evidence<string>;
+  inventory_counts: InventoryCounts;
+  git: GitStatusObservation;
+  known_update_count: number | null;
+  activity: ActivityRecord[];
+};
+
+export type ObservationFreshness = "current" | "stale" | "unavailable";
+
+export type RefreshResult = {
+  status: OperationStatus;
+  freshness: ObservationFreshness;
+  observed_at: string | null;
+  inventory: InventoryEntry[] | null;
+  overview: ProjectOverview | null;
+  error: CommandError | null;
 };

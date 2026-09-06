@@ -1,0 +1,7 @@
+name = ["not", "a", "string"]
+filename = "malformed.jar"
+side = "unsupported-side"
+pin = "sometimes"
+
+[download]
+url = "not a trustworthy page URL"

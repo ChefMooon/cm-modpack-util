@@ -1,6 +1,6 @@
 use crate::domain::{
-    validation, ApplicationProjectMetadata, CommandError, ProjectLifecycle, ProjectRecord,
-    RegistrationPreview,
+    inventory, validation, ActivityRecord, ApplicationProjectMetadata, CommandError,
+    InventoryEntry, ProjectLifecycle, ProjectOverview, ProjectRecord, RegistrationPreview,
 };
 use rusqlite::{params, Connection};
 use std::collections::HashMap;
@@ -55,6 +55,60 @@ fn serialize<T: serde::Serialize>(value: &T, label: &str) -> Result<String, Comm
         )
         .with_details(error.to_string())
     })
+}
+
+fn record_activity(
+    connection: &Connection,
+    project_id: &str,
+    event_type: &str,
+    message: &str,
+) -> Result<(), CommandError> {
+    connection
+        .execute(
+            "INSERT INTO project_activity (project_id, event_type, occurred_at, message) VALUES (?1, ?2, ?3, ?4)",
+            params![project_id, event_type, timestamp(), message],
+        )
+        .map(|_| ())
+        .map_err(|error| {
+            CommandError::new("database_write_failed", "Project activity could not be saved")
+                .with_details(error.to_string())
+        })
+}
+
+fn read_activity(
+    connection: &Connection,
+    project_id: &str,
+) -> Result<Vec<ActivityRecord>, CommandError> {
+    let mut statement = connection
+        .prepare("SELECT event_type, occurred_at, message FROM project_activity WHERE project_id = ?1 ORDER BY occurred_at DESC LIMIT 10")
+        .map_err(|error| CommandError::new("database_read_failed", "Project activity could not be read").with_details(error.to_string()))?;
+    let records = statement
+        .query_map([project_id], |row| {
+            let event_type: String = row.get(0)?;
+            let event_type = serde_json::from_value(serde_json::Value::String(event_type))
+                .map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })?;
+            Ok(ActivityRecord {
+                event_type,
+                occurred_at: row.get(1)?,
+                message: row.get(2)?,
+            })
+        })
+        .map_err(|error| {
+            CommandError::new("database_read_failed", "Project activity could not be read")
+                .with_details(error.to_string())
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            CommandError::new("database_read_failed", "Project activity could not be read")
+                .with_details(error.to_string())
+        })?;
+    Ok(records)
 }
 
 fn row_to_project(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectRecord> {
@@ -117,6 +171,7 @@ fn register_project_inner(
     ).map_err(|error| {
         if matches!(error, rusqlite::Error::SqliteFailure(_, _)) { CommandError::new("duplicate_project", "This project directory is already registered").with_details(error.to_string()) } else { CommandError::new("database_write_failed", "Project could not be registered").with_details(error.to_string()) }
     })?;
+    record_activity(&connection, &id, "registered", "Project registered")?;
     Ok(ProjectRecord {
         id,
         canonical_path: preview.canonical_path,
@@ -178,6 +233,7 @@ pub fn open_project(state: State<'_, Database>, id: String) -> Result<ProjectRec
         })?;
     project.last_opened_at = Some(now.clone());
     project.updated_at = now;
+    record_activity(&connection, &project.id, "opened", "Project opened")?;
     Ok(project)
 }
 
@@ -187,8 +243,32 @@ fn refresh_record(
     preview: &RegistrationPreview,
 ) -> Result<ProjectRecord, CommandError> {
     let existing = connection.query_row("SELECT id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at, last_opened_at, last_refreshed_at FROM projects WHERE id = ?1", [id], row_to_project).map_err(|error| CommandError::new("project_not_found", "Project is not registered").with_details(error.to_string()))?;
+    let inventory = inventory::read_inventory(std::path::Path::new(&preview.canonical_path))?;
+    let overview = inventory::read_overview(std::path::Path::new(&preview.canonical_path))?;
+    let inventory_json = serialize(&inventory, "inventory")?;
+    let overview_json = serialize(&overview, "overview")?;
     let now = timestamp();
     connection.execute("UPDATE projects SET canonical_path = ?1, packwiz_json = ?2, validation_json = ?3, updated_at = ?4, last_refreshed_at = ?4 WHERE id = ?5", params![preview.canonical_path, serialize(&preview.packwiz, "Packwiz observations")?, serialize(&preview.validation, "validation results")?, now, id]).map_err(|error| CommandError::new("database_write_failed", "Project refresh could not be saved").with_details(error.to_string()))?;
+    connection
+        .execute(
+            "INSERT INTO inventory_observations (project_id, observed_at, freshness, inventory_json, overview_json) VALUES (?1, ?2, 'current', ?3, ?4) ON CONFLICT(project_id) DO UPDATE SET observed_at = excluded.observed_at, freshness = excluded.freshness, inventory_json = excluded.inventory_json, overview_json = excluded.overview_json",
+            params![
+                id,
+                now,
+                inventory_json,
+                overview_json
+            ],
+        )
+        .map_err(|error| {
+            CommandError::new("database_write_failed", "Inventory observation could not be saved")
+                .with_details(error.to_string())
+        })?;
+    record_activity(
+        &connection,
+        id,
+        "refresh_succeeded",
+        "Project inventory refreshed",
+    )?;
     Ok(ProjectRecord {
         canonical_path: preview.canonical_path.clone(),
         packwiz: preview.packwiz.clone(),
@@ -204,6 +284,43 @@ pub fn refresh_project(
     state: State<'_, Database>,
     id: String,
 ) -> Result<ProjectRecord, CommandError> {
+    refresh_project_inner(&state, &id)
+}
+
+fn refresh_project_inner(database: &Database, id: &str) -> Result<ProjectRecord, CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let path: String = connection
+        .query_row(
+            "SELECT canonical_path FROM projects WHERE id = ?1",
+            [id],
+            |row| row.get(0),
+        )
+        .map_err(|error| {
+            CommandError::new("project_not_found", "Project is not registered")
+                .with_details(error.to_string())
+        })?;
+    let preview = match validation::preview(&path) {
+        Ok(preview) => preview,
+        Err(error) => {
+            let _ = connection.execute(
+                "UPDATE inventory_observations SET freshness = 'stale' WHERE project_id = ?1",
+                [id],
+            );
+            let _ = record_activity(&connection, id, "refresh_failed", &error.message);
+            return Err(error);
+        }
+    };
+    refresh_record(&connection, id, &preview)
+}
+
+#[tauri::command]
+pub fn get_project_inventory(
+    state: State<'_, Database>,
+    id: String,
+) -> Result<Vec<InventoryEntry>, CommandError> {
     let connection = state
         .0
         .lock()
@@ -218,8 +335,31 @@ pub fn refresh_project(
             CommandError::new("project_not_found", "Project is not registered")
                 .with_details(error.to_string())
         })?;
-    let preview = validation::preview(&path)?;
-    refresh_record(&connection, &id, &preview)
+    inventory::read_inventory(std::path::Path::new(&path))
+}
+
+#[tauri::command]
+pub fn get_project_overview(
+    state: State<'_, Database>,
+    id: String,
+) -> Result<ProjectOverview, CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let path: String = connection
+        .query_row(
+            "SELECT canonical_path FROM projects WHERE id = ?1",
+            [&id],
+            |row| row.get(0),
+        )
+        .map_err(|error| {
+            CommandError::new("project_not_found", "Project is not registered")
+                .with_details(error.to_string())
+        })?;
+    let mut overview = inventory::read_overview(std::path::Path::new(&path))?;
+    overview.activity = read_activity(&connection, &id)?;
+    Ok(overview)
 }
 
 #[tauri::command]
@@ -490,5 +630,77 @@ mod tests {
             .expect("valid fixture should reconnect");
         assert_eq!(reconnected.id, registered.id);
         assert!(fixture.join("pack.toml").is_file());
+    }
+
+    #[test]
+    fn refresh_persists_current_inventory_and_activity() {
+        let database = initialize(Path::new(":memory:")).expect("database should initialize");
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/packwiz/mixed");
+        let path = fixture.to_string_lossy().into_owned();
+        let registered = super::register_project_inner(&database, path.clone(), None)
+            .expect("valid fixture should register");
+        let preview = crate::domain::validation::preview(&path).expect("fixture should preview");
+        let connection = database
+            .0
+            .lock()
+            .expect("database lock should be available");
+        let refreshed = super::refresh_record(&connection, &registered.id, &preview)
+            .expect("refresh should persist");
+        assert_eq!(refreshed.last_refreshed_at.is_some(), true);
+        let observation_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM inventory_observations WHERE project_id = ?1",
+                [&registered.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let activity_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM project_activity WHERE project_id = ?1 AND event_type = 'refresh_succeeded'",
+                [&registered.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(observation_count, 1);
+        assert_eq!(activity_count, 1);
+    }
+
+    #[test]
+    fn failed_refresh_marks_last_observation_stale_without_replacing_it() {
+        let database = initialize(Path::new(":memory:")).expect("database should initialize");
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/packwiz/mixed");
+        let path = fixture.to_string_lossy().into_owned();
+        let registered = super::register_project_inner(&database, path.clone(), None)
+            .expect("valid fixture should register");
+        let preview = crate::domain::validation::preview(&path).expect("fixture should preview");
+        let connection = database.0.lock().unwrap();
+        super::refresh_record(&connection, &registered.id, &preview).unwrap();
+        connection
+            .execute(
+                "UPDATE projects SET canonical_path = ?1 WHERE id = ?2",
+                ["C:/missing-project", registered.id.as_str()],
+            )
+            .unwrap();
+        drop(connection);
+
+        let error = super::refresh_project_inner(&database, &registered.id).unwrap_err();
+        assert_eq!(error.code, "project_unavailable");
+        let connection = database.0.lock().unwrap();
+        let freshness: String = connection
+            .query_row(
+                "SELECT freshness FROM inventory_observations WHERE project_id = ?1",
+                [&registered.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let failures: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM project_activity WHERE project_id = ?1 AND event_type = 'refresh_failed'",
+                [&registered.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(freshness, "stale");
+        assert_eq!(failures, 1);
     }
 }

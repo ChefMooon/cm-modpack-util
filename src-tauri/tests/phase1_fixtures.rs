@@ -71,3 +71,31 @@ fn read_only_fixture_seam_does_not_change_external_evidence() {
         .unwrap();
     assert_eq!(before, after);
 }
+
+#[test]
+fn mixed_fixture_covers_independent_provider_side_and_pin_evidence() {
+    let root = fixture_path("mixed");
+    let modrinth = fs::read_to_string(root.join("mods/modrinth.pw.toml")).unwrap();
+    let curseforge = fs::read_to_string(root.join("mods/curseforge.pw.toml")).unwrap();
+    let server = fs::read_to_string(root.join("mods/server.pw.toml")).unwrap();
+
+    assert!(modrinth.contains("[update.modrinth]"));
+    assert!(modrinth.contains("pin = true"));
+    assert!(curseforge.contains("[update.curseforge]"));
+    assert!(curseforge.contains("side = \"client\""));
+    assert!(server.contains("side = \"server\""));
+    assert!(!server.contains("[update.modrinth]"));
+}
+
+#[test]
+fn edge_case_fixture_preserves_explicit_unknown_and_malformed_inputs() {
+    let root = fixture_path("edge-cases");
+    let unknown = fs::read_to_string(root.join("mods/unknown.pw.toml")).unwrap();
+    let malformed = fs::read_to_string(root.join("mods/malformed.pw.toml")).unwrap();
+
+    assert!(unknown.contains("[update]"));
+    assert!(unknown.contains("pin = false"));
+    assert!(malformed.contains("side = \"unsupported-side\""));
+    assert!(malformed.contains("pin = \"sometimes\""));
+    assert!(malformed.contains("url = \"not a trustworthy page URL\""));
+}

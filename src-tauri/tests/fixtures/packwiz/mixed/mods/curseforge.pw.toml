@@ -1,0 +1,10 @@
+name = "Mixed CurseForge"
+filename = "mixed-curseforge.jar"
+side = "client"
+
+[download]
+mode = "metadata:curseforge"
+
+[update.curseforge]
+file-id = 12345
+project-id = 67890

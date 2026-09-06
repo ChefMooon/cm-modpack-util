@@ -1,0 +1,6 @@
+name = "edge-case-pack"
+
+[index]
+file = "index.toml"
+hash-format = "sha256"
+hash = "2222222222222222222222222222222222222222222222222222222222222222"

@@ -7,6 +7,9 @@
   import LinkIcon from "phosphor-svelte/lib/LinkIcon";
   import ArchiveIcon from "phosphor-svelte/lib/ArchiveIcon";
   import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
+  import MagnifyingGlassIcon from "phosphor-svelte/lib/MagnifyingGlassIcon";
+  import ArrowSquareOutIcon from "phosphor-svelte/lib/ArrowSquareOutIcon";
+  import XIcon from "phosphor-svelte/lib/XIcon";
   import CheckCircleIcon from "phosphor-svelte/lib/CheckCircleIcon";
   import WarningCircleIcon from "phosphor-svelte/lib/WarningCircleIcon";
   import Header from "../components/header/Header.svelte";
@@ -17,6 +20,9 @@
   import { commandErrorMessage } from "../lib/errors";
   import type {
     ApplicationProjectMetadata,
+    Evidence,
+    InventoryEntry,
+    ProjectOverview,
     Observation,
     ProjectRecord,
     RegistrationPreview,
@@ -27,6 +33,9 @@
     chooseProjectDirectory,
     disconnectProject,
     listProjects,
+    getProjectInventory,
+    getProjectOverview,
+    openTrustedPage,
     previewProject,
     reconnectProject,
     refreshProject,
@@ -49,6 +58,11 @@
   let showReconnect = $state(false);
   let showEdit = $state(false);
   let showArchived = $state(false);
+  let inspected = $state<ProjectRecord | null>(null);
+  let inventory = $state<InventoryEntry[]>([]);
+  let overview = $state<ProjectOverview | null>(null);
+  let inventoryFilter = $state("all");
+  let inspecting = $state(false);
   const { toast } = useToast();
 
   onMount(loadProjects);
@@ -106,11 +120,39 @@
     busy = true;
     try {
       replace(await refreshProject(project.id));
+      if (inspected?.id === project.id) await inspectProject(project);
       toast({ title: "Project refreshed", severity: "success" });
     } catch (cause) {
       error = commandErrorMessage(cause);
     } finally {
       busy = false;
+    }
+  }
+
+  async function inspectProject(project: ProjectRecord) {
+    inspected = project;
+    inspecting = true;
+    error = "";
+    try {
+      [inventory, overview] = await Promise.all([
+        getProjectInventory(project.id),
+        getProjectOverview(project.id),
+      ]);
+    } catch (cause) {
+      inventory = [];
+      overview = null;
+      error = commandErrorMessage(cause);
+    } finally {
+      inspecting = false;
+    }
+  }
+
+  async function openPage(entry: InventoryEntry) {
+    if (!entry.page_link) return;
+    try {
+      await openTrustedPage(entry.page_link.url);
+    } catch (cause) {
+      error = commandErrorMessage(cause);
     }
   }
 
@@ -198,6 +240,25 @@
   function hasErrors(results: ValidationResult[]) {
     return results.some((result) => result.severity === "error");
   }
+
+  function evidenceLabel<T>(value: Evidence<T>): string {
+    if (typeof value === "string") return value === "unknown" ? "Unknown" : "Unavailable";
+    if ("observed" in value) return String(value.observed);
+    return `Malformed: ${value.malformed.message}`;
+  }
+
+  const filteredInventory = $derived(
+    inventory.filter((entry) => {
+      if (inventoryFilter === "all") return true;
+      if (inventoryFilter === "pinned") return evidenceLabel(entry.pin) === "true";
+      if (inventoryFilter === "unknown") {
+        return [entry.provider, entry.side, entry.source_url, entry.version].some(
+          (value) => evidenceLabel(value).startsWith("Unknown") || evidenceLabel(value).startsWith("Unavailable") || evidenceLabel(value).startsWith("Malformed"),
+        );
+      }
+      return evidenceLabel(entry.side).toLowerCase() === inventoryFilter;
+    }),
+  );
   function statusLabel(project: ProjectRecord) {
     return project.application.lifecycle === "disconnected"
       ? "Disconnected"
@@ -333,6 +394,14 @@
               </ul>{/if}
           </div>
           <div class="actions">
+            <Button
+              variant="secondary"
+              size="sm"
+              type="button"
+              disabled={busy || inspecting}
+              onclick={() => inspectProject(project)}
+              ><MagnifyingGlassIcon size={15} /> Inspect</Button
+            >
             <Tooltip text="Edit application-owned project details"
               ><Button
                 variant="ghost"
@@ -385,7 +454,67 @@
               >{/if}
           </div>
         </article>{/each}
-    </section>{/if}
+    </section>
+    {#if inspected}
+      <section class="inspection" aria-labelledby="inspection-title" aria-live="polite">
+        <div class="inspection-heading">
+          <div>
+            <p class="eyebrow">Current local evidence</p>
+            <h2 id="inspection-title">{inspected.application.display_name}</h2>
+            <p class="path">Read-only observation from the registered project boundary.</p>
+          </div>
+          <div class="inspection-actions">
+            <Button variant="ghost" size="icon" type="button" aria-label="Close inspection" onclick={() => (inspected = null)}><XIcon size={17} /></Button>
+            <Button variant="secondary" size="sm" type="button" loading={inspecting} onclick={() => inspectProject(inspected!)}><ArrowClockwiseIcon size={15} /> Re-read</Button>
+          </div>
+        </div>
+        {#if inspecting}
+          <div class="inspection-state" role="status"><div class="loader" aria-hidden="true"></div><p>Reading local Packwiz evidence...</p></div>
+        {:else if !overview}
+          <div class="inspection-state" role="status"><WarningCircleIcon size={20} /><p>Current inventory is unavailable. The registered project record is still preserved.</p></div>
+        {:else}
+          <div class="overview-grid">
+            <div><span class="label">Minecraft</span><strong>{evidenceLabel(overview.minecraft_version)}</strong></div>
+            <div><span class="label">Loader</span><strong>{evidenceLabel(overview.loader)}</strong></div>
+            <div><span class="label">Mods</span><strong>{overview.inventory_counts.total}</strong></div>
+            <div><span class="label">Git</span><strong>{overview.git.state.replaceAll("_", " ")}</strong></div>
+            <div><span class="label">Providers</span><strong>{overview.inventory_counts.provider_modrinth} Modrinth · {overview.inventory_counts.provider_curseforge} CurseForge · {overview.inventory_counts.provider_unknown} unknown</strong></div>
+            <div><span class="label">Sides</span><strong>{overview.inventory_counts.side_client} client · {overview.inventory_counts.side_server} server · {overview.inventory_counts.side_both} both · {overview.inventory_counts.side_unknown} unknown</strong></div>
+          </div>
+          <div class="validation-summary">
+            <span class="label">Validation evidence</span>
+            {#if overview.validation.length === 0}<span class="valid-text"><CheckCircleIcon size={15} /> Required local evidence is valid.</span>{:else}{#each overview.validation as item}<span class:item-warning={item.severity === "warning"} class:item-error={item.severity === "error"}><strong>{item.severity}</strong> {item.message}</span>{/each}{/if}
+          </div>
+          <div class="inventory-heading">
+            <div><p class="eyebrow">Mod inventory</p><h3>{filteredInventory.length} of {inventory.length} entries</h3></div>
+            <label class="filter-label">Filter<select bind:value={inventoryFilter}><option value="all">All entries</option><option value="pinned">Pinned</option><option value="client">Client</option><option value="server">Server</option><option value="both">Both sides</option><option value="unknown">Unknown evidence</option></select></label>
+          </div>
+          <div class="inventory-table" role="table" aria-label="Current mod inventory">
+            <div class="inventory-row inventory-header" role="row"><span>Local entry</span><span>Provider</span><span>Side</span><span>Pin</span><span>Page</span></div>
+            {#each filteredInventory as entry (entry.local_id)}
+              <div class="inventory-row" role="row">
+                <div><strong>{evidenceLabel(entry.name)}</strong><span class="path">{entry.local_id}</span><span class="metadata-path">{entry.metadata_path}</span></div>
+                <span>{evidenceLabel(entry.provider)}</span>
+                <span>{evidenceLabel(entry.side)}</span>
+                <span>{evidenceLabel(entry.pin)}</span>
+                {#if entry.page_link}<Button variant="quiet" size="sm" type="button" onclick={() => openPage(entry)}><ArrowSquareOutIcon size={14} /> Open</Button>{:else}<span class="unavailable">Unavailable</span>{/if}
+              </div>
+            {/each}
+          </div>
+          {#if overview.activity.length}
+            <div class="activity-section">
+              <p class="eyebrow">Recent activity</p>
+              <div class="activity-list">
+                {#each overview.activity as event}
+                  <div class="activity-item"><span class="label">{event.occurred_at}</span><strong>{event.event_type.replaceAll("_", " ")}</strong><span>{event.message}</span></div>
+                {/each}
+              </div>
+            </div>
+          {/if}
+        {/if}
+      </section>
+    {/if}
+  {/if}
 </main>
 
 <Modal
@@ -857,6 +986,58 @@
     gap: 10px;
     margin-top: 24px;
   }
+  .inspection {
+    max-width: 1060px;
+    margin: 22px auto 0;
+    padding: 24px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .inspection-heading,
+  .inventory-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+  }
+  .inspection-heading { padding-bottom: 20px; border-bottom: 1px solid var(--color-border); }
+  .inspection-actions { display: flex; align-items: center; gap: 8px; }
+  .overview-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    margin: 20px 0 26px;
+    border: 1px solid var(--color-border);
+    background: var(--color-border);
+  }
+  .overview-grid > div { display: grid; gap: 7px; min-height: 72px; padding: 13px; background: var(--color-surface); }
+  .overview-grid strong { font-size: 13px; line-height: 1.4; }
+  .validation-summary { display: grid; gap: 8px; margin: -8px 0 26px; color: var(--color-text-muted); font-size: 12px; }
+  .validation-summary > span:not(.label) { display: flex; gap: 6px; align-items: flex-start; }
+  .validation-summary .label { margin-bottom: 2px; }
+  .valid-text { color: var(--color-success); }
+  .item-warning { color: var(--color-warning); }
+  .item-error { color: var(--color-danger); }
+  .inventory-heading { align-items: center; margin-bottom: 12px; }
+  .inventory-heading h3 { margin-top: 4px; }
+  .filter-label { display: flex; align-items: center; gap: 8px; color: var(--color-text-muted); font: 11px var(--font-mono); }
+  .filter-label select { min-height: 34px; padding: 0 8px; border: 1px solid var(--color-border); color: var(--color-text); background: var(--color-bg); font: inherit; }
+  .inventory-table { border: 1px solid var(--color-border); }
+  .inventory-row { display: grid; grid-template-columns: minmax(180px, 1.7fr) repeat(3, minmax(80px, .7fr)) 82px; gap: 12px; align-items: center; padding: 12px 13px; border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 12px; }
+  .inventory-row:last-child { border-bottom: 0; }
+  .inventory-row > div { display: grid; gap: 4px; min-width: 0; }
+  .inventory-row strong { overflow-wrap: anywhere; color: var(--color-text); font-size: 12px; }
+  .inventory-row .path { margin: 0; font-size: 10px; }
+  .metadata-path { overflow-wrap: anywhere; color: var(--color-text-subtle); font: 10px var(--font-mono); }
+  .inventory-header { color: var(--color-text-muted); background: var(--color-surface-raised); font: 10px var(--font-mono); text-transform: uppercase; }
+  .unavailable { color: var(--color-text-subtle); font: 10px var(--font-mono); }
+  .inspection-state { display: grid; justify-items: center; gap: 10px; padding: 34px 12px 12px; color: var(--color-text-muted); text-align: center; }
+  .inspection-state p { margin: 0; }
+  .activity-section { margin-top: 26px; }
+  .activity-section > .eyebrow { margin-bottom: 10px; }
+  .activity-list { border-top: 1px solid var(--color-border); }
+  .activity-item { display: grid; grid-template-columns: 155px 150px 1fr; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 12px; }
+  .activity-item strong { color: var(--color-text); font: 11px var(--font-mono); text-transform: uppercase; }
   @media (max-width: 700px) {
     .projects-shell {
       padding: 0 20px 28px;
@@ -892,6 +1073,12 @@
       flex-direction: column;
       gap: 6px;
     }
+    .inspection { padding: 18px; }
+    .inspection-heading, .inventory-heading { align-items: flex-start; flex-direction: column; }
+    .overview-grid { grid-template-columns: 1fr 1fr; }
+    .inventory-table { overflow-x: auto; }
+    .inventory-row { min-width: 650px; }
+    .activity-item { grid-template-columns: 1fr; gap: 4px; }
   }
   @media (prefers-reduced-motion: reduce) {
     .loader {

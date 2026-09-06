@@ -19,7 +19,7 @@ changes, UI work, tests, and acceptance criteria.
 
 ## Release Sequence
 
-### v0.0.1 - Productize the Existing Template
+### v0.0.1 - Productize the Existing Template (Complete)
 
 Turn the initial desktop shell into the first CM Modpack Util
 application foundation. This milestone should build on the existing starter
@@ -67,7 +67,7 @@ The starting point already includes:
 template settings workflows, exposes a stable product shell, and has tested
 domain/path/database boundaries ready for project registration in `v0.2`.
 
-### v0.0.2 - Project Registration and Validation
+### v0.0.2 - Project Registration and Validation (Complete)
 
 Make local Packwiz projects discoverable and safely registerable.
 
@@ -93,6 +93,10 @@ Provide a useful read-only view of the current project state.
 - Read the current mod inventory from Packwiz metadata.
 - Display local entry identity, name, version, file path, provider, side, pin
   state, source URL, and unknown values where evidence is missing or malformed.
+- Treat `pin = true` in local metadata as pinned and an absent `pin` field as
+  the current unpinned (`false`) Packwiz observation; keep malformed values
+  explicit and use `packwiz pin` and `packwiz unpin` for changes in a later
+  mutation milestone.
 - Derive provider and client/server-side counts from current files.
 - Add trustworthy **Open mod page** actions without making provider requests
   just to render the inventory.

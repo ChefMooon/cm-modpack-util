@@ -2,7 +2,7 @@
 
 A local-first foundation for CM modpack projects, built with **Tauri 2**, **SvelteKit**, **TypeScript**, **Vite**, and **SQLite**.
 
-Version 0.0.2 provides local Packwiz project registration and validation alongside the Projects, Activity, and Settings shell. It reads Packwiz evidence offline, persists application-owned project metadata, and manages lifecycle state without modifying external project directories. Network providers, Git history, and update operations remain outside this release.
+The alpha release provides local Packwiz project registration, read-only inventory inspection, project overview facts, and the Projects, Activity, and Settings shell. It reads Packwiz evidence offline, persists application-owned project metadata and observations, and manages lifecycle state without modifying external project directories. Network providers, Git history, and update operations remain outside this release.
 
 ## Prerequisites
 
@@ -80,6 +80,13 @@ All of these settings can be reset from the Advanced section of the Settings pag
 - **Safety:** Rust owns canonicalization and registered-project containment. Equivalent path spellings are rejected as duplicates, and relative, nonexistent, escaping, and unregistered paths are rejected. Symlinks and junctions follow canonical operating-system path resolution and remain inside the registered root.
 - **Database:** Startup applies the idempotent settings and project schemas with `CREATE TABLE IF NOT EXISTS`; no migration framework is present.
 - **Accessibility:** The shell preserves visible focus, keyboard navigation, accessible names, tooltips for unfamiliar controls, and color-independent status meaning.
+
+## Alpha database behavior
+
+- The local SQLite database is initialized with the current schema at startup.
+- There is no migration, backup, or in-app database rebuild workflow in alpha.
+- When a clean reset is needed during development, stop the app and delete the local `settings.sqlite` file from Tauri's application data directory. The app recreates it on the next launch.
+- Packwiz project files remain outside the database lifecycle and are not deleted by a database reset.
 
 ## Common UI components
 

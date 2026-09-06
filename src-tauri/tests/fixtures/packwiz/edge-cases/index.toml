@@ -1,0 +1,9 @@
+hash-format = "sha256"
+
+[[files]]
+file = "mods/unknown.pw.toml"
+metafile = true
+
+[[files]]
+file = "mods/malformed.pw.toml"
+metafile = true

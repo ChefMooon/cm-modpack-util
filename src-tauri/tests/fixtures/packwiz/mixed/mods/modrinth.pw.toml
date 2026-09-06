@@ -1,0 +1,11 @@
+name = "Mixed Modrinth"
+filename = "mixed-modrinth.jar"
+side = "both"
+pin = true
+
+[download]
+url = "https://cdn.modrinth.com/data/abc123/versions/def456/mixed-modrinth.jar"
+
+[update.modrinth]
+mod-id = "abc123"
+version = "def456"

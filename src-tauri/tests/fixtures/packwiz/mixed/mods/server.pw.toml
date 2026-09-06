@@ -1,0 +1,6 @@
+name = "Mixed Server"
+filename = "mixed-server.jar"
+side = "server"
+
+[download]
+url = "https://example.invalid/mixed-server.jar"
