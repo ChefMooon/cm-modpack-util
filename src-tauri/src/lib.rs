@@ -7,11 +7,6 @@ use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
 use tauri_plugin_window_state::{AppHandleExt, StateFlags, WindowExt};
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -41,7 +36,7 @@ pub fn run() {
             let menu = Menu::with_items(app, &[&show, &quit])?;
             TrayIconBuilder::new()
                 .menu(&menu)
-                .tooltip("Tauri Svelte Template")
+                .tooltip("CM Modpack Util")
                 .icon(
                     app.default_window_icon()
                         .expect("default window icon is configured")
@@ -87,7 +82,6 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            greet,
             db::get_settings,
             db::set_setting,
             db::delete_setting,

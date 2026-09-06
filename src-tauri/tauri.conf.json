@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Tauri Svelte Template",
+  "productName": "CM Modpack Util",
   "version": "0.1.0",
   "identifier": "com.example.taurisveltetemplate",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Tauri Svelte Template",
+        "title": "CM Modpack Util",
         "width": 800,
         "height": 600,
         "visible": false,

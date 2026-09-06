@@ -1,8 +1,8 @@
-# Tauri Svelte Template
+# CM Modpack Util
 
-A minimal, polished desktop app starter built with **Tauri 2**, **SvelteKit**, **TypeScript**, **Vite**, and **SQLite**.
+A focused desktop utility for reviewing and maintaining Packwiz modpack metadata, built with **Tauri 2**, **SvelteKit**, **TypeScript**, **Vite**, and **SQLite**.
 
-The template includes a small example showing how to call a Rust command from the Svelte frontend. Replace the example screen and `greet` command with your application code.
+The application provides a technical project shell for local modpack evidence, update review, inventory, history, and persisted desktop preferences. Packwiz operations are currently represented as explicit local workflow states while the integration surface is developed.
 
 ## Prerequisites
 
@@ -31,7 +31,7 @@ The Vite-only frontend can also be run with `npm run dev`.
 
 ## Project structure
 
-- `src/routes/+page.svelte` — starter UI and frontend example
+- `src/routes/+page.svelte` — project shell and update review workspace
 - `src/routes/settings/+page.svelte` — settings screen with persisted theme preference
 - `src/app.css` — shared theme tokens and global accessibility styles
 - `src/components/` — shared UI, settings components, and reusable application components
@@ -47,7 +47,7 @@ The Vite-only frontend can also be run with `npm run dev`.
 
 ## Basic settings
 
-The `/settings` route provides the template's built-in application preferences. Settings are persisted in the local SQLite database through typed Tauri commands and are applied immediately where supported.
+The `/settings` route provides the application's desktop preferences. Settings are persisted in the local SQLite database through typed Tauri commands and are applied immediately where supported.
 
 ### General
 

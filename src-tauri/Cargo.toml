@@ -2,7 +2,7 @@
 name = "tauri-svelte-template"
 version = "0.1.0"
 description = "A minimal Tauri and SvelteKit desktop app template."
-authors = ["Tauri Svelte Template contributors"]
+authors = ["CM Modpack Util contributors"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

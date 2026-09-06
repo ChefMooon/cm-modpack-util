@@ -21,7 +21,7 @@ changes, UI work, tests, and acceptance criteria.
 
 ### v0.0.1 - Productize the Existing Template
 
-Turn the current Tauri Svelte template into the first CM Modpack Util
+Turn the initial desktop shell into the first CM Modpack Util
 application foundation. This milestone should build on the existing starter
 instead of recreating its infrastructure.
 
@@ -42,7 +42,7 @@ The starting point already includes:
 
 - Rename the package, Rust crate, Tauri product metadata, window title, tray
   labels, identifiers, and visible template copy for CM Modpack Util.
-- Replace the `greet` example command and starter home page with the first
+- Connect the first application shell to Packwiz project operations instead of
   application shell and navigation placeholders for Projects, Activity, and
   Settings.
 - Preserve and test the existing settings behavior while moving shared app

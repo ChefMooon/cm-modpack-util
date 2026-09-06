@@ -3,9 +3,9 @@
 </script>
 
 <header class="site-header">
-  <a class="brand" href="/" aria-label="Tauri Svelte Template home">
-    <span class="brand-mark" aria-hidden="true">TS</span>
-    <span>Tauri Svelte</span>
+  <a class="brand" href="/" aria-label="CM Modpack Util home">
+    <span class="brand-mark" aria-hidden="true">CM</span>
+    <span>CM Modpack Util</span>
   </a>
 
   <nav class="navigation" aria-label="Main navigation">
@@ -49,9 +49,10 @@
     width: 30px;
     height: 30px;
     place-items: center;
-    border-radius: var(--radius-sm);
-    color: var(--color-on-accent);
-    background: var(--color-accent);
+    border: 2px solid var(--color-yellow);
+    border-radius: 0;
+    color: var(--color-yellow);
+    background: transparent;
     font-size: 11px;
     font-weight: 800;
   }
