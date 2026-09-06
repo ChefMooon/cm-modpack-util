@@ -94,6 +94,13 @@ pub fn run() {
             db::preview_project,
             db::register_project,
             db::list_projects,
+            db::list_snapshots,
+            db::get_snapshot,
+            db::set_snapshot_decision,
+            db::save_snapshot_note,
+            db::close_snapshot,
+            db::link_snapshot_retry,
+            db::recheck_snapshot,
             db::open_project,
             db::refresh_project,
             db::get_project_inventory,
@@ -103,7 +110,6 @@ pub fn run() {
             db::restore_project,
             db::disconnect_project,
             db::reconnect_project,
-            discovery::operations::start_update_check,
             discovery::operations::cancel_update_check,
             discovery::pipeline::check_for_updates
         ])

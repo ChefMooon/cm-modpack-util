@@ -31,6 +31,7 @@
     DiscoveryProgress,
     DiscoveryResult,
     ProcessEvidence,
+    SnapshotRecord,
   } from "../lib/domain";
   import {
     archiveProject,
@@ -50,6 +51,13 @@
     listenUpdateCheckProcess,
     listenUpdateCheckProgress,
     checkForUpdates,
+    listSnapshots,
+    getSnapshot,
+    setSnapshotDecision,
+    saveSnapshotNote,
+    closeSnapshot,
+    recheckSnapshot,
+    linkSnapshotRetry,
   } from "../lib/projects";
 
   let projects = $state<ProjectRecord[]>([]);
@@ -76,6 +84,10 @@
   let discoveryProgress = $state<DiscoveryProgress | null>(null);
   let discoveryProcess = $state<ProcessEvidence | null>(null);
   let discoveryBusy = $state(false);
+  let discoverySnapshotId = $state<string | null>(null);
+  let discoverySnapshot = $state<SnapshotRecord | null>(null);
+  let showSnapshotNote = $state(false);
+  let snapshotNoteDraft = $state("");
   let discoveryUnlisten: (() => void)[] = [];
   const { toast } = useToast();
 
@@ -101,11 +113,23 @@
     error = "";
     try {
       projects = await listProjects();
+      const snapshotId = new URLSearchParams(window.location.search).get("snapshot");
+      if (snapshotId) await openSnapshot(snapshotId);
     } catch (cause) {
       error = commandErrorMessage(cause);
     } finally {
       loading = false;
     }
+  }
+
+  async function openSnapshot(snapshotId: string) {
+    const snapshot = await getSnapshot(snapshotId);
+    const project = projects.find((candidate) => candidate.id === snapshot.project_id);
+    if (!project) return;
+    discoveryProject = project;
+    discoverySnapshot = snapshot;
+    discoverySnapshotId = snapshot.id;
+    discovery = snapshot.result;
   }
 
   async function selectProject() {
@@ -180,12 +204,16 @@
     if (discoveryBusy) return;
     discoveryProject = project;
     discovery = null;
+    discoverySnapshot = null;
     discoveryProcess = null;
     discoveryProgress = null;
     discoveryBusy = true;
     error = "";
     try {
       discovery = await checkForUpdates(project.id);
+      const snapshots = await listSnapshots(project.id);
+      discoverySnapshotId = snapshots[0]?.id ?? null;
+      discoverySnapshot = discoverySnapshotId ? await getSnapshot(discoverySnapshotId) : null;
     } catch (cause) {
       discovery = null;
       error = commandErrorMessage(cause);
@@ -200,6 +228,70 @@
     } catch (cause) {
       error = commandErrorMessage(cause);
     }
+  }
+
+  async function decideCandidate(candidateId: string, decision: "selected" | "skipped" | "blocked" | "deferred") {
+    if (!discoverySnapshotId) return;
+    try {
+      await setSnapshotDecision(discoverySnapshotId, candidateId, decision);
+      discoverySnapshot = await getSnapshot(discoverySnapshotId);
+      toast({ title: "Review decision saved", severity: "success" });
+    } catch (cause) {
+      error = commandErrorMessage(cause);
+    }
+  }
+
+  async function finishSnapshot(cancelled: boolean) {
+    if (!discoverySnapshotId) return;
+    try {
+      discoverySnapshot = await closeSnapshot(discoverySnapshotId, cancelled);
+      discovery = discoverySnapshot.result;
+      toast({ title: cancelled ? "Review cancelled" : "Review closed", severity: "success" });
+    } catch (cause) {
+      error = commandErrorMessage(cause);
+    }
+  }
+
+  async function saveReviewNote() {
+    if (!discoveryProject || !discoverySnapshotId || !snapshotNoteDraft.trim()) return;
+    try {
+      await saveSnapshotNote(discoveryProject.id, "snapshot", snapshotNoteDraft, discoverySnapshotId);
+      discoverySnapshot = await getSnapshot(discoverySnapshotId);
+      snapshotNoteDraft = "";
+      showSnapshotNote = false;
+      toast({ title: "Review note saved", severity: "success" });
+    } catch (cause) {
+      error = commandErrorMessage(cause);
+    }
+  }
+
+  async function recheckReview() {
+    if (!discoverySnapshotId) return;
+    try {
+      discoverySnapshot = await recheckSnapshot(discoverySnapshotId);
+      discovery = discoverySnapshot.result;
+      toast({ title: discoverySnapshot.lifecycle === "stale" ? "Review marked stale" : "Review is current", severity: discoverySnapshot.lifecycle === "stale" ? "warning" : "success" });
+    } catch (cause) {
+      error = commandErrorMessage(cause);
+    }
+  }
+
+  async function retryReview() {
+    if (!discoveryProject || !discoverySnapshotId || discoveryBusy) return;
+    const predecessorId = discoverySnapshotId;
+    await checkProjectForUpdates(discoveryProject);
+    if (!discoverySnapshotId || discoverySnapshotId === predecessorId) return;
+    try {
+      discoverySnapshot = await linkSnapshotRetry(predecessorId, discoverySnapshotId);
+      discovery = discoverySnapshot.result;
+      toast({ title: "Linked retry created", severity: "success" });
+    } catch (cause) {
+      error = commandErrorMessage(cause);
+    }
+  }
+
+  function latestDecision(candidateId: string) {
+    return discoverySnapshot?.decisions.filter((decision) => decision.candidate_id === candidateId).at(-1)?.decision;
   }
 
   async function openPage(entry: InventoryEntry) {
@@ -621,18 +713,33 @@
       {#if discovery.outcome === "normal"}
         {#if discovery.candidates.length === 0}<p class="discovery-empty">No updates were presented by Packwiz.</p>
         {:else}<div class="candidate-list" aria-label="Available updates">
-            {#each discovery.candidates as candidate (candidate.output_evidence)}
+            {#each (discoverySnapshot?.candidates ?? discovery.candidates.map((candidate, index) => ({ id: `${discoverySnapshotId}-candidate-${index}`, candidate, observed_at: "" }))) as record (record.id)}
+              {@const candidate = record.candidate}
               <article class="candidate">
-                <div><strong>{evidenceLabel(candidate.identity)}</strong><span class="path">{evidenceLabel(candidate.local_path)}</span></div>
-                <div><span class="label">Version</span><strong>{evidenceLabel(candidate.current_version)} -> {evidenceLabel(candidate.available_version)}</strong></div>
-                <div><span class="label">Change</span><strong>{candidate.version_change}</strong></div>
-                <div><span class="label">Provider / side</span><strong>{evidenceLabel(candidate.provider)} / {evidenceLabel(candidate.side)}</strong></div>
-                <div><span class="label">Pin</span><strong>{evidenceLabel(candidate.pin)}</strong></div>
-                {#if candidate.page_link}<Button variant="quiet" size="sm" type="button" onclick={() => openCandidatePage(candidate.page_link!.url)}><ArrowSquareOutIcon size={14} /> Open source</Button>{/if}
+                <div class="candidate-evidence">
+                  <div class="candidate-identity"><strong>{evidenceLabel(candidate.identity)}</strong><span class="path">{evidenceLabel(candidate.local_path)}</span></div>
+                  <div><span class="label">Version</span><strong>{evidenceLabel(candidate.current_version)} <span class="version-arrow">→</span> {evidenceLabel(candidate.available_version)}</strong></div>
+                  <div><span class="label">Change</span><strong>{candidate.version_change}</strong></div>
+                  <div><span class="label">Provider / side</span><strong>{evidenceLabel(candidate.provider)} / {evidenceLabel(candidate.side)}</strong></div>
+                  <div><span class="label">Pin</span><strong>{evidenceLabel(candidate.pin)}</strong></div>
+                  <div><span class="label">Severity</span><strong>{evidenceLabel(candidate.severity)}</strong></div>
+                </div>
+                <div class="candidate-actions">
+                  <div class="decision-controls" aria-label="Review decision">
+                    <span class="current-decision">{latestDecision(record.id) ?? "undecided"}</span>
+                    <Button variant="quiet" size="sm" type="button" onclick={() => decideCandidate(record.id, "selected")}>Select</Button>
+                    <Button variant="quiet" size="sm" type="button" onclick={() => decideCandidate(record.id, "skipped")}>Skip</Button>
+                    <Button variant="quiet" size="sm" type="button" onclick={() => decideCandidate(record.id, "blocked")}>Block</Button>
+                    <Button variant="quiet" size="sm" type="button" onclick={() => decideCandidate(record.id, "deferred")}>Defer</Button>
+                  </div>
+                  {#if candidate.page_link}<Button variant="quiet" size="sm" type="button" onclick={() => openCandidatePage(candidate.page_link!.url)}><ArrowSquareOutIcon size={14} /> Open source</Button>{/if}
+                </div>
               </article>
             {/each}
           </div>{/if}
+        {#if discoverySnapshotId}<div class="snapshot-actions"><Button variant="secondary" size="sm" type="button" onclick={() => finishSnapshot(false)}>Close review</Button><Button variant="quiet" size="sm" type="button" onclick={() => finishSnapshot(true)}>Cancel review</Button><Button variant="quiet" size="sm" type="button" onclick={() => (showSnapshotNote = true)}>Add note</Button><Button variant="quiet" size="sm" type="button" onclick={recheckReview}>Recheck</Button><Button variant="quiet" size="sm" type="button" onclick={retryReview}>Fresh retry</Button></div>{/if}
       {/if}
+      {#if discoverySnapshot?.lifecycle === "stale"}<p class="stale-message" role="status">This review is stale because the registered project changed or freshness could not be proven. Start a fresh retry before relying on these decisions.</p>{/if}
       <details class="discovery-evidence">
         <summary>Safety evidence</summary>
         <div class="evidence-grid">
@@ -654,6 +761,11 @@
     {/if}
   </section>
 {/if}
+
+<Modal bind:open={showSnapshotNote} title="Add review note" onclose={() => (showSnapshotNote = false)}>
+  <label class="field"><span>Note</span><textarea bind:value={snapshotNoteDraft} rows="5" maxlength="4000" placeholder="Explain this review or its outcome"></textarea></label>
+  <div class="modal-actions"><Button variant="quiet" type="button" onclick={() => (showSnapshotNote = false)}>Cancel</Button><Button variant="primary" type="button" onclick={saveReviewNote}>Save note</Button></div>
+</Modal>
 
 <Modal
   bind:open={showPreview}
@@ -1186,8 +1298,14 @@
   .discovery-outcome[data-outcome="failed"], .discovery-outcome[data-outcome="cancelled"], .discovery-outcome[data-outcome="unsupported"] { border-color: var(--color-danger); }
   .discovery-empty { margin: 20px 0 0; color: var(--color-text-muted); }
   .candidate-list { display: grid; gap: 1px; margin-top: 20px; border: 1px solid var(--color-border); background: var(--color-border); }
-  .candidate { display: grid; grid-template-columns: minmax(150px, 1.4fr) repeat(4, minmax(100px, 1fr)) auto; gap: 14px; align-items: center; padding: 14px; background: var(--color-surface); font-size: 12px; }
-  .candidate > div { display: grid; gap: 5px; min-width: 0; }
+  .candidate { display: grid; gap: 14px; padding: 16px; background: var(--color-surface); font-size: 12px; }
+  .candidate-evidence { display: grid; grid-template-columns: minmax(180px, 1.5fr) repeat(5, minmax(90px, 1fr)); gap: 16px; align-items: start; }
+  .candidate-evidence > div { display: grid; gap: 6px; min-width: 0; }
+  .candidate-identity { min-width: 0; }
+  .candidate-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 12px; border-top: 1px solid var(--color-border); }
+  .decision-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; }
+  .current-decision { min-width: 84px; color: var(--color-text); font: 700 10px var(--font-mono); text-transform: uppercase; }
+  .version-arrow { color: var(--color-text-subtle); }
   .candidate strong { overflow-wrap: anywhere; color: var(--color-text); }
   .candidate .label { color: var(--color-text-subtle); font: 10px var(--font-mono); text-transform: uppercase; }
   .discovery-evidence { margin-top: 20px; border-top: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 12px; }
@@ -1236,7 +1354,9 @@
     .inspection-heading, .inventory-heading { align-items: flex-start; flex-direction: column; }
     .discovery-panel { padding: 18px; }
     .discovery-heading { flex-direction: column; }
-    .candidate { grid-template-columns: 1fr 1fr; }
+    .candidate-evidence { grid-template-columns: 1fr 1fr; }
+    .candidate-identity { grid-column: 1 / -1; }
+    .candidate-actions { align-items: flex-start; flex-direction: column; gap: 8px; }
     .evidence-grid { grid-template-columns: 1fr 1fr; }
     .overview-grid { grid-template-columns: 1fr 1fr; }
     .inventory-table { overflow-x: auto; }

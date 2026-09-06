@@ -143,7 +143,9 @@ changes yet.
 - Preserve immutable operation history and make retries create new linked work.
 
 **Exit gate:** A user can review and explain every candidate decision, close or
-cancel a session without changing Packwiz files, and revisit the session later.
+cancel a session without changing Packwiz files, revisit the session later, and
+start a fresh linked retry when native freshness evidence requires it. Update
+application and pin mutation remain deferred to v0.0.6.
 
 ### v0.0.6 - Applying Updates and Pin Management
 

@@ -11,6 +11,9 @@ import type {
   DiscoveryResult,
   DiscoveryProgress,
   ProcessEvidence,
+  SnapshotRecord,
+  SnapshotDecision,
+  SnapshotNoteScope,
 } from "./domain";
 
 export async function chooseProjectDirectory(): Promise<string | null> {
@@ -44,10 +47,6 @@ export function getProjectOverview(id: string): Promise<ProjectOverview> {
 
 export function checkForUpdates(id: string): Promise<DiscoveryResult> {
   return invoke("check_for_updates", { projectId: id });
-}
-
-export function startUpdateCheck(id: string): Promise<"running"> {
-  return invoke("start_update_check", { projectId: id });
 }
 
 export function cancelUpdateCheck(): Promise<"cancelled"> {
@@ -88,4 +87,32 @@ export function disconnectProject(id: string): Promise<ProjectRecord> {
 
 export function reconnectProject(id: string, path: string): Promise<ProjectRecord> {
   return invoke("reconnect_project", { id, path });
+}
+
+export function listSnapshots(projectId: string): Promise<SnapshotRecord[]> {
+  return invoke("list_snapshots", { projectId });
+}
+
+export function getSnapshot(id: string): Promise<SnapshotRecord> {
+  return invoke("get_snapshot", { id });
+}
+
+export function setSnapshotDecision(snapshotId: string, candidateId: string, decision: SnapshotDecision, note?: string): Promise<void> {
+  return invoke("set_snapshot_decision", { snapshotId, candidateId, decision, note });
+}
+
+export function saveSnapshotNote(projectId: string, scope: SnapshotNoteScope, note: string, snapshotId?: string, candidateId?: string): Promise<void> {
+  return invoke("save_snapshot_note", { projectId, scope, note, snapshotId, candidateId });
+}
+
+export function closeSnapshot(id: string, cancelled: boolean): Promise<SnapshotRecord> {
+  return invoke("close_snapshot", { id, cancelled });
+}
+
+export function linkSnapshotRetry(predecessorId: string, retryId: string): Promise<SnapshotRecord> {
+  return invoke("link_snapshot_retry", { predecessorId, retryId });
+}
+
+export function recheckSnapshot(id: string): Promise<SnapshotRecord> {
+  return invoke("recheck_snapshot", { id });
 }

@@ -1,7 +1,9 @@
 use crate::domain::{
     inventory, validation, ActivityRecord, ApplicationProjectMetadata, CommandError,
     DiscoveryResult, InventoryEntry, ProjectLifecycle, ProjectOverview, ProjectRecord,
-    RegistrationPreview,
+    RegistrationPreview, SnapshotCandidateRecord, SnapshotDecision, SnapshotDecisionRecord,
+    SnapshotLifecycle, SnapshotNoteRecord, SnapshotNoteScope, SnapshotRecheckRecord,
+    SnapshotRecord, UpdateCandidate,
 };
 use rusqlite::{params, Connection};
 use std::collections::HashMap;
@@ -23,10 +25,18 @@ pub fn persist_discovery_result(
     let result_json = serialize(result, "discovery result")?;
     let outcome =
         serde_json::to_string(&result.outcome).unwrap_or_else(|_| "indeterminate".to_string());
-    connection.execute("INSERT INTO discovery_attempts (project_id, observed_at, outcome, result_json) VALUES (?1, ?2, ?3, ?4)", params![project_id, timestamp(), outcome.trim_matches('"'), result_json]).map_err(|error| CommandError::new("database_write_failed", "Discovery observation could not be saved").with_details(error.to_string()))?;
+    let transaction = connection.unchecked_transaction().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Discovery observation could not be started",
+        )
+        .with_details(error.to_string())
+    })?;
+    let observed_at = timestamp();
+    transaction.execute("INSERT INTO discovery_attempts (project_id, observed_at, outcome, result_json) VALUES (?1, ?2, ?3, ?4)", params![project_id, observed_at, outcome.trim_matches('"'), result_json]).map_err(|error| CommandError::new("database_write_failed", "Discovery observation could not be saved").with_details(error.to_string()))?;
     let attempt_id = connection.last_insert_rowid();
     for candidate in &result.candidates {
-        connection
+        transaction
             .execute(
                 "INSERT INTO discovery_candidates (attempt_id, candidate_json) VALUES (?1, ?2)",
                 params![attempt_id, serialize(candidate, "discovery candidate")?],
@@ -39,6 +49,39 @@ pub fn persist_discovery_result(
                 .with_details(error.to_string())
             })?;
     }
+    let snapshot_id = format!("snapshot-{project_id}-{attempt_id}");
+    let lifecycle = if matches!(result.outcome, crate::domain::DiscoveryOutcomeKind::Normal) {
+        SnapshotLifecycle::Reviewable
+    } else if matches!(
+        result.outcome,
+        crate::domain::DiscoveryOutcomeKind::Cancelled
+    ) {
+        SnapshotLifecycle::Cancelled
+    } else {
+        SnapshotLifecycle::Draft
+    };
+    let lifecycle_json = serde_json::to_string(&lifecycle).unwrap_or_else(|_| "draft".to_string());
+    transaction.execute("INSERT INTO snapshots (id, project_id, lifecycle, outcome, result_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)", params![snapshot_id, project_id, lifecycle_json.trim_matches('"'), outcome.trim_matches('"'), result_json, observed_at]).map_err(|error| CommandError::new("database_write_failed", "Snapshot could not be saved").with_details(error.to_string()))?;
+    for (index, candidate) in result.candidates.iter().enumerate() {
+        let candidate_id = format!("{snapshot_id}-candidate-{index}");
+        transaction.execute("INSERT INTO snapshot_candidates (id, snapshot_id, candidate_json, observed_at) VALUES (?1, ?2, ?3, ?4)", params![candidate_id, snapshot_id, serialize(candidate, "snapshot candidate")?, observed_at]).map_err(|error| CommandError::new("database_write_failed", "Snapshot candidate could not be saved").with_details(error.to_string()))?;
+    }
+    transaction
+        .execute(
+            "INSERT INTO project_activity (project_id, event_type, occurred_at, message) VALUES (?1, ?2, ?3, ?4)",
+            params![project_id, "snapshot_created", observed_at, format!("Discovery snapshot {snapshot_id} created")],
+        )
+        .map_err(|error| {
+            CommandError::new("database_write_failed", "Snapshot activity could not be saved")
+                .with_details(error.to_string())
+        })?;
+    transaction.commit().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Discovery snapshot could not be committed",
+        )
+        .with_details(error.to_string())
+    })?;
     Ok(())
 }
 
@@ -249,6 +292,445 @@ pub fn list_projects(state: State<'_, Database>) -> Result<Vec<ProjectRecord>, C
         CommandError::new("database_record_invalid", "A stored project is invalid")
             .with_details(error.to_string())
     })
+}
+
+fn row_to_snapshot(row: &rusqlite::Row<'_>) -> rusqlite::Result<SnapshotRecord> {
+    let lifecycle: String = row.get(3)?;
+    let outcome: String = row.get(4)?;
+    let result_json: String = row.get(6)?;
+    Ok(SnapshotRecord {
+        id: row.get(0)?,
+        project_id: row.get(1)?,
+        predecessor_id: row.get(2)?,
+        lifecycle: serde_json::from_value(serde_json::Value::String(lifecycle))
+            .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        outcome: serde_json::from_value(serde_json::Value::String(outcome))
+            .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        label: row.get(5)?,
+        created_at: row.get(7)?,
+        updated_at: row.get(8)?,
+        closed_at: row.get(9)?,
+        result: serde_json::from_str(&result_json).map_err(|_| rusqlite::Error::InvalidQuery)?,
+        candidates: Vec::new(),
+        decisions: Vec::new(),
+        notes: Vec::new(),
+        rechecks: Vec::new(),
+    })
+}
+
+fn enrich_snapshot(
+    connection: &Connection,
+    mut snapshot: SnapshotRecord,
+) -> Result<SnapshotRecord, CommandError> {
+    let mut candidates = connection
+        .prepare("SELECT id, candidate_json, observed_at FROM snapshot_candidates WHERE snapshot_id = ?1 ORDER BY id")
+        .map_err(|error| CommandError::new("database_read_failed", "Snapshot candidates could not be read").with_details(error.to_string()))?
+        .query_map([&snapshot.id], |row| {
+            let candidate_json: String = row.get(1)?;
+            Ok(SnapshotCandidateRecord {
+                id: row.get(0)?,
+                candidate: serde_json::from_str::<UpdateCandidate>(&candidate_json)
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                observed_at: row.get(2)?,
+            })
+        })
+        .map_err(|error| CommandError::new("database_read_failed", "Snapshot candidates could not be read").with_details(error.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| CommandError::new("database_record_invalid", "A stored snapshot candidate is invalid").with_details(error.to_string()))?;
+    snapshot.candidates.append(&mut candidates);
+
+    let mut decisions = connection
+        .prepare("SELECT id, candidate_id, decision, note, recorded_at FROM snapshot_decisions WHERE snapshot_id = ?1 ORDER BY id")
+        .map_err(|error| CommandError::new("database_read_failed", "Snapshot decisions could not be read").with_details(error.to_string()))?
+        .query_map([&snapshot.id], |row| {
+            let decision: String = row.get(2)?;
+            Ok(SnapshotDecisionRecord {
+                id: row.get(0)?,
+                candidate_id: row.get(1)?,
+                decision: serde_json::from_value(serde_json::Value::String(decision))
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                note: row.get(3)?,
+                recorded_at: row.get(4)?,
+            })
+        })
+        .map_err(|error| CommandError::new("database_read_failed", "Snapshot decisions could not be read").with_details(error.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| CommandError::new("database_record_invalid", "A stored snapshot decision is invalid").with_details(error.to_string()))?;
+    snapshot.decisions.append(&mut decisions);
+
+    let mut notes = connection
+        .prepare("SELECT id, project_id, snapshot_id, candidate_id, scope, note, is_current, recorded_at FROM snapshot_notes WHERE project_id = (SELECT project_id FROM snapshots WHERE id = ?1) AND (snapshot_id IS NULL OR snapshot_id = ?1) ORDER BY id")
+        .map_err(|error| CommandError::new("database_read_failed", "Snapshot notes could not be read").with_details(error.to_string()))?
+        .query_map([&snapshot.id], |row| {
+            let scope: String = row.get(4)?;
+            Ok(SnapshotNoteRecord {
+                id: row.get(0)?,
+                project_id: row.get(1)?,
+                snapshot_id: row.get(2)?,
+                candidate_id: row.get(3)?,
+                scope: serde_json::from_value(serde_json::Value::String(scope))
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                note: row.get(5)?,
+                is_current: row.get::<_, i64>(6)? != 0,
+                recorded_at: row.get(7)?,
+            })
+        })
+        .map_err(|error| CommandError::new("database_read_failed", "Snapshot notes could not be read").with_details(error.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| CommandError::new("database_record_invalid", "A stored snapshot note is invalid").with_details(error.to_string()))?;
+    snapshot.notes.append(&mut notes);
+    let mut rechecks = connection
+        .prepare("SELECT id, comparable, unchanged, differences_json, checked_at FROM snapshot_rechecks WHERE snapshot_id = ?1 ORDER BY id")
+        .map_err(|error| CommandError::new("database_read_failed", "Snapshot freshness checks could not be read").with_details(error.to_string()))?
+        .query_map([&snapshot.id], |row| {
+            let differences_json: String = row.get(3)?;
+            Ok(SnapshotRecheckRecord {
+                id: row.get(0)?,
+                comparable: row.get::<_, i64>(1)? != 0,
+                unchanged: row.get::<_, i64>(2)? != 0,
+                differences: serde_json::from_str(&differences_json)
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                checked_at: row.get(4)?,
+            })
+        })
+        .map_err(|error| CommandError::new("database_read_failed", "Snapshot freshness checks could not be read").with_details(error.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| CommandError::new("database_record_invalid", "A stored freshness check is invalid").with_details(error.to_string()))?;
+    snapshot.rechecks.append(&mut rechecks);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+pub fn list_snapshots(
+    state: State<'_, Database>,
+    project_id: String,
+) -> Result<Vec<SnapshotRecord>, CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let mut statement = connection
+        .prepare("SELECT id, project_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE project_id = ?1 ORDER BY created_at DESC")
+        .map_err(|error| CommandError::new("database_read_failed", "Snapshots could not be read").with_details(error.to_string()))?;
+    let snapshots = statement
+        .query_map([project_id], row_to_snapshot)
+        .map_err(|error| {
+            CommandError::new("database_read_failed", "Snapshots could not be read")
+                .with_details(error.to_string())
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            CommandError::new("database_record_invalid", "A stored snapshot is invalid")
+                .with_details(error.to_string())
+        });
+    let snapshots = snapshots?;
+    snapshots
+        .into_iter()
+        .map(|snapshot| enrich_snapshot(&connection, snapshot))
+        .collect()
+}
+
+#[tauri::command]
+pub fn get_snapshot(
+    state: State<'_, Database>,
+    id: String,
+) -> Result<SnapshotRecord, CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let snapshot = connection
+        .query_row(
+            "SELECT id, project_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1",
+            [id],
+            row_to_snapshot,
+        )
+        .map_err(|error| CommandError::new("snapshot_not_found", "Snapshot is not available").with_details(error.to_string()))?;
+    enrich_snapshot(&connection, snapshot)
+}
+
+fn snapshot_state(connection: &Connection, id: &str) -> Result<(String, String), CommandError> {
+    connection
+        .query_row(
+            "SELECT lifecycle, result_json FROM snapshots WHERE id = ?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|error| {
+            CommandError::new("snapshot_not_found", "Snapshot is not available")
+                .with_details(error.to_string())
+        })
+}
+
+fn ensure_writable_snapshot(connection: &Connection, id: &str) -> Result<(), CommandError> {
+    let (lifecycle, result_json) = snapshot_state(connection, id)?;
+    let outcome: crate::domain::DiscoveryOutcomeKind = serde_json::from_str(&result_json)
+        .ok()
+        .map(|result: DiscoveryResult| result.outcome)
+        .unwrap_or(crate::domain::DiscoveryOutcomeKind::Indeterminate);
+    if lifecycle != "reviewable" || !matches!(outcome, crate::domain::DiscoveryOutcomeKind::Normal)
+    {
+        return Err(CommandError::new(
+            "snapshot_not_reviewable",
+            "Snapshot is not available for review writes",
+        ));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_snapshot_decision(
+    state: State<'_, Database>,
+    snapshot_id: String,
+    candidate_id: String,
+    decision: SnapshotDecision,
+    note: Option<String>,
+) -> Result<(), CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    ensure_writable_snapshot(&connection, &snapshot_id)?;
+    let candidate_exists = connection
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM snapshot_candidates WHERE id = ?1 AND snapshot_id = ?2)",
+            params![candidate_id, snapshot_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|error| {
+            CommandError::new(
+                "database_read_failed",
+                "Snapshot candidate could not be checked",
+            )
+            .with_details(error.to_string())
+        })?;
+    if candidate_exists == 0 {
+        return Err(CommandError::new(
+            "candidate_not_found",
+            "Candidate does not belong to this snapshot",
+        ));
+    }
+    let decision = serde_json::to_string(&decision).unwrap_or_else(|_| "undecided".into());
+    connection.execute("INSERT INTO snapshot_decisions (snapshot_id, candidate_id, decision, note, recorded_at) VALUES (?1, ?2, ?3, ?4, ?5)", params![snapshot_id, candidate_id, decision.trim_matches('"'), note, timestamp()]).map_err(|error| CommandError::new("database_write_failed", "Snapshot decision could not be saved").with_details(error.to_string()))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn save_snapshot_note(
+    state: State<'_, Database>,
+    project_id: String,
+    snapshot_id: Option<String>,
+    candidate_id: Option<String>,
+    scope: SnapshotNoteScope,
+    note: String,
+) -> Result<(), CommandError> {
+    let note = note.trim().to_string();
+    if note.is_empty() || note.len() > 4000 {
+        return Err(CommandError::new(
+            "invalid_note",
+            "Notes must contain between 1 and 4000 characters",
+        ));
+    }
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    if let Some(id) = snapshot_id.as_deref() {
+        ensure_writable_snapshot(&connection, id)?;
+    }
+    if let Some(candidate) = candidate_id.as_deref() {
+        let belongs_to_snapshot = snapshot_id
+            .as_deref()
+            .map(|snapshot| {
+                connection
+                    .query_row(
+                        "SELECT EXISTS (SELECT 1 FROM snapshot_candidates WHERE id = ?1 AND snapshot_id = ?2)",
+                        params![candidate, snapshot],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .unwrap_or(0)
+                    == 1
+            })
+            .unwrap_or(false);
+        if !belongs_to_snapshot {
+            return Err(CommandError::new(
+                "candidate_not_found",
+                "Candidate does not belong to this snapshot",
+            ));
+        }
+    }
+    connection.execute("UPDATE snapshot_notes SET is_current = 0 WHERE project_id = ?1 AND ((snapshot_id = ?2) OR (snapshot_id IS NULL AND ?2 IS NULL)) AND ((candidate_id = ?3) OR (candidate_id IS NULL AND ?3 IS NULL))", params![project_id, snapshot_id, candidate_id]).map_err(|error| CommandError::new("database_write_failed", "Previous note could not be archived").with_details(error.to_string()))?;
+    let scope = serde_json::to_string(&scope).unwrap_or_else(|_| "project".into());
+    connection.execute("INSERT INTO snapshot_notes (project_id, snapshot_id, candidate_id, scope, note, recorded_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![project_id, snapshot_id, candidate_id, scope.trim_matches('"'), note, timestamp()]).map_err(|error| CommandError::new("database_write_failed", "Snapshot note could not be saved").with_details(error.to_string()))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn close_snapshot(
+    state: State<'_, Database>,
+    id: String,
+    cancelled: bool,
+) -> Result<SnapshotRecord, CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let requested = if cancelled { "cancelled" } else { "closed" };
+    let current: String = connection
+        .query_row(
+            "SELECT lifecycle FROM snapshots WHERE id = ?1",
+            [&id],
+            |row| row.get(0),
+        )
+        .map_err(|error| {
+            CommandError::new("snapshot_not_found", "Snapshot is not available")
+                .with_details(error.to_string())
+        })?;
+    if current == requested {
+        let snapshot = connection.query_row("SELECT id, project_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1", [&id], row_to_snapshot).map_err(|error| CommandError::new("snapshot_not_found", "Snapshot is not available").with_details(error.to_string()))?;
+        return enrich_snapshot(&connection, snapshot);
+    }
+    if !matches!(current.as_str(), "draft" | "reviewable") {
+        return Err(CommandError::new(
+            "snapshot_transition_rejected",
+            "Snapshot can no longer be closed or cancelled",
+        ));
+    }
+    connection
+        .execute(
+            "UPDATE snapshots SET lifecycle = ?1, updated_at = ?2, closed_at = ?2 WHERE id = ?3",
+            params![requested, timestamp(), id],
+        )
+        .map_err(|error| {
+            CommandError::new("database_write_failed", "Snapshot could not be closed")
+                .with_details(error.to_string())
+        })?;
+    let snapshot = connection.query_row("SELECT id, project_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1", [&id], row_to_snapshot).map_err(|error| CommandError::new("snapshot_not_found", "Snapshot is not available").with_details(error.to_string()))?;
+    enrich_snapshot(&connection, snapshot)
+}
+
+#[tauri::command]
+pub fn link_snapshot_retry(
+    state: State<'_, Database>,
+    predecessor_id: String,
+    retry_id: String,
+) -> Result<SnapshotRecord, CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let predecessor_project: String = connection
+        .query_row(
+            "SELECT project_id FROM snapshots WHERE id = ?1",
+            [&predecessor_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| {
+            CommandError::new(
+                "snapshot_not_found",
+                "Predecessor snapshot is not available",
+            )
+            .with_details(error.to_string())
+        })?;
+    let retry_project: String = connection
+        .query_row(
+            "SELECT project_id FROM snapshots WHERE id = ?1",
+            [&retry_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| {
+            CommandError::new("snapshot_not_found", "Retry snapshot is not available")
+                .with_details(error.to_string())
+        })?;
+    if predecessor_project != retry_project || predecessor_id == retry_id {
+        return Err(CommandError::new(
+            "retry_link_rejected",
+            "Retry and predecessor must belong to the same project",
+        ));
+    }
+    connection
+        .execute(
+            "UPDATE snapshots SET predecessor_id = ?1, updated_at = ?2 WHERE id = ?3 AND predecessor_id IS NULL",
+            params![predecessor_id, timestamp(), retry_id],
+        )
+        .map_err(|error| CommandError::new("database_write_failed", "Retry link could not be saved").with_details(error.to_string()))?;
+    let snapshot = connection
+        .query_row("SELECT id, project_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1", [&retry_id], row_to_snapshot)
+        .map_err(|error| CommandError::new("snapshot_not_found", "Retry snapshot is not available").with_details(error.to_string()))?;
+    enrich_snapshot(&connection, snapshot)
+}
+
+#[tauri::command]
+pub fn recheck_snapshot(
+    state: State<'_, Database>,
+    id: String,
+) -> Result<SnapshotRecord, CommandError> {
+    let (project_path, result_json) = {
+        let connection = state
+            .0
+            .lock()
+            .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+        connection.query_row("SELECT projects.canonical_path, snapshots.result_json FROM snapshots JOIN projects ON projects.id = snapshots.project_id WHERE snapshots.id = ?1", [&id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).map_err(|_| CommandError::new("snapshot_not_found", "Snapshot is not available"))?
+    };
+    let result: DiscoveryResult = serde_json::from_str(&result_json).map_err(|_| {
+        CommandError::new("snapshot_invalid", "Stored snapshot evidence is invalid")
+    })?;
+    let before = result
+        .diagnostics
+        .fingerprint
+        .as_ref()
+        .map(|comparison| comparison.before.clone());
+    let current = crate::discovery::fingerprint::collect(std::path::Path::new(&project_path)).ok();
+    let (comparable, unchanged, differences) = before
+        .map(|before| {
+            current
+                .map(|after| {
+                    let comparison = crate::discovery::fingerprint::compare(before, after);
+                    (
+                        comparison.comparable,
+                        comparison.unchanged,
+                        comparison.differences,
+                    )
+                })
+                .unwrap_or((
+                    false,
+                    false,
+                    vec!["Current fingerprint could not be collected".into()],
+                ))
+        })
+        .unwrap_or((
+            false,
+            false,
+            vec!["Snapshot has no comparable before fingerprint".into()],
+        ));
+    let stale = !comparable || !unchanged;
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let differences_json = serialize(&differences, "freshness differences")?;
+    connection
+        .execute(
+            "INSERT INTO snapshot_rechecks (snapshot_id, comparable, unchanged, differences_json, checked_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, comparable as i64, unchanged as i64, differences_json, timestamp()],
+        )
+        .map_err(|error| CommandError::new("database_write_failed", "Snapshot freshness could not be saved").with_details(error.to_string()))?;
+    if stale {
+        connection
+            .execute(
+                "UPDATE snapshots SET lifecycle = 'stale', updated_at = ?1 WHERE id = ?2",
+                params![timestamp(), id],
+            )
+            .map_err(|error| {
+                CommandError::new(
+                    "database_write_failed",
+                    "Snapshot freshness could not be saved",
+                )
+                .with_details(error.to_string())
+            })?;
+    }
+    let snapshot = connection.query_row("SELECT id, project_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1", [id], row_to_snapshot).map_err(|error| CommandError::new("snapshot_not_found", "Snapshot is not available").with_details(error.to_string()))?;
+    enrich_snapshot(&connection, snapshot)
 }
 
 #[tauri::command]

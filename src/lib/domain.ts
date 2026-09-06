@@ -78,6 +78,7 @@ export type Evidence<T> =
 
 export type InventoryProvider = "modrinth" | "curseforge" | "unsupported" | "unknown";
 export type InventorySide = "client" | "server" | "both" | "unknown";
+export type CandidateSeverity = "critical" | "warning" | "informational" | "unknown";
 
 export type TrustedPageLink = {
   url: string;
@@ -94,6 +95,7 @@ export type InventoryEntry = {
   pin: Evidence<boolean>;
   source_url: Evidence<string>;
   page_link: TrustedPageLink | null;
+  severity: Evidence<CandidateSeverity>;
 };
 
 export type InventoryCounts = {
@@ -237,6 +239,7 @@ export type UpdateCandidate = {
   pin: Evidence<boolean>;
   source_url: Evidence<string>;
   page_link: TrustedPageLink | null;
+  severity: Evidence<CandidateSeverity>;
   version_change: VersionChangeKind;
   output_evidence: string;
 };
@@ -254,6 +257,29 @@ export type DiscoveryResult = {
   diagnostics: DiscoveryDiagnostics;
   error: CommandError | null;
 };
+export type SnapshotLifecycle = "draft" | "reviewable" | "closed" | "cancelled" | "stale";
+export type SnapshotDecision = "undecided" | "selected" | "skipped" | "blocked" | "deferred";
+export type SnapshotNoteScope = "project" | "snapshot" | "candidate";
+export type SnapshotRecord = {
+  id: string;
+  project_id: string;
+  predecessor_id: string | null;
+  lifecycle: SnapshotLifecycle;
+  outcome: DiscoveryOutcomeKind;
+  label: string | null;
+  created_at: string;
+  updated_at: string;
+  closed_at: string | null;
+  result: DiscoveryResult;
+  candidates: SnapshotCandidateRecord[];
+  decisions: SnapshotDecisionRecord[];
+  notes: SnapshotNoteRecord[];
+  rechecks: SnapshotRecheckRecord[];
+};
+export type SnapshotCandidateRecord = { id: string; candidate: UpdateCandidate; observed_at: string };
+export type SnapshotDecisionRecord = { id: number; candidate_id: string; decision: SnapshotDecision; note: string | null; recorded_at: string };
+export type SnapshotNoteRecord = { id: number; project_id: string; snapshot_id: string | null; candidate_id: string | null; scope: SnapshotNoteScope; note: string; is_current: boolean; recorded_at: string };
+export type SnapshotRecheckRecord = { id: number; comparable: boolean; unchanged: boolean; differences: string[]; checked_at: string };
 export type DiscoveryProgressKind = "starting" | "running" | "prompt_detected" | "cancelling" | "finished";
 export type DiscoveryProgress = {
   project_id: string;

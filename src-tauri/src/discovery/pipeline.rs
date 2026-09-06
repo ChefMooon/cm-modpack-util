@@ -247,6 +247,7 @@ pub fn parse_candidates(output: &str) -> Vec<UpdateCandidate> {
                 pin: Evidence::Unknown,
                 source_url: Evidence::Unknown,
                 page_link: None,
+                severity: Evidence::Unknown,
                 version_change: VersionChangeKind::Unknown,
                 output_evidence: line.to_string(),
             })

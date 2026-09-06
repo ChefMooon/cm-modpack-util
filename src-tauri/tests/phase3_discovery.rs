@@ -72,6 +72,28 @@ fn discovery_observation_and_candidates_are_persisted() {
         .unwrap();
     assert_eq!(attempts, 1);
     assert_eq!(candidates, 1);
+    let snapshots: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM snapshots WHERE project_id = 'project-test'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let snapshot_candidates: i64 = connection
+        .query_row("SELECT COUNT(*) FROM snapshot_candidates", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    let activity: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM project_activity WHERE event_type = 'snapshot_created'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(snapshots, 1);
+    assert_eq!(snapshot_candidates, 1);
+    assert_eq!(activity, 1);
     drop(connection);
     let _ = std::fs::remove_file(path);
 }

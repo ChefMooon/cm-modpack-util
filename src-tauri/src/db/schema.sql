@@ -49,3 +49,61 @@ CREATE TABLE IF NOT EXISTS discovery_candidates (
     candidate_json TEXT NOT NULL,
     FOREIGN KEY (attempt_id) REFERENCES discovery_attempts(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS snapshots (
+    id TEXT PRIMARY KEY NOT NULL,
+    project_id TEXT NOT NULL,
+    predecessor_id TEXT,
+    lifecycle TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    label TEXT,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    closed_at TEXT,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE RESTRICT,
+    FOREIGN KEY (predecessor_id) REFERENCES snapshots(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS snapshot_candidates (
+    id TEXT PRIMARY KEY NOT NULL,
+    snapshot_id TEXT NOT NULL,
+    candidate_json TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS snapshot_decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id TEXT NOT NULL,
+    candidate_id TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    note TEXT,
+    recorded_at TEXT NOT NULL,
+    FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE RESTRICT,
+    FOREIGN KEY (candidate_id) REFERENCES snapshot_candidates(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS snapshot_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL,
+    snapshot_id TEXT,
+    candidate_id TEXT,
+    scope TEXT NOT NULL,
+    note TEXT NOT NULL,
+    is_current INTEGER NOT NULL DEFAULT 1,
+    recorded_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE RESTRICT,
+    FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE RESTRICT,
+    FOREIGN KEY (candidate_id) REFERENCES snapshot_candidates(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS snapshot_rechecks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id TEXT NOT NULL,
+    comparable INTEGER NOT NULL,
+    unchanged INTEGER NOT NULL,
+    differences_json TEXT NOT NULL,
+    checked_at TEXT NOT NULL,
+    FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE RESTRICT
+);

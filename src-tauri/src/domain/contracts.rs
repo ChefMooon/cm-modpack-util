@@ -88,6 +88,15 @@ pub enum InventorySide {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateSeverity {
+    Critical,
+    Warning,
+    Informational,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TrustedPageLink {
     pub url: String,
     pub provider: InventoryProvider,
@@ -310,6 +319,7 @@ pub struct UpdateCandidate {
     pub pin: Evidence<bool>,
     pub source_url: Evidence<String>,
     pub page_link: Option<TrustedPageLink>,
+    pub severity: Evidence<CandidateSeverity>,
     pub version_change: VersionChangeKind,
     pub output_evidence: String,
 }
@@ -340,6 +350,89 @@ pub struct DiscoveryResult {
     pub candidates: Vec<UpdateCandidate>,
     pub diagnostics: DiscoveryDiagnostics,
     pub error: Option<CommandError>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SnapshotLifecycle {
+    Draft,
+    Reviewable,
+    Closed,
+    Cancelled,
+    Stale,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SnapshotDecision {
+    Undecided,
+    Selected,
+    Skipped,
+    Blocked,
+    Deferred,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SnapshotNoteScope {
+    Project,
+    Snapshot,
+    Candidate,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SnapshotCandidateRecord {
+    pub id: String,
+    pub candidate: UpdateCandidate,
+    pub observed_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SnapshotDecisionRecord {
+    pub id: i64,
+    pub candidate_id: String,
+    pub decision: SnapshotDecision,
+    pub note: Option<String>,
+    pub recorded_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SnapshotNoteRecord {
+    pub id: i64,
+    pub project_id: String,
+    pub snapshot_id: Option<String>,
+    pub candidate_id: Option<String>,
+    pub scope: SnapshotNoteScope,
+    pub note: String,
+    pub is_current: bool,
+    pub recorded_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SnapshotRecheckRecord {
+    pub id: i64,
+    pub comparable: bool,
+    pub unchanged: bool,
+    pub differences: Vec<String>,
+    pub checked_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SnapshotRecord {
+    pub id: String,
+    pub project_id: String,
+    pub predecessor_id: Option<String>,
+    pub lifecycle: SnapshotLifecycle,
+    pub outcome: DiscoveryOutcomeKind,
+    pub label: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub closed_at: Option<String>,
+    pub result: DiscoveryResult,
+    pub candidates: Vec<SnapshotCandidateRecord>,
+    pub decisions: Vec<SnapshotDecisionRecord>,
+    pub notes: Vec<SnapshotNoteRecord>,
+    pub rechecks: Vec<SnapshotRecheckRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -450,7 +543,8 @@ impl CommandError {
 mod tests {
     use super::{
         ApplicationProjectMetadata, CommandError, Evidence, InventoryCounts, InventoryProvider,
-        Observation, OperationStatus, ProjectLifecycle, ValidationSeverity,
+        Observation, OperationStatus, ProjectLifecycle, SnapshotDecision, SnapshotLifecycle,
+        SnapshotNoteScope, ValidationSeverity,
     };
 
     #[test]
@@ -462,6 +556,18 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&ValidationSeverity::Warning).unwrap(),
             "\"warning\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SnapshotDecision::Deferred).unwrap(),
+            "\"deferred\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SnapshotLifecycle::Stale).unwrap(),
+            "\"stale\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SnapshotNoteScope::Candidate).unwrap(),
+            "\"candidate\""
         );
         assert_eq!(
             serde_json::to_string(&CommandError::new(

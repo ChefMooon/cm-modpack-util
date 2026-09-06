@@ -2,7 +2,7 @@
 
 A local-first foundation for CM modpack projects, built with **Tauri 2**, **SvelteKit**, **TypeScript**, **Vite**, and **SQLite**.
 
-The alpha release provides local Packwiz project registration, read-only inventory inspection, project overview facts, and the Projects, Activity, and Settings shell. It reads Packwiz evidence offline, persists application-owned project metadata and observations, and manages lifecycle state without modifying external project directories. Network providers, Git history, and update operations remain outside this release.
+The v0.0.5 alpha provides local Packwiz project registration, read-only inventory inspection, durable update-check snapshots, review decisions and notes, project overview facts, and the Projects, Activity, and Settings shell. It reads Packwiz evidence offline, persists application-owned project metadata, observations, and review history, and manages lifecycle state without modifying external project directories. Network providers, Git history, and update application remain outside this release.
 
 ## Prerequisites
 
@@ -32,7 +32,7 @@ The Vite-only frontend can also be run with `npm run dev`.
 ## Project structure
 
 - `src/routes/+page.svelte` — Projects registration, validation, metadata, and lifecycle workflow
-- `src/routes/activity/+page.svelte` — unavailable operation history state
+- `src/routes/activity/+page.svelte` — durable snapshot and operation history
 - `src/routes/settings/+page.svelte` — settings screen with persisted theme preference
 - `src/lib/settings.ts` — product-owned typed settings invocation helper
 - `src/lib/domain.ts` — shared project, validation, and operation contracts
@@ -87,6 +87,15 @@ All of these settings can be reset from the Advanced section of the Settings pag
 - There is no migration, backup, or in-app database rebuild workflow in alpha.
 - When a clean reset is needed during development, stop the app and delete the local `settings.sqlite` file from Tauri's application data directory. The app recreates it on the next launch.
 - Packwiz project files remain outside the database lifecycle and are not deleted by a database reset.
+
+## v0.0.5 snapshot review boundaries
+
+- **Review:** A safe, normal discovery result creates a durable snapshot with immutable candidate and fingerprint evidence. Selected, skipped, blocked, and deferred values are application-owned decisions; the Packwiz `pin` field remains evidence only.
+- **Abnormal outcomes:** Cancelled, unsafe, unsupported, failed, and indeterminate attempts remain visible but are not reviewable as authoritative candidate results.
+- **Freshness:** Native Rust rechecks the registered project's relevant fingerprint. Changed, missing, unreadable, incomplete, or incomparable evidence marks the snapshot stale and blocks further review writes.
+- **History:** Decisions and notes are append-only records. Closing, cancelling, and retrying never rewrites the original snapshot. A retry receives a new snapshot ID linked to its predecessor.
+- **Mutation boundary:** v0.0.5 never sends `y`, applies updates, edits TOML, changes pins, or requests provider/network data. Those workflows belong to v0.0.6 or later.
+- **Reset fallback:** Because alpha uses additive `CREATE TABLE IF NOT EXISTS` schema setup without migrations, stop the app and delete `settings.sqlite` if an incompatible pre-v0.0.5 database prevents startup. This does not delete Packwiz files.
 
 ## Common UI components
 
