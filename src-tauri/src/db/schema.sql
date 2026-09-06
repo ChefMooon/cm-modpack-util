@@ -33,3 +33,19 @@ CREATE TABLE IF NOT EXISTS project_activity (
     message TEXT NOT NULL,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS discovery_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS discovery_candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    attempt_id INTEGER NOT NULL,
+    candidate_json TEXT NOT NULL,
+    FOREIGN KEY (attempt_id) REFERENCES discovery_attempts(id) ON DELETE CASCADE
+);

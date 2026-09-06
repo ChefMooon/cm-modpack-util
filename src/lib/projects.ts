@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
@@ -7,6 +8,9 @@ import type {
   ProjectOverview,
   ProjectRecord,
   RegistrationPreview,
+  DiscoveryResult,
+  DiscoveryProgress,
+  ProcessEvidence,
 } from "./domain";
 
 export async function chooseProjectDirectory(): Promise<string | null> {
@@ -36,6 +40,30 @@ export function getProjectInventory(id: string): Promise<InventoryEntry[]> {
 
 export function getProjectOverview(id: string): Promise<ProjectOverview> {
   return invoke("get_project_overview", { id });
+}
+
+export function checkForUpdates(id: string): Promise<DiscoveryResult> {
+  return invoke("check_for_updates", { projectId: id });
+}
+
+export function startUpdateCheck(id: string): Promise<"running"> {
+  return invoke("start_update_check", { projectId: id });
+}
+
+export function cancelUpdateCheck(): Promise<"cancelled"> {
+  return invoke("cancel_update_check");
+}
+
+export function listenUpdateCheckProgress(
+  handler: (progress: DiscoveryProgress) => void,
+): Promise<UnlistenFn> {
+  return listen<DiscoveryProgress>("discovery-progress", (event) => handler(event.payload));
+}
+
+export function listenUpdateCheckProcess(
+  handler: (process: ProcessEvidence) => void,
+): Promise<UnlistenFn> {
+  return listen<ProcessEvidence>("discovery-process", (event) => handler(event.payload));
 }
 
 export function openTrustedPage(url: string): Promise<void> {

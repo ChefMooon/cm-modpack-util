@@ -1,6 +1,6 @@
 [package]
 name = "cm-modpack-util"
-version = "0.0.2"
+version = "0.0.3"
 description = "A local-first desktop workspace for CM modpack projects."
 authors = ["CM Modpack Util contributors"]
 edition = "2021"

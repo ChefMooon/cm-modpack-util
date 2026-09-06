@@ -159,3 +159,106 @@ export type RefreshResult = {
   overview: ProjectOverview | null;
   error: CommandError | null;
 };
+
+export type CompatibilityStatus = "supported" | "unsupported";
+export type VersionEvidence = { observed: string } | "unavailable";
+export type CompatibilityProfile = {
+  id: string;
+  executable_name: string;
+  version: VersionEvidence;
+  command: string[];
+  prompt_patterns: string[];
+  cancellation_response: string;
+  cancellation_markers: string[];
+  no_update_markers: string[];
+  expected_exit_codes: number[];
+  max_output_bytes: number;
+  timeout_seconds: number;
+  supported_platforms: string[];
+  known_limitations: string[];
+};
+export type CompatibilityEvidence = {
+  status: CompatibilityStatus;
+  profile: CompatibilityProfile | null;
+  executable_path: string | null;
+  version_output: string | null;
+  diagnostic: CommandError | null;
+};
+export type PromptState = "not_seen" | "expected_seen" | "no_updates" | "missing" | "ambiguous" | "unexpected";
+export type CancellationState =
+  | "not_attempted"
+  | "sent_n"
+  | "confirmed"
+  | "write_failed"
+  | "premature_exit"
+  | "terminated"
+  | "user_cancelled";
+export type ProcessEvidence = {
+  executable: string;
+  arguments: string[];
+  working_directory: string;
+  stdout: string;
+  stderr: string;
+  exit_code: number | null;
+  started_at: string;
+  finished_at: string | null;
+  output_truncated: boolean;
+  prompt: PromptState;
+  cancellation: CancellationState;
+};
+export type FingerprintEntry = {
+  relative_path: string;
+  kind: string;
+  size: number | null;
+  modified_ns: number | null;
+  content_hash: string | null;
+};
+export type ProjectFingerprint = {
+  root: string;
+  entries: FingerprintEntry[];
+  complete: boolean;
+  diagnostic: string | null;
+};
+export type FingerprintComparison = {
+  before: ProjectFingerprint;
+  after: ProjectFingerprint;
+  unchanged: boolean;
+  comparable: boolean;
+  differences: string[];
+};
+export type VersionChangeKind = "major" | "minor" | "bugfix" | "unknown";
+export type UpdateCandidate = {
+  identity: Evidence<string>;
+  current_version: Evidence<string>;
+  available_version: Evidence<string>;
+  local_path: Evidence<string>;
+  provider: Evidence<InventoryProvider>;
+  side: Evidence<InventorySide>;
+  pin: Evidence<boolean>;
+  source_url: Evidence<string>;
+  page_link: TrustedPageLink | null;
+  version_change: VersionChangeKind;
+  output_evidence: string;
+};
+export type DiscoveryOutcomeKind = "normal" | "unsupported" | "unsafe" | "indeterminate" | "failed" | "cancelled";
+export type DiscoveryDiagnostics = {
+  compatibility: CompatibilityEvidence;
+  process: ProcessEvidence | null;
+  fingerprint: FingerprintComparison | null;
+  messages: string[];
+};
+export type DiscoveryResult = {
+  status: OperationStatus;
+  outcome: DiscoveryOutcomeKind;
+  candidates: UpdateCandidate[];
+  diagnostics: DiscoveryDiagnostics;
+  error: CommandError | null;
+};
+export type DiscoveryProgressKind = "starting" | "running" | "prompt_detected" | "cancelling" | "finished";
+export type DiscoveryProgress = {
+  project_id: string;
+  kind: DiscoveryProgressKind;
+  message: string;
+  output_bytes: number;
+  cancellable: boolean;
+};

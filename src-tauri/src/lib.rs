@@ -1,5 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-mod db;
+pub mod db;
+pub mod discovery;
 pub mod domain;
 pub mod safety;
 
@@ -33,6 +34,7 @@ pub fn run() {
             let restore_window_state =
                 db::bool_setting(&database, "general.restoreWindowState", true);
             app.manage(database);
+            app.manage(discovery::operations::DiscoveryRuntime::default());
 
             let show = MenuItem::with_id(app, "show", "Show window", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -100,7 +102,10 @@ pub fn run() {
             db::archive_project,
             db::restore_project,
             db::disconnect_project,
-            db::reconnect_project
+            db::reconnect_project,
+            discovery::operations::start_update_check,
+            discovery::operations::cancel_update_check,
+            discovery::pipeline::check_for_updates
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

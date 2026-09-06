@@ -154,7 +154,7 @@
       {/if}
       {#if search && !hasMatch("appearance.theme") && !hasMatch("accessibility.reducedMotion")}<p class="empty-state">No settings matched “{search}”. <Button variant="quiet" size="sm" type="button" onclick={() => (search = "")}>Clear search</Button></p>{/if}
 
-      <section id="about" class="settings-section" aria-labelledby="about-title"><p class="eyebrow">About</p><h2 id="about-title">CM Modpack Util</h2><div class="setting-card about-card"><p>A local-first foundation for registered modpack projects.</p><p class="muted">Version 0.0.2</p></div></section>
+      <section id="about" class="settings-section" aria-labelledby="about-title"><p class="eyebrow">About</p><h2 id="about-title">CM Modpack Util</h2><div class="setting-card about-card"><p>A local-first foundation for registered modpack projects.</p><p class="muted">Version 0.0.3</p></div></section>
       <section class="settings-section danger-section" aria-labelledby="reset-title"><p class="eyebrow">Advanced</p><h2 id="reset-title">Reset settings</h2><div class="setting-card reset-card"><div><h3>Restore defaults</h3><p>Remove all saved preferences from the local SQLite database.</p></div><Button variant="danger" type="button" disabled={resetPending} onclick={() => (showReset = true)}>Reset settings</Button></div>{#if resetMessage}<p class="status" role="status">{resetMessage}</p>{/if}</section>
     </div>
   </div>

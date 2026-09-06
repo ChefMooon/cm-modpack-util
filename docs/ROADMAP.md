@@ -107,9 +107,10 @@ Provide a useful read-only view of the current project state.
 **Exit gate:** Users can inspect a project and its mod metadata without changing
 files, and the interface never presents inferred provider or side data as fact.
 
-### v0.0.4 - Packwiz Compatibility and Safe Update Discovery
+### v0.0.4 - Packwiz Compatibility and Safe Update Checks
 
-Build the controlled discovery path before allowing updates to be applied.
+Build the controlled **Check for updates** workflow before allowing updates to
+be applied.
 
 - Identify and record the tested Packwiz compatibility profile.
 - Implement observable Packwiz process execution in the registered directory.
@@ -120,15 +121,16 @@ Build the controlled discovery path before allowing updates to be applied.
 - Parse update candidates only when prompt handling, cancellation, compatibility,
   and post-cancellation validation all succeed.
 - Report unsupported, unsafe, and indeterminate outcomes distinctly from normal
-  discovery results.
+  update-check results.
 
-**Exit gate:** Discovery never sends `y`, never claims authoritative candidates
-without all required evidence, and does not modify the project during a normal
-successful discovery.
+**Exit gate:** **Check for updates** never sends `y`, never claims authoritative
+candidates without all required evidence, and does not modify the project during
+a normal successful update check.
 
 ### v0.0.5 - Snapshot Review and Decision Tracking
 
-Turn discovery into a durable review workflow without applying changes yet.
+Turn **Check for updates** into a durable review workflow without applying
+changes yet.
 
 - Create snapshots for update sessions, including review, cancelled, unsafe,
   and indeterminate outcomes.

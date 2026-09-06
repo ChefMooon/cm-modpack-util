@@ -27,6 +27,10 @@
     ProjectRecord,
     RegistrationPreview,
     ValidationResult,
+    DiscoveryOutcomeKind,
+    DiscoveryProgress,
+    DiscoveryResult,
+    ProcessEvidence,
   } from "../lib/domain";
   import {
     archiveProject,
@@ -42,6 +46,10 @@
     registerProject,
     restoreProject,
     updateProjectMetadata,
+    cancelUpdateCheck,
+    listenUpdateCheckProcess,
+    listenUpdateCheckProgress,
+    checkForUpdates,
   } from "../lib/projects";
 
   let projects = $state<ProjectRecord[]>([]);
@@ -63,9 +71,30 @@
   let overview = $state<ProjectOverview | null>(null);
   let inventoryFilter = $state("all");
   let inspecting = $state(false);
+  let discoveryProject = $state<ProjectRecord | null>(null);
+  let discovery = $state<DiscoveryResult | null>(null);
+  let discoveryProgress = $state<DiscoveryProgress | null>(null);
+  let discoveryProcess = $state<ProcessEvidence | null>(null);
+  let discoveryBusy = $state(false);
+  let discoveryUnlisten: (() => void)[] = [];
   const { toast } = useToast();
 
-  onMount(loadProjects);
+  onMount(() => {
+    void loadProjects();
+    void hydrateDiscoveryEvents();
+    return () => discoveryUnlisten.forEach((unlisten) => unlisten());
+  });
+
+  async function hydrateDiscoveryEvents() {
+    discoveryUnlisten = await Promise.all([
+      listenUpdateCheckProgress((progress) => {
+        if (!discoveryProject || progress.project_id === discoveryProject.id) discoveryProgress = progress;
+      }),
+      listenUpdateCheckProcess((process) => {
+        discoveryProcess = process;
+      }),
+    ]);
+  }
 
   async function loadProjects() {
     loading = true;
@@ -147,10 +176,44 @@
     }
   }
 
+  async function checkProjectForUpdates(project: ProjectRecord) {
+    if (discoveryBusy) return;
+    discoveryProject = project;
+    discovery = null;
+    discoveryProcess = null;
+    discoveryProgress = null;
+    discoveryBusy = true;
+    error = "";
+    try {
+      discovery = await checkForUpdates(project.id);
+    } catch (cause) {
+      discovery = null;
+      error = commandErrorMessage(cause);
+    } finally {
+      discoveryBusy = false;
+    }
+  }
+
+  async function cancelUpdateCheckForProject() {
+    try {
+      await cancelUpdateCheck();
+    } catch (cause) {
+      error = commandErrorMessage(cause);
+    }
+  }
+
   async function openPage(entry: InventoryEntry) {
     if (!entry.page_link) return;
     try {
       await openTrustedPage(entry.page_link.url);
+    } catch (cause) {
+      error = commandErrorMessage(cause);
+    }
+  }
+
+  async function openCandidatePage(url: string) {
+    try {
+      await openTrustedPage(url);
     } catch (cause) {
       error = commandErrorMessage(cause);
     }
@@ -267,6 +330,17 @@
         : hasErrors(project.validation)
           ? "Needs attention"
           : "Ready";
+  }
+
+  function outcomeMessage(outcome: DiscoveryOutcomeKind) {
+    return {
+      unsupported: "The installed Packwiz executable is outside the tested compatibility profile.",
+      unsafe: "The project changed or cancellation safety could not be proven; candidates are withheld.",
+      indeterminate: "The evidence was incomplete or ambiguous; candidates are withheld.",
+      cancelled: "The update check was cancelled before a safe result was available.",
+      failed: "The update check failed before a safe result was available.",
+      normal: "The project was unchanged after the cancellation probe.",
+    }[outcome];
   }
 
   const visibleProjects = $derived(
@@ -402,6 +476,15 @@
               onclick={() => inspectProject(project)}
               ><MagnifyingGlassIcon size={15} /> Inspect</Button
             >
+            <Button
+              variant="primary"
+              size="sm"
+              type="button"
+              disabled={discoveryBusy || project.application.lifecycle !== "active"}
+              loading={discoveryBusy && discoveryProject?.id === project.id}
+              onclick={() => checkProjectForUpdates(project)}
+              ><ArrowClockwiseIcon size={15} /> Check for updates</Button
+            >
             <Tooltip text="Edit application-owned project details"
               ><Button
                 variant="ghost"
@@ -516,6 +599,61 @@
     {/if}
   {/if}
 </main>
+
+{#if discoveryProject}
+  <section class="discovery-panel" aria-labelledby="discovery-title" aria-live="polite">
+    <div class="discovery-heading">
+      <div>
+        <p class="eyebrow">Update check</p>
+        <h2 id="discovery-title">{discoveryProject.application.display_name}</h2>
+        <p class="path">{discovery?.diagnostics.process?.prompt === "no_updates" ? "Packwiz reported no available updates. No update was applied." : "Packwiz output is observed and cancelled. No update is applied."}</p>
+      </div>
+      {#if discoveryBusy}<Button variant="danger" size="sm" type="button" onclick={cancelUpdateCheckForProject}><XIcon size={15} /> Cancel</Button>{/if}
+    </div>
+    {#if discoveryBusy}
+      <div class="discovery-progress" role="status"><div class="loader" aria-hidden="true"></div><span>{discoveryProgress?.message ?? "Preparing the Packwiz safety probe..."}</span></div>
+    {/if}
+    {#if discovery}
+      <div class="discovery-outcome" data-outcome={discovery.outcome}>
+        <strong>{discovery.outcome === "normal" ? "Update check completed" : discovery.outcome.replaceAll("_", " ")}</strong>
+        <span>{discovery.diagnostics.messages[0] ?? outcomeMessage(discovery.outcome)}</span>
+      </div>
+      {#if discovery.outcome === "normal"}
+        {#if discovery.candidates.length === 0}<p class="discovery-empty">No updates were presented by Packwiz.</p>
+        {:else}<div class="candidate-list" aria-label="Available updates">
+            {#each discovery.candidates as candidate (candidate.output_evidence)}
+              <article class="candidate">
+                <div><strong>{evidenceLabel(candidate.identity)}</strong><span class="path">{evidenceLabel(candidate.local_path)}</span></div>
+                <div><span class="label">Version</span><strong>{evidenceLabel(candidate.current_version)} -> {evidenceLabel(candidate.available_version)}</strong></div>
+                <div><span class="label">Change</span><strong>{candidate.version_change}</strong></div>
+                <div><span class="label">Provider / side</span><strong>{evidenceLabel(candidate.provider)} / {evidenceLabel(candidate.side)}</strong></div>
+                <div><span class="label">Pin</span><strong>{evidenceLabel(candidate.pin)}</strong></div>
+                {#if candidate.page_link}<Button variant="quiet" size="sm" type="button" onclick={() => openCandidatePage(candidate.page_link!.url)}><ArrowSquareOutIcon size={14} /> Open source</Button>{/if}
+              </article>
+            {/each}
+          </div>{/if}
+      {/if}
+      <details class="discovery-evidence">
+        <summary>Safety evidence</summary>
+        <div class="evidence-grid">
+          <span>Prompt <strong>{discovery.diagnostics.process?.prompt ?? "Unavailable"}</strong></span>
+          <span>Cancellation <strong>{discovery.diagnostics.process?.cancellation ?? "Unavailable"}</strong></span>
+          <span>Fingerprint <strong>{discovery.diagnostics.fingerprint?.unchanged ? "Unchanged" : "Not proven unchanged"}</strong></span>
+          <span>Output <strong>{discovery.diagnostics.process?.output_truncated ? "Truncated" : "Complete"}</strong></span>
+          <span>Exit code <strong>{discovery.diagnostics.process?.exit_code ?? "Unavailable"}</strong></span>
+        </div>
+        {#if discovery.diagnostics.process}
+          <div class="captured-output">
+            <span class="label">Captured stdout</span>
+            <pre>{discovery.diagnostics.process.stdout || "(empty)"}</pre>
+            <span class="label">Captured stderr</span>
+            <pre>{discovery.diagnostics.process.stderr || "(empty)"}</pre>
+          </div>
+        {/if}
+      </details>
+    {/if}
+  </section>
+{/if}
 
 <Modal
   bind:open={showPreview}
@@ -1038,6 +1176,27 @@
   .activity-list { border-top: 1px solid var(--color-border); }
   .activity-item { display: grid; grid-template-columns: 155px 150px 1fr; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 12px; }
   .activity-item strong { color: var(--color-text); font: 11px var(--font-mono); text-transform: uppercase; }
+  .discovery-panel { max-width: 1060px; margin: 22px auto 0; padding: 24px; border: 1px solid var(--color-border); background: var(--color-surface); }
+  .discovery-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding-bottom: 20px; border-bottom: 1px solid var(--color-border); }
+  .discovery-progress { display: flex; align-items: center; gap: 10px; padding: 18px 0; color: var(--color-text-muted); }
+  .discovery-outcome { display: grid; gap: 5px; margin-top: 20px; padding: 14px; border-left: 3px solid var(--color-info); color: var(--color-text-muted); font-size: 13px; }
+  .discovery-outcome strong { color: var(--color-text); text-transform: capitalize; }
+  .discovery-outcome[data-outcome="normal"] { border-color: var(--color-success); }
+  .discovery-outcome[data-outcome="unsafe"], .discovery-outcome[data-outcome="indeterminate"] { border-color: var(--color-warning); }
+  .discovery-outcome[data-outcome="failed"], .discovery-outcome[data-outcome="cancelled"], .discovery-outcome[data-outcome="unsupported"] { border-color: var(--color-danger); }
+  .discovery-empty { margin: 20px 0 0; color: var(--color-text-muted); }
+  .candidate-list { display: grid; gap: 1px; margin-top: 20px; border: 1px solid var(--color-border); background: var(--color-border); }
+  .candidate { display: grid; grid-template-columns: minmax(150px, 1.4fr) repeat(4, minmax(100px, 1fr)) auto; gap: 14px; align-items: center; padding: 14px; background: var(--color-surface); font-size: 12px; }
+  .candidate > div { display: grid; gap: 5px; min-width: 0; }
+  .candidate strong { overflow-wrap: anywhere; color: var(--color-text); }
+  .candidate .label { color: var(--color-text-subtle); font: 10px var(--font-mono); text-transform: uppercase; }
+  .discovery-evidence { margin-top: 20px; border-top: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 12px; }
+  .discovery-evidence summary { padding: 14px 0; cursor: pointer; color: var(--color-text); font-weight: 700; }
+  .evidence-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding-bottom: 4px; }
+  .evidence-grid span { display: grid; gap: 4px; }
+  .evidence-grid strong { color: var(--color-text); font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; }
+  .captured-output { display: grid; gap: 7px; margin-top: 14px; }
+  .captured-output pre { max-height: 180px; margin: 0 0 8px; padding: 10px; overflow: auto; border: 1px solid var(--color-border); color: var(--color-console-text); background: var(--color-console); font: 11px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
   @media (max-width: 700px) {
     .projects-shell {
       padding: 0 20px 28px;
@@ -1075,6 +1234,10 @@
     }
     .inspection { padding: 18px; }
     .inspection-heading, .inventory-heading { align-items: flex-start; flex-direction: column; }
+    .discovery-panel { padding: 18px; }
+    .discovery-heading { flex-direction: column; }
+    .candidate { grid-template-columns: 1fr 1fr; }
+    .evidence-grid { grid-template-columns: 1fr 1fr; }
     .overview-grid { grid-template-columns: 1fr 1fr; }
     .inventory-table { overflow-x: auto; }
     .inventory-row { min-width: 650px; }

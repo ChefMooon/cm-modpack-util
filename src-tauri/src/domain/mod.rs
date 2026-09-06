@@ -3,9 +3,13 @@ pub mod inventory;
 pub mod validation;
 
 pub use contracts::{
-    ActivityEventType, ActivityRecord, ApplicationProjectMetadata, CommandError, Evidence,
-    GitStatusObservation, GitWorkingTreeState, InventoryCounts, InventoryEntry, InventoryProvider,
-    InventorySide, Observation, ObservationFreshness, OperationStatus, PackwizObservations,
-    ProjectLifecycle, ProjectOverview, ProjectRecord, ProjectReference, RefreshResult,
-    RegistrationPreview, TrustedPageLink, ValidationResult, ValidationSeverity,
+    ActivityEventType, ActivityRecord, ApplicationProjectMetadata, CancellationState, CommandError,
+    CompatibilityEvidence, CompatibilityProfile, CompatibilityStatus, DiscoveryDiagnostics,
+    DiscoveryOutcomeKind, DiscoveryProgress, DiscoveryProgressKind, DiscoveryResult, Evidence,
+    FingerprintComparison, FingerprintEntry, GitStatusObservation, GitWorkingTreeState,
+    InventoryCounts, InventoryEntry, InventoryProvider, InventorySide, Observation,
+    ObservationFreshness, OperationStatus, PackwizObservations, ProcessEvidence,
+    ProjectFingerprint, ProjectLifecycle, ProjectOverview, ProjectRecord, ProjectReference,
+    PromptState, RefreshResult, RegistrationPreview, TrustedPageLink, UpdateCandidate,
+    ValidationResult, ValidationSeverity, VersionChangeKind, VersionEvidence,
 };

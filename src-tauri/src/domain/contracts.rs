@@ -187,6 +187,180 @@ pub struct RefreshResult {
     pub error: Option<CommandError>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CompatibilityStatus {
+    Supported,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum VersionEvidence {
+    Observed(String),
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CompatibilityProfile {
+    pub id: String,
+    pub executable_name: String,
+    pub version: VersionEvidence,
+    pub command: Vec<String>,
+    pub prompt_patterns: Vec<String>,
+    pub cancellation_response: String,
+    pub cancellation_markers: Vec<String>,
+    pub no_update_markers: Vec<String>,
+    pub expected_exit_codes: Vec<i32>,
+    pub max_output_bytes: u64,
+    pub timeout_seconds: u64,
+    pub supported_platforms: Vec<String>,
+    pub known_limitations: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CompatibilityEvidence {
+    pub status: CompatibilityStatus,
+    pub profile: Option<CompatibilityProfile>,
+    pub executable_path: Option<String>,
+    pub version_output: Option<String>,
+    pub diagnostic: Option<CommandError>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptState {
+    NotSeen,
+    ExpectedSeen,
+    NoUpdates,
+    Missing,
+    Ambiguous,
+    Unexpected,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CancellationState {
+    NotAttempted,
+    SentN,
+    Confirmed,
+    WriteFailed,
+    PrematureExit,
+    Terminated,
+    UserCancelled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProcessEvidence {
+    pub executable: String,
+    pub arguments: Vec<String>,
+    pub working_directory: String,
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: Option<i32>,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub output_truncated: bool,
+    pub prompt: PromptState,
+    pub cancellation: CancellationState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FingerprintEntry {
+    pub relative_path: String,
+    pub kind: String,
+    pub size: Option<u64>,
+    pub modified_ns: Option<u128>,
+    pub content_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProjectFingerprint {
+    pub root: String,
+    pub entries: Vec<FingerprintEntry>,
+    pub complete: bool,
+    pub diagnostic: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FingerprintComparison {
+    pub before: ProjectFingerprint,
+    pub after: ProjectFingerprint,
+    pub unchanged: bool,
+    pub comparable: bool,
+    pub differences: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum VersionChangeKind {
+    Major,
+    Minor,
+    Bugfix,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UpdateCandidate {
+    pub identity: Evidence<String>,
+    pub current_version: Evidence<String>,
+    pub available_version: Evidence<String>,
+    pub local_path: Evidence<String>,
+    pub provider: Evidence<InventoryProvider>,
+    pub side: Evidence<InventorySide>,
+    pub pin: Evidence<bool>,
+    pub source_url: Evidence<String>,
+    pub page_link: Option<TrustedPageLink>,
+    pub version_change: VersionChangeKind,
+    pub output_evidence: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DiscoveryOutcomeKind {
+    Normal,
+    Unsupported,
+    Unsafe,
+    Indeterminate,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DiscoveryDiagnostics {
+    pub compatibility: CompatibilityEvidence,
+    pub process: Option<ProcessEvidence>,
+    pub fingerprint: Option<FingerprintComparison>,
+    pub messages: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DiscoveryResult {
+    pub status: OperationStatus,
+    pub outcome: DiscoveryOutcomeKind,
+    pub candidates: Vec<UpdateCandidate>,
+    pub diagnostics: DiscoveryDiagnostics,
+    pub error: Option<CommandError>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DiscoveryProgressKind {
+    Starting,
+    Running,
+    PromptDetected,
+    Cancelling,
+    Finished,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DiscoveryProgress {
+    pub project_id: String,
+    pub kind: DiscoveryProgressKind,
+    pub message: String,
+    pub output_bytes: u64,
+    pub cancellable: bool,
+}
+
 impl ValidationResult {
     pub fn info(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self {

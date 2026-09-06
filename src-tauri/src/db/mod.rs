@@ -1,6 +1,7 @@
 use crate::domain::{
     inventory, validation, ActivityRecord, ApplicationProjectMetadata, CommandError,
-    InventoryEntry, ProjectLifecycle, ProjectOverview, ProjectRecord, RegistrationPreview,
+    DiscoveryResult, InventoryEntry, ProjectLifecycle, ProjectOverview, ProjectRecord,
+    RegistrationPreview,
 };
 use rusqlite::{params, Connection};
 use std::collections::HashMap;
@@ -9,6 +10,54 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
 
 pub struct Database(pub Mutex<Connection>);
+
+pub fn persist_discovery_result(
+    database: &Database,
+    project_id: &str,
+    result: &DiscoveryResult,
+) -> Result<(), CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let result_json = serialize(result, "discovery result")?;
+    let outcome =
+        serde_json::to_string(&result.outcome).unwrap_or_else(|_| "indeterminate".to_string());
+    connection.execute("INSERT INTO discovery_attempts (project_id, observed_at, outcome, result_json) VALUES (?1, ?2, ?3, ?4)", params![project_id, timestamp(), outcome.trim_matches('"'), result_json]).map_err(|error| CommandError::new("database_write_failed", "Discovery observation could not be saved").with_details(error.to_string()))?;
+    let attempt_id = connection.last_insert_rowid();
+    for candidate in &result.candidates {
+        connection
+            .execute(
+                "INSERT INTO discovery_candidates (attempt_id, candidate_json) VALUES (?1, ?2)",
+                params![attempt_id, serialize(candidate, "discovery candidate")?],
+            )
+            .map_err(|error| {
+                CommandError::new(
+                    "database_write_failed",
+                    "Discovery candidate could not be saved",
+                )
+                .with_details(error.to_string())
+            })?;
+    }
+    Ok(())
+}
+
+pub fn registered_project_path(database: &Database, id: &str) -> Result<String, CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    connection
+        .query_row(
+            "SELECT canonical_path FROM projects WHERE id = ?1",
+            [id],
+            |row| row.get(0),
+        )
+        .map_err(|error| {
+            CommandError::new("project_not_found", "Project is not registered")
+                .with_details(error.to_string())
+        })
+}
 
 /// Read a boolean preference for native lifecycle decisions (tray/startup).
 pub fn bool_setting(database: &Database, key: &str, default: bool) -> bool {
