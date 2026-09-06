@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
   import Modal from "../../components/ui/Modal.svelte";
   import ThemeSelect from "../../components/settings/ThemeSelect.svelte";
   import { settingDefinitions, type Theme } from "../../components/settings/types/settings";
@@ -12,6 +11,8 @@
   import { useToast } from "../../components/ui/toast/toast.svelte";
   import Button from "../../components/ui/Button.svelte";
   import Tooltip from "../../components/ui/Tooltip.svelte";
+  import { loadSettings, resetStoredSettings, saveSetting } from "../../lib/settings";
+  import { commandErrorMessage } from "../../lib/errors";
 
   let theme = $state<Theme>("system");
   let reducedMotion = $state(false);
@@ -35,7 +36,7 @@
 
   onMount(async () => {
     try {
-      const settings = await invoke<Record<string, string>>("get_settings");
+      const settings = await loadSettings();
       const savedTheme = JSON.parse(settings["appearance.theme"] ?? '"system"');
       const savedMotion = JSON.parse(settings["accessibility.reducedMotion"] ?? "false");
       const savedHideToTray = JSON.parse(settings["general.hideToTray"] ?? "false");
@@ -62,7 +63,7 @@
     pendingSetting = key;
     try {
       if (key === "general.launchAtLogin") value ? await enableAutostart() : await disableAutostart();
-      await invoke("set_setting", { key, valueJson: JSON.stringify(value) });
+      await saveSetting(key, value);
       if (key === "general.restoreWindowState" && value) await restoreStateCurrent(StateFlags.ALL);
     } catch {
       if (key === "general.launchAtLogin") {
@@ -80,7 +81,7 @@
     const previous = reducedMotion;
     reducedMotion = value;
     try {
-      await invoke("set_setting", { key: "accessibility.reducedMotion", valueJson: JSON.stringify(value) });
+      await saveSetting("accessibility.reducedMotion", value);
       document.documentElement.dataset.reducedMotion = value ? "true" : "false";
     } catch {
       reducedMotion = previous;
@@ -92,7 +93,7 @@
     resetPending = true;
     resetMessage = "";
     try {
-      await invoke("reset_settings");
+      await resetStoredSettings();
       theme = "system";
       reducedMotion = false;
       hideToTray = false;
@@ -107,7 +108,7 @@
       toast({ title: "Settings reset", description: "Your preferences were restored to their defaults.", severity: "success" });
     } catch (error) {
       resetMessage = "";
-      toast({ title: "Settings could not be reset", description: String(error), severity: "error" });
+      toast({ title: "Settings could not be reset", description: commandErrorMessage(error), severity: "error" });
     } finally {
       resetPending = false;
     }
@@ -153,7 +154,7 @@
       {/if}
       {#if search && !hasMatch("appearance.theme") && !hasMatch("accessibility.reducedMotion")}<p class="empty-state">No settings matched “{search}”. <Button variant="quiet" size="sm" type="button" onclick={() => (search = "")}>Clear search</Button></p>{/if}
 
-      <section id="about" class="settings-section" aria-labelledby="about-title"><p class="eyebrow">About</p><h2 id="about-title">CM Modpack Util</h2><div class="setting-card about-card"><p>Review and maintain Packwiz modpack metadata from a focused desktop workspace.</p><p class="muted">Version 0.1.0</p></div></section>
+      <section id="about" class="settings-section" aria-labelledby="about-title"><p class="eyebrow">About</p><h2 id="about-title">CM Modpack Util</h2><div class="setting-card about-card"><p>A local-first foundation for registered modpack projects.</p><p class="muted">Version 0.0.1</p></div></section>
       <section class="settings-section danger-section" aria-labelledby="reset-title"><p class="eyebrow">Advanced</p><h2 id="reset-title">Reset settings</h2><div class="setting-card reset-card"><div><h3>Restore defaults</h3><p>Remove all saved preferences from the local SQLite database.</p></div><Button variant="danger" type="button" disabled={resetPending} onclick={() => (showReset = true)}>Reset settings</Button></div>{#if resetMessage}<p class="status" role="status">{resetMessage}</p>{/if}</section>
     </div>
   </div>

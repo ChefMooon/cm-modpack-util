@@ -1,5 +1,7 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod db;
+pub mod domain;
+pub mod safety;
 
 use std::fs;
 use tauri::menu::{Menu, MenuItem};

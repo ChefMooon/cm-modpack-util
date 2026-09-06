@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
   import DesktopIcon from "phosphor-svelte/lib/DesktopIcon";
   import MoonIcon from "phosphor-svelte/lib/MoonIcon";
   import SunIcon from "phosphor-svelte/lib/SunIcon";
   import Button from "../../components/ui/Button.svelte";
+  import { saveSetting } from "../../lib/settings";
+  import { commandErrorMessage } from "../../lib/errors";
 
   type Theme = "system" | "light" | "dark";
   let { value = $bindable<Theme>("system"), error = $bindable("") } = $props<{ value?: Theme; error?: string }>();
@@ -16,11 +17,11 @@
     pending = true;
     error = "";
     try {
-      await invoke("set_setting", { key: "appearance.theme", valueJson: JSON.stringify(next) });
+      await saveSetting("appearance.theme", next);
     } catch (cause) {
       value = previous;
       document.documentElement.dataset.theme = previous;
-      error = `Theme could not be saved: ${String(cause)}`;
+      error = `Theme could not be saved: ${commandErrorMessage(cause)}`;
     } finally {
       pending = false;
     }

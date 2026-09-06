@@ -1,5 +1,5 @@
 <script lang="ts">
-  export let version = "v0.1.0";
+  export let version = "v0.0.1";
 </script>
 
 <header class="site-header">
@@ -10,6 +10,7 @@
 
   <nav class="navigation" aria-label="Main navigation">
     <span class="version">{version}</span>
+    <a href="/activity">Activity</a>
     <a href="/settings">Settings</a>
   </nav>
 </header>

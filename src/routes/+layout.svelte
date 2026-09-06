@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { saveWindowState, StateFlags } from "@tauri-apps/plugin-window-state";
   import "../app.css";
   import ToastViewport from "../components/ui/toast/ToastViewport.svelte";
+  import { loadSettings } from "../lib/settings";
 
   let { children } = $props();
 
@@ -34,7 +34,7 @@
     try {
       void (async () => {
         const currentWindow = getCurrentWindow();
-        const settings = await invoke<Record<string, string>>("get_settings");
+        const settings = await loadSettings();
         const saved = JSON.parse(settings["appearance.theme"] ?? '"system"');
         const motion = JSON.parse(settings["accessibility.reducedMotion"] ?? "false");
         if (saved === "system" || saved === "light" || saved === "dark") applyTheme(saved);

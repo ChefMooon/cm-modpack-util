@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    tauri_svelte_template_lib::run()
+    cm_modpack_util_lib::run()
 }

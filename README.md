@@ -1,8 +1,8 @@
 # CM Modpack Util
 
-A focused desktop utility for reviewing and maintaining Packwiz modpack metadata, built with **Tauri 2**, **SvelteKit**, **TypeScript**, **Vite**, and **SQLite**.
+A local-first foundation for CM modpack projects, built with **Tauri 2**, **SvelteKit**, **TypeScript**, **Vite**, and **SQLite**.
 
-The application provides a technical project shell for local modpack evidence, update review, inventory, history, and persisted desktop preferences. Packwiz operations are currently represented as explicit local workflow states while the integration surface is developed.
+Version 0.0.1 provides the Projects, Activity, and Settings shell, persisted desktop preferences, and tested safety boundaries for future project registration. Project folders, Packwiz files, network providers, Git history, and update operations are intentionally unavailable until later releases. The app does not fabricate project evidence or modify external project directories.
 
 ## Prerequisites
 
@@ -31,8 +31,12 @@ The Vite-only frontend can also be run with `npm run dev`.
 
 ## Project structure
 
-- `src/routes/+page.svelte` — project shell and update review workspace
+- `src/routes/+page.svelte` — Projects empty state and v0.0.1 foundation status
+- `src/routes/activity/+page.svelte` — unavailable operation history state
 - `src/routes/settings/+page.svelte` — settings screen with persisted theme preference
+- `src/lib/settings.ts` — product-owned typed settings invocation helper
+- `src/lib/domain.ts` — shared project, validation, and operation contracts
+- `src/lib/errors.ts` — structured Tauri command error translation
 - `src/app.css` — shared theme tokens and global accessibility styles
 - `src/components/` — shared UI, settings components, and reusable application components
 - `src/components/ui/Button.svelte` — common button primitive with shared variants and sizes
@@ -41,6 +45,8 @@ The Vite-only frontend can also be run with `npm run dev`.
 - `src/components/ui/toast/` — global toast state, viewport, and toast item components
 - `src-tauri/src/lib.rs` — Rust commands and Tauri setup
 - `src-tauri/src/db/` — SQLite database setup and settings repository
+- `src-tauri/src/domain/` — Rust-owned domain and structured error contracts
+- `src-tauri/src/safety/` — canonical registered-root path boundary and tests
 - `src-tauri/src/db/schema.sql` — canonical schema (no migration system)
 - `src-tauri/tauri.conf.json` — window and bundle configuration
 - `static/` — static assets
@@ -65,6 +71,15 @@ The `/settings` route provides the application's desktop preferences. Settings a
 - **Reduce motion** — Minimizes animations and transitions. The operating system's reduced-motion preference is respected by default.
 
 All of these settings can be reset from the Advanced section of the Settings page. Resetting restores the defaults and disables launch-at-login.
+
+## v0.0.1 boundaries
+
+- **Projects:** No project is registered in v0.0.1. Registration and validation begin in v0.0.2.
+- **Activity:** No operation history is shown because project registration, Packwiz execution, filesystem scans, and network requests are unavailable.
+- **Source of truth:** Packwiz files will remain authoritative for external modpack state once integration exists. SQLite currently owns only application settings.
+- **Safety:** Rust owns canonicalization and registered-project containment. The boundary accepts existing absolute paths only after they are under an explicitly registered root; relative, nonexistent, escaping, and unregistered paths are rejected. Symlink and junction policy is deferred.
+- **Database:** Startup applies the idempotent settings schema with `CREATE TABLE IF NOT EXISTS`; no migration framework or workflow tables are present.
+- **Accessibility:** The shell preserves visible focus, keyboard navigation, accessible names, tooltips for unfamiliar controls, and color-independent status meaning.
 
 ## Common UI components
 
