@@ -22,10 +22,10 @@
     freshnessLabel: (value: string | null) => string;
     freshnessTitle: (value: string | null) => string;
     onclose: () => void;
-    onreread: (project: ModpackRecord) => void | Promise<void>;
+    onreread: (modpack: ModpackRecord) => void | Promise<void>;
     onopenPage: (entry: InventoryEntry) => void | Promise<void>;
     onpin: (entry: InventoryEntry, pin: boolean) => void;
-    onretry: (project: ModpackRecord) => void | Promise<void>;
+    onretry: (modpack: ModpackRecord) => void | Promise<void>;
   } = $props();
 
   const filteredInventory = $derived(inventory.filter((entry) => {
