@@ -3,12 +3,12 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
-  ApplicationProjectMetadata,
+  ApplicationModpackMetadata,
   ApplyOperationReport,
   ApplyOperationRequest,
   InventoryEntry,
-  ProjectOverview,
-  ProjectRecord,
+  ModpackOverview,
+  ModpackRecord,
   RegistrationPreview,
   DiscoveryResult,
   DiscoveryProgress,
@@ -28,37 +28,37 @@ import type {
   ChangelogProgress,
 } from "./domain";
 
-export async function chooseProjectDirectory(): Promise<string | null> {
-  const selected = await open({ directory: true, multiple: false, title: "Select a Packwiz project" });
+export async function chooseModpackDirectory(): Promise<string | null> {
+  const selected = await open({ directory: true, multiple: false, title: "Select a Packwiz modpack" });
   return typeof selected === "string" ? selected : null;
 }
 
-export function previewProject(path: string): Promise<RegistrationPreview> {
-  return invoke("preview_project", { path });
+export function previewModpack(path: string): Promise<RegistrationPreview> {
+  return invoke("preview_modpack", { path });
 }
 
-export function registerProject(path: string, application?: ApplicationProjectMetadata): Promise<ProjectRecord> {
-  return invoke("register_project", { path, application });
+export function registerModpack(path: string, application?: ApplicationModpackMetadata): Promise<ModpackRecord> {
+  return invoke("register_modpack", { path, application });
 }
 
-export function listProjects(): Promise<ProjectRecord[]> {
-  return invoke("list_projects");
+export function listModpacks(): Promise<ModpackRecord[]> {
+  return invoke("list_modpacks");
 }
 
-export function refreshProject(id: string): Promise<ProjectRecord> {
-  return invoke("refresh_project", { id });
+export function refreshModpack(id: string): Promise<ModpackRecord> {
+  return invoke("refresh_modpack", { id });
 }
 
-export function getProjectInventory(id: string): Promise<InventoryEntry[]> {
-  return invoke("get_project_inventory", { id });
+export function getModpackInventory(id: string): Promise<InventoryEntry[]> {
+  return invoke("get_modpack_inventory", { id });
 }
 
-export function getProjectOverview(id: string): Promise<ProjectOverview> {
-  return invoke("get_project_overview", { id });
+export function getModpackOverview(id: string): Promise<ModpackOverview> {
+  return invoke("get_modpack_overview", { id });
 }
 
 export function checkForUpdates(id: string): Promise<DiscoveryResult> {
-  return invoke("check_for_updates", { projectId: id });
+  return invoke("check_for_updates", { modpackId: id });
 }
 
 export function cancelUpdateCheck(): Promise<"cancelled"> {
@@ -81,28 +81,28 @@ export function openTrustedPage(url: string): Promise<void> {
   return openUrl(url);
 }
 
-export function updateProjectMetadata(id: string, application: ApplicationProjectMetadata): Promise<ProjectRecord> {
-  return invoke("update_project_metadata", { id, application });
+export function updateModpackMetadata(id: string, application: ApplicationModpackMetadata): Promise<ModpackRecord> {
+  return invoke("update_modpack_metadata", { id, application });
 }
 
-export function archiveProject(id: string): Promise<ProjectRecord> {
-  return invoke("archive_project", { id });
+export function archiveModpack(id: string): Promise<ModpackRecord> {
+  return invoke("archive_modpack", { id });
 }
 
-export function restoreProject(id: string): Promise<ProjectRecord> {
-  return invoke("restore_project", { id });
+export function restoreModpack(id: string): Promise<ModpackRecord> {
+  return invoke("restore_modpack", { id });
 }
 
-export function disconnectProject(id: string): Promise<ProjectRecord> {
-  return invoke("disconnect_project", { id });
+export function disconnectModpack(id: string): Promise<ModpackRecord> {
+  return invoke("disconnect_modpack", { id });
 }
 
-export function reconnectProject(id: string, path: string): Promise<ProjectRecord> {
-  return invoke("reconnect_project", { id, path });
+export function reconnectModpack(id: string, path: string): Promise<ModpackRecord> {
+  return invoke("reconnect_modpack", { id, path });
 }
 
-export function listSnapshots(projectId: string): Promise<SnapshotRecord[]> {
-  return invoke("list_snapshots", { projectId });
+export function listModpackSnapshots(modpackId: string): Promise<SnapshotRecord[]> {
+  return invoke("list_snapshots", { modpackId });
 }
 
 export function getSnapshot(id: string): Promise<SnapshotRecord> {
@@ -113,8 +113,8 @@ export function setSnapshotDecision(snapshotId: string, candidateId: string, dec
   return invoke("set_snapshot_decision", { snapshotId, candidateId, decision, note });
 }
 
-export function saveSnapshotNote(projectId: string, scope: SnapshotNoteScope, note: string, snapshotId?: string, candidateId?: string): Promise<void> {
-  return invoke("save_snapshot_note", { projectId, scope, note, snapshotId, candidateId });
+export function saveModpackSnapshotNote(modpackId: string, scope: SnapshotNoteScope, note: string, snapshotId?: string, candidateId?: string): Promise<void> {
+  return invoke("save_snapshot_note", { modpackId, scope, note, snapshotId, candidateId });
 }
 
 export function closeSnapshot(id: string, cancelled: boolean): Promise<SnapshotRecord> {
@@ -129,28 +129,28 @@ export function recheckSnapshot(id: string): Promise<SnapshotRecord> {
   return invoke("recheck_snapshot", { id });
 }
 
-export function pinProject(request: PinOperationRequest): Promise<OperationAttempt> {
-  return invoke("pin_project", { request });
+export function pinModpackEntry(request: PinOperationRequest): Promise<OperationAttempt> {
+  return invoke("pin_modpack", { request });
 }
 
-export function unpinProject(request: PinOperationRequest): Promise<OperationAttempt> {
-  return invoke("unpin_project", { request });
+export function unpinModpackEntry(request: PinOperationRequest): Promise<OperationAttempt> {
+  return invoke("unpin_modpack", { request });
 }
 
 export function cancelOperation(operationId: string): Promise<void> {
   return invoke("cancel_operation", { operationId });
 }
 
-export function getOperationHistory(projectId: string): Promise<OperationAttempt[]> {
-  return invoke("get_operation_history", { projectId });
+export function getModpackOperationHistory(modpackId: string): Promise<OperationAttempt[]> {
+  return invoke("get_operation_history", { modpackId });
 }
 
 export function recordRecoveryAcknowledgement(acknowledgement: RecoveryAcknowledgement): Promise<void> {
   return invoke("record_recovery_acknowledgement", { acknowledgement });
 }
 
-export function applyProject(request: ApplyOperationRequest): Promise<ApplyOperationReport> {
-  return invoke("apply_project", { request });
+export function applyModpack(request: ApplyOperationRequest): Promise<ApplyOperationReport> {
+  return invoke("apply_modpack", { request });
 }
 
 export function generateChangelog(request: ChangelogGenerationRequest): Promise<ChangelogArtifact> {
@@ -183,8 +183,8 @@ export function getChangelogArtifact(artifactId: string): Promise<ChangelogArtif
   return invoke("get_changelog_artifact", { artifactId });
 }
 
-export function listChangelogArtifacts(projectId: string): Promise<ChangelogArtifact[]> {
-  return invoke("list_changelog_artifacts", { projectId });
+export function listChangelogArtifacts(modpackId: string): Promise<ChangelogArtifact[]> {
+  return invoke("list_changelog_artifacts", { modpackId });
 }
 
 export function listChangelogRevisions(artifactId: string): Promise<ChangelogRevision[]> {

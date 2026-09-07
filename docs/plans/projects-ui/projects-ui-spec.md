@@ -121,7 +121,7 @@
 - Affected surfaces: `inspectProject`, overview/inventory rendering, inventory filters and pin actions, refresh/re-read controls, and loading/error states.
 - Dependencies and interactions: Must preserve the existing read-only boundary and safety-confirmation flow. Planning should define whether data is cached per project and when invalidated after refresh or apply operations.
 - Confidence and rationale: High for information architecture; medium for fetch timing because current code fetches only after explicit Inspect.
-- Discriminating check: Select a project, switch tabs, select another project, refresh/apply a change, and return to the first project; verify displayed evidence belongs to the focused project and reflects invalidation rules.
+- Discriminating check: Select a modpack, switch tabs, select another modpack, refresh/apply a change, and return to the first modpack; verify displayed evidence belongs to the focused modpack and reflects invalidation rules.
 - Required loading behavior: Selection automatically loads Summary overview and inventory data, with independent loading/error states so a slow or unavailable inventory does not hide the project identity or overview evidence.
 - Recommendation: revise then proceed
 

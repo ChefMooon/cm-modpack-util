@@ -32,13 +32,13 @@ pub fn check_for_updates(
     app: AppHandle,
     database: State<'_, Database>,
     runtime: State<'_, DiscoveryRuntime>,
-    project_id: String,
+    modpack_id: String,
 ) -> Result<DiscoveryResult, CommandError> {
-    let root = db::registered_project_path(&database, &project_id)?;
+    let root = db::registered_modpack_path(&database, &modpack_id)?;
     let root = Path::new(&root).canonicalize().map_err(|error| {
         CommandError::new(
             "project_unavailable",
-            "Registered project root is unavailable",
+            "Registered modpack root is unavailable",
         )
         .with_details(error.to_string())
     })?;
@@ -50,7 +50,7 @@ pub fn check_for_updates(
                 compatibility::unsupported(error.message.clone()),
                 error.message,
             );
-            db::persist_discovery_result(&database, &project_id, &result)?;
+            db::persist_discovery_result(&database, &modpack_id, &result)?;
             return Ok(result);
         }
     };
@@ -64,15 +64,15 @@ pub fn check_for_updates(
             compatibility,
             "Packwiz executable is outside the tested profile",
         );
-        db::persist_discovery_result(&database, &project_id, &result)?;
+        db::persist_discovery_result(&database, &modpack_id, &result)?;
         return Ok(result);
     }
-    let _lease = runtime.coordinator.acquire(&project_id)?;
+    let _lease = runtime.coordinator.acquire(&modpack_id)?;
     let cancellation = runtime.begin_cancellation()?;
     let _ = app.emit(
         "discovery-progress",
         crate::domain::DiscoveryProgress {
-            project_id: project_id.clone(),
+            project_id: modpack_id.clone(),
             kind: crate::domain::DiscoveryProgressKind::Starting,
             message: "Starting safe Packwiz discovery".to_string(),
             output_bytes: 0,
@@ -87,7 +87,7 @@ pub fn check_for_updates(
         Ok(evidence) => evidence,
         Err(error) => {
             let result = abnormal(DiscoveryOutcomeKind::Failed, compatibility, error.message);
-            db::persist_discovery_result(&database, &project_id, &result)?;
+            db::persist_discovery_result(&database, &modpack_id, &result)?;
             return Ok(result);
         }
     };
@@ -95,7 +95,7 @@ pub fn check_for_updates(
     let _ = app.emit(
         "discovery-progress",
         crate::domain::DiscoveryProgress {
-            project_id: project_id.clone(),
+            project_id: modpack_id.clone(),
             kind: crate::domain::DiscoveryProgressKind::Cancelling,
             message: if matches!(evidence.prompt, crate::domain::PromptState::NoUpdates) {
                 "Packwiz reported that all files are up to date".to_string()
@@ -124,7 +124,7 @@ pub fn check_for_updates(
             },
             error: None,
         };
-        db::persist_discovery_result(&database, &project_id, &result)?;
+        db::persist_discovery_result(&database, &modpack_id, &result)?;
         return Ok(result);
     };
     let no_updates = matches!(evidence.prompt, crate::domain::PromptState::NoUpdates)
@@ -177,14 +177,14 @@ pub fn check_for_updates(
     let _ = app.emit(
         "discovery-progress",
         crate::domain::DiscoveryProgress {
-            project_id: project_id.clone(),
+            project_id: modpack_id.clone(),
             kind: crate::domain::DiscoveryProgressKind::Finished,
             message: "Discovery finished with recorded safety evidence".to_string(),
             output_bytes,
             cancellable: false,
         },
     );
-    db::persist_discovery_result(&database, &project_id, &result)?;
+    db::persist_discovery_result(&database, &modpack_id, &result)?;
     Ok(result)
 }
 

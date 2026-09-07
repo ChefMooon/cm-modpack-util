@@ -1,4 +1,4 @@
-use crate::domain::{FingerprintComparison, FingerprintEntry, ProjectFingerprint};
+use crate::domain::{FingerprintComparison, FingerprintEntry, ModpackFingerprint};
 use crate::safety::canonical_registered_path;
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
@@ -18,7 +18,7 @@ pub const RELEVANT_DIRECTORY_ROOTS: &[&str] = &[
     "config",
 ];
 
-pub fn collect(root: &Path) -> Result<ProjectFingerprint, String> {
+pub fn collect(root: &Path) -> Result<ModpackFingerprint, String> {
     let root = root.canonicalize().map_err(|error| error.to_string())?;
     if !root.is_dir() {
         return Err("registered root is not a directory".to_string());
@@ -66,7 +66,7 @@ pub fn collect(root: &Path) -> Result<ProjectFingerprint, String> {
         .map(|path| fingerprint_entry(&root, path))
         .collect::<Result<Vec<_>, _>>()?;
     entries.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
-    Ok(ProjectFingerprint {
+    Ok(ModpackFingerprint {
         root: root.to_string_lossy().into_owned(),
         entries,
         complete: true,
@@ -133,8 +133,8 @@ fn fingerprint_entry(root: &Path, path: &Path) -> Result<FingerprintEntry, Strin
     })
 }
 
-pub fn empty_fingerprint(root: impl Into<String>) -> ProjectFingerprint {
-    ProjectFingerprint {
+pub fn empty_fingerprint(root: impl Into<String>) -> ModpackFingerprint {
+    ModpackFingerprint {
         root: root.into(),
         entries: Vec::new(),
         complete: false,
@@ -142,7 +142,7 @@ pub fn empty_fingerprint(root: impl Into<String>) -> ProjectFingerprint {
     }
 }
 
-pub fn compare(before: ProjectFingerprint, after: ProjectFingerprint) -> FingerprintComparison {
+pub fn compare(before: ModpackFingerprint, after: ModpackFingerprint) -> FingerprintComparison {
     let comparable = before.complete && after.complete && before.root == after.root;
     let differences = if comparable {
         diff_entries(&before.entries, &after.entries)
@@ -169,8 +169,8 @@ fn diff_entries(before: &[FingerprintEntry], after: &[FingerprintEntry]) -> Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn complete(entries: Vec<FingerprintEntry>) -> ProjectFingerprint {
-        ProjectFingerprint {
+    fn complete(entries: Vec<FingerprintEntry>) -> ModpackFingerprint {
+        ModpackFingerprint {
             root: "root".into(),
             entries,
             complete: true,

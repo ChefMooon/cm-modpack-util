@@ -2,12 +2,12 @@
   import ClockCounterClockwiseIcon from "phosphor-svelte/lib/ClockCounterClockwiseIcon";
   import Header from "../../components/header/Header.svelte";
   import { onMount } from "svelte";
-  import { getOperationHistory, listProjects, listSnapshots } from "../../lib/projects";
-  import type { OperationAttempt, ProjectRecord, SnapshotRecord } from "../../lib/domain";
+  import { getModpackOperationHistory, listModpacks, listModpackSnapshots } from "../../lib/projects";
+  import type { OperationAttempt, ModpackRecord, SnapshotRecord } from "../../lib/domain";
 
   let snapshots = $state<SnapshotRecord[]>([]);
   let operations = $state<OperationAttempt[]>([]);
-  let projects = $state<ProjectRecord[]>([]);
+  let projects = $state<ModpackRecord[]>([]);
   let loading = $state(true);
   let error = $state("");
 
@@ -15,10 +15,10 @@
     loading = true;
     error = "";
     try {
-      projects = await listProjects();
-      const results = await Promise.all(projects.map((project) => listSnapshots(project.id)));
+      projects = await listModpacks();
+      const results = await Promise.all(projects.map((project) => listModpackSnapshots(project.id)));
       snapshots = results.flat().sort((left, right) => right.created_at.localeCompare(left.created_at));
-      const operationResults = await Promise.all(projects.map((project) => getOperationHistory(project.id)));
+      const operationResults = await Promise.all(projects.map((project) => getModpackOperationHistory(project.id)));
       operations = operationResults.flat().sort((left, right) => right.created_at.localeCompare(left.created_at));
     } catch (cause) {
       error = cause instanceof Error ? cause.message : "Snapshot history could not be loaded.";
@@ -29,8 +29,8 @@
 
   onMount(() => void loadHistory());
 
-  function projectName(projectId: string) {
-    return projects.find((project) => project.id === projectId)?.application.display_name ?? projectId;
+  function modpackName(modpackId: string) {
+    return projects.find((project) => project.id === modpackId)?.application.display_name ?? modpackId;
   }
 </script>
 
@@ -54,14 +54,14 @@
     <div class="empty-icon" aria-hidden="true"><ClockCounterClockwiseIcon size={34} weight="duotone" /></div>
     <p class="eyebrow">No operations yet</p>
     <h2 id="empty-title">No snapshots yet</h2>
-    <p>Run a safe discovery check from a registered project to create its first durable review record.</p>
+    <p>Run a safe discovery check from a registered modpack to create its first durable review record.</p>
   </section>
   {:else}
     {#if operations.length}<section class="snapshot-list" aria-labelledby="operation-title">
       <h2 id="operation-title">Mutation attempts</h2>
       {#each operations as operation (operation.id)}
         <article class="snapshot-item operation-item">
-          <div class="snapshot-summary"><strong>{projectName(operation.project_id)}</strong><span>{operation.kind}</span><span data-outcome={operation.outcome ?? "pending"}>{operation.outcome ?? operation.status}</span></div>
+          <div class="snapshot-summary"><strong>{modpackName(operation.modpack_id)}</strong><span>{operation.kind}</span><span data-outcome={operation.outcome ?? "pending"}>{operation.outcome ?? operation.status}</span></div>
           <div class="snapshot-meta"><span>{operation.verification?.verified ? "Verified after re-read" : "Verification not complete"}</span><small>{operation.created_at}</small></div>
           <p>{operation.error?.message ?? operation.verification?.observed_state ?? "No additional diagnostic"}</p>
         </article>
@@ -71,7 +71,7 @@
       <h2 id="snapshot-title">Snapshot history</h2>
       {#each snapshots as snapshot (snapshot.id)}
         <article class="snapshot-item">
-          <div class="snapshot-summary"><strong>{projectName(snapshot.project_id)}</strong><span>{snapshot.outcome.replaceAll("_", " ")}</span><span>{snapshot.lifecycle}</span></div>
+          <div class="snapshot-summary"><strong>{modpackName(snapshot.modpack_id)}</strong><span>{snapshot.outcome.replaceAll("_", " ")}</span><span>{snapshot.lifecycle}</span></div>
           <div class="snapshot-meta"><span>{snapshot.candidates.length} candidates</span><span>{snapshot.decisions.length} decisions</span><small>{snapshot.created_at}</small></div>
           <p>{snapshot.id}</p>
           {#if snapshot.predecessor_id}<a href={`/?snapshot=${encodeURIComponent(snapshot.predecessor_id)}`}>View predecessor</a>{/if}

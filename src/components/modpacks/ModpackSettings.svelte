@@ -1,6 +1,6 @@
 <script lang="ts">
   import Button from "../ui/Button.svelte";
-  import type { ApplicationProjectMetadata } from "../../lib/domain";
+  import type { ApplicationModpackMetadata } from "../../lib/domain";
 
   let {
     metadataDraft,
@@ -8,7 +8,7 @@
     busy,
     onsave,
   }: {
-    metadataDraft: ApplicationProjectMetadata | null;
+    metadataDraft: ApplicationModpackMetadata | null;
     tagsText?: string;
     busy: boolean;
     onsave: () => void | Promise<void>;
@@ -16,14 +16,14 @@
 </script>
 
 <div id="settings-panel" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab">
-  <div class="detail-heading"><p class="eyebrow">Settings</p><h2>Application-owned metadata</h2><p>Packwiz evidence remains read-only. Save these fields together for the focused project.</p></div>
+  <div class="detail-heading"><p class="eyebrow">Settings</p><h2>Application-owned metadata</h2><p>Packwiz evidence remains read-only. Save these fields together for the focused modpack.</p></div>
   {#if metadataDraft}
     <div class="owned-fields">
       <label class="field">Display name<input bind:value={metadataDraft.display_name} /></label>
       <label class="field">Theme / color<input value={metadataDraft.theme ?? ""} oninput={(event) => (metadataDraft!.theme = event.currentTarget.value || null)} /></label>
       <label class="field wide">Tags<input value={tagsText} placeholder="client, favorite" oninput={(event) => (tagsText = event.currentTarget.value)} /></label>
       <label class="field wide">Description<textarea rows="4" value={metadataDraft.description ?? ""} oninput={(event) => (metadataDraft!.description = event.currentTarget.value || null)}></textarea></label>
-      <label class="favorite"><input type="checkbox" bind:checked={metadataDraft.favorite} /> Favorite project</label>
+      <label class="favorite"><input type="checkbox" bind:checked={metadataDraft.favorite} /> Favorite modpack</label>
     </div>
     <div class="modal-actions"><Button variant="primary" type="button" loading={busy} onclick={onsave}>Save details</Button></div>
   {/if}

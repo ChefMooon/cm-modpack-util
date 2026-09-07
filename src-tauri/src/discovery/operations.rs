@@ -147,7 +147,7 @@ pub fn start_update_check(
     runtime: State<'_, DiscoveryRuntime>,
     project_id: String,
 ) -> Result<OperationStatus, CommandError> {
-    let root = db::registered_project_path(&database, &project_id)?;
+    let root = db::registered_modpack_path(&database, &project_id)?;
     let executable = compatibility::resolve_executable()?;
     let profile = compatibility::validate_executable(&executable);
     if !matches!(
@@ -164,7 +164,7 @@ pub fn start_update_check(
     let root_path = Path::new(&root).canonicalize().map_err(|error| {
         CommandError::new(
             "project_unavailable",
-            "Registered project root is unavailable",
+            "Registered modpack root is unavailable",
         )
         .with_details(error.to_string())
     })?;

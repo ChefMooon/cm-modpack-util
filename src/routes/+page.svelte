@@ -18,21 +18,21 @@
   import Button from "../components/ui/Button.svelte";
   import Modal from "../components/ui/Modal.svelte";
   import Tooltip from "../components/ui/Tooltip.svelte";
-  import SnapshotReviewModal from "../components/projects/SnapshotReviewModal.svelte";
-  import SnapshotHistory from "../components/projects/SnapshotHistory.svelte";
-  import ProjectSettings from "../components/projects/ProjectSettings.svelte";
-  import ProjectList from "../components/projects/ProjectList.svelte";
-  import ProjectSummary from "../components/projects/ProjectSummary.svelte";
+  import SnapshotReviewModal from "../components/modpacks/SnapshotReviewModal.svelte";
+  import SnapshotHistory from "../components/modpacks/SnapshotHistory.svelte";
+  import ModpackSettings from "../components/modpacks/ModpackSettings.svelte";
+  import ModpackList from "../components/modpacks/ModpackList.svelte";
+  import ModpackSummary from "../components/modpacks/ModpackSummary.svelte";
   import { useToast } from "../components/ui/toast/toast.svelte";
   import { commandErrorMessage } from "../lib/errors";
   import type {
-    ApplicationProjectMetadata,
+    ApplicationModpackMetadata,
     ApplyOperationReport,
     Evidence,
     InventoryEntry,
-    ProjectOverview,
+    ModpackOverview,
     Observation,
-    ProjectRecord,
+    ModpackRecord,
     RegistrationPreview,
     ValidationResult,
     DiscoveryOutcomeKind,
@@ -46,33 +46,33 @@
     ChangelogProgress,
   } from "../lib/domain";
   import {
-    archiveProject,
-    chooseProjectDirectory,
-    disconnectProject,
-    listProjects,
-    getProjectInventory,
-    getProjectOverview,
+    archiveModpack,
+    chooseModpackDirectory,
+    disconnectModpack,
+    listModpacks,
+    getModpackInventory,
+    getModpackOverview,
     openTrustedPage,
-    previewProject,
-    reconnectProject,
-    refreshProject,
-    registerProject,
-    restoreProject,
-    updateProjectMetadata,
+    previewModpack,
+    reconnectModpack,
+    refreshModpack,
+    registerModpack,
+    restoreModpack,
+    updateModpackMetadata,
     cancelUpdateCheck,
     listenUpdateCheckProcess,
     listenUpdateCheckProgress,
     checkForUpdates,
-    listSnapshots,
+    listModpackSnapshots,
     getSnapshot,
     setSnapshotDecision,
-    saveSnapshotNote,
+    saveModpackSnapshotNote,
     closeSnapshot,
     recheckSnapshot,
     linkSnapshotRetry,
-    pinProject,
-    unpinProject,
-    applyProject,
+    pinModpackEntry,
+    unpinModpackEntry,
+    applyModpack,
     cancelOperation,
     generateChangelog,
     chooseChangelogDestination,
@@ -85,9 +85,9 @@
     listChangelogExports,
   } from "../lib/projects";
 
-  let projects = $state<ProjectRecord[]>([]);
+  let projects = $state<ModpackRecord[]>([]);
   type DetailTab = "summary" | "versions" | "settings";
-  let focusedProject = $state<ProjectRecord | null>(null);
+  let focusedProject = $state<ModpackRecord | null>(null);
   let activeTab = $state<DetailTab>("summary");
   let listCollapsed = $state(false);
   let paneWidth = $state(300);
@@ -99,16 +99,16 @@
   let error = $state("");
   let selected = $state<RegistrationPreview | null>(null);
   let previewPath = $state("");
-  let reconnecting = $state<ProjectRecord | null>(null);
-  let editing = $state<ProjectRecord | null>(null);
-  let metadataDraft = $state<ApplicationProjectMetadata | null>(null);
+  let reconnecting = $state<ModpackRecord | null>(null);
+  let editing = $state<ModpackRecord | null>(null);
+  let metadataDraft = $state<ApplicationModpackMetadata | null>(null);
   let tagsText = $state("");
   let showPreview = $state(false);
   let showReconnect = $state(false);
   let showArchived = $state(false);
-  let inspected = $state<ProjectRecord | null>(null);
+  let inspected = $state<ModpackRecord | null>(null);
   let inventory = $state<InventoryEntry[]>([]);
-  let overview = $state<ProjectOverview | null>(null);
+  let overview = $state<ModpackOverview | null>(null);
   let inventoryFilter = $state("all");
   let inspecting = $state(false);
   let overviewLoading = $state(false);
@@ -119,7 +119,7 @@
   let pinningEntry = $state<string | null>(null);
   let pinConfirmation = $state<{ entry: InventoryEntry; pin: boolean } | null>(null);
   let showPinConfirmation = $state(false);
-  let discoveryProject = $state<ProjectRecord | null>(null);
+  let discoveryProject = $state<ModpackRecord | null>(null);
   let showReviewModal = $state(false);
   let discovery = $state<DiscoveryResult | null>(null);
   let discoveryProgress = $state<DiscoveryProgress | null>(null);
@@ -180,7 +180,7 @@
   async function hydrateDiscoveryEvents() {
     discoveryUnlisten = await Promise.all([
       listenUpdateCheckProgress((progress) => {
-        if (!discoveryProject || progress.project_id === discoveryProject.id) discoveryProgress = progress;
+        if (!discoveryProject || progress.modpack_id === discoveryProject.id) discoveryProgress = progress;
       }),
       listenUpdateCheckProcess((process) => {
         discoveryProcess = process;
@@ -195,7 +195,7 @@
     loading = true;
     error = "";
     try {
-      projects = await listProjects();
+      projects = await listModpacks();
       const snapshotId = new URLSearchParams(window.location.search).get("snapshot");
       if (snapshotId) await openSnapshot(snapshotId);
     } catch (cause) {
@@ -207,7 +207,7 @@
 
   async function openSnapshot(snapshotId: string) {
     const snapshot = await getSnapshot(snapshotId);
-    const project = projects.find((candidate) => candidate.id === snapshot.project_id);
+    const project = projects.find((candidate) => candidate.id === snapshot.modpack_id);
     if (!project) return;
     focusedProject = project;
     activeTab = "versions";
@@ -228,11 +228,11 @@
 
   async function selectProject() {
     error = "";
-    const path = await chooseProjectDirectory();
+    const path = await chooseModpackDirectory();
     if (!path) return;
     busy = true;
     try {
-      selected = await previewProject(path);
+      selected = await previewModpack(path);
       previewPath = path;
       tagsText = selected.application_defaults.tags.join(", ");
       showPreview = true;
@@ -247,12 +247,12 @@
     if (!selected) return;
     busy = true;
     try {
-      await registerProject(previewPath, selected.application_defaults);
+      await registerModpack(previewPath, selected.application_defaults);
       showPreview = false;
       selected = null;
       await loadProjects();
       toast({
-        title: "Project registered",
+        title: "Modpack registered",
         description: "The external Packwiz directory was not modified.",
         severity: "success",
       });
@@ -263,12 +263,12 @@
     }
   }
 
-  async function refresh(project: ProjectRecord) {
+  async function refresh(project: ModpackRecord) {
     busy = true;
     try {
-      replace(await refreshProject(project.id));
+      replace(await refreshModpack(project.id));
       if (inspected?.id === project.id) await inspectProject(project);
-      toast({ title: "Project refreshed", severity: "success" });
+      toast({ title: "Modpack refreshed", severity: "success" });
     } catch (cause) {
       error = commandErrorMessage(cause);
     } finally {
@@ -276,7 +276,7 @@
     }
   }
 
-  async function inspectProject(project: ProjectRecord) {
+  async function inspectProject(project: ModpackRecord) {
     const requestId = ++summaryRequest;
     focusedProject = project;
     inspected = project;
@@ -286,7 +286,7 @@
     inventoryLoading = true;
     overviewError = "";
     inventoryError = "";
-    void getProjectOverview(project.id).then((result) => {
+    void getModpackOverview(project.id).then((result) => {
       if (requestId !== summaryRequest) return;
       overview = result;
     }).catch((cause) => {
@@ -296,7 +296,7 @@
     }).finally(() => {
       if (requestId === summaryRequest) overviewLoading = false;
     });
-    void getProjectInventory(project.id).then((result) => {
+    void getModpackInventory(project.id).then((result) => {
       if (requestId !== summaryRequest) return;
       inventory = result;
     }).catch((cause) => {
@@ -311,7 +311,7 @@
     });
   }
 
-  function focusProject(project: ProjectRecord) {
+  function focusProject(project: ModpackRecord) {
     if (focusedProject?.id !== project.id && !canLeaveSettings()) return;
     focusedProject = project;
     activeTab = "summary";
@@ -319,11 +319,11 @@
     void loadSnapshots(project);
   }
 
-  async function loadSnapshots(project: ProjectRecord) {
+  async function loadSnapshots(project: ModpackRecord) {
     snapshotsLoading = true;
     snapshotsError = "";
     try {
-      snapshots = await listSnapshots(project.id);
+      snapshots = await listModpackSnapshots(project.id);
     } catch (cause) {
       snapshots = [];
       snapshotsError = commandErrorMessage(cause);
@@ -341,7 +341,7 @@
     if (busy && settingsDirty()) return false;
     if (!settingsDirty()) return true;
     const initiatingControl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const discard = window.confirm("Discard unsaved project settings?");
+    const discard = window.confirm("Discard unsaved modpack settings?");
     if (discard) {
       metadataDraft = null;
       editing = null;
@@ -352,7 +352,7 @@
   }
 
 
-  async function checkProjectForUpdates(project: ProjectRecord) {
+  async function checkProjectForUpdates(project: ModpackRecord) {
     if (discoveryBusy) return;
     discoveryProject = project;
     showReviewModal = true;
@@ -364,7 +364,7 @@
     error = "";
     try {
       discovery = await checkForUpdates(project.id);
-      const snapshots = await listSnapshots(project.id);
+      const snapshots = await listModpackSnapshots(project.id);
       discoverySnapshotId = snapshots[0]?.id ?? null;
       discoverySnapshot = discoverySnapshotId ? await getSnapshot(discoverySnapshotId) : null;
     } catch (cause) {
@@ -412,7 +412,7 @@
   async function saveReviewNote() {
     if (!discoveryProject || !discoverySnapshotId || !snapshotNoteDraft.trim()) return;
     try {
-      await saveSnapshotNote(discoveryProject.id, "snapshot", snapshotNoteDraft, discoverySnapshotId);
+      await saveModpackSnapshotNote(discoveryProject.id, "snapshot", snapshotNoteDraft, discoverySnapshotId);
       discoverySnapshot = await getSnapshot(discoverySnapshotId);
       snapshotNoteDraft = "";
       showSnapshotNote = false;
@@ -454,7 +454,7 @@
     error = "";
     try {
       changelog = await generateChangelog({
-        project_id: discoveryProject.id,
+        modpack_id: discoveryProject.id,
         snapshot_id: discoverySnapshot.id,
         introduction: changelogIntroduction.trim() || null,
         offline: changelogOffline,
@@ -535,14 +535,14 @@
     applyReport = null;
     error = "";
     try {
-      applyReport = await applyProject({
+      applyReport = await applyModpack({
         operation_id: applyOperationId,
         snapshot_id: discoverySnapshot.id,
         candidate_ids: candidateIds,
       });
       const severity = applyReport.outcome === "complete" ? "success" : applyReport.outcome === "partial" ? "warning" : "error";
       toast({ title: `Update apply ${applyReport.outcome}`, description: "Each selected mod was re-read after its Packwiz command.", severity });
-      if (inspected) inventory = await getProjectInventory(inspected.id);
+      if (inspected) inventory = await getModpackInventory(inspected.id);
     } catch (cause) {
       error = commandErrorMessage(cause);
     } finally {
@@ -578,10 +578,10 @@
     pinningEntry = entry.local_id;
     error = "";
     try {
-      const request = { project_id: inspected.id, entry_id: entry.local_id };
-      const attempt = pin ? await pinProject(request) : await unpinProject(request);
+      const request = { modpack_id: inspected.id, entry_id: entry.local_id };
+      const attempt = pin ? await pinModpackEntry(request) : await unpinModpackEntry(request);
       if (attempt.verification?.verified) {
-        inventory = await getProjectInventory(inspected.id);
+        inventory = await getModpackInventory(inspected.id);
         toast({ title: pin ? "Mod pinned" : "Mod unpinned", description: "Packwiz metadata was verified after the operation.", severity: "success" });
       } else {
         error = attempt.error?.message ?? "Packwiz pin state could not be verified.";
@@ -609,7 +609,7 @@
     }
   }
 
-  function beginEdit(project: ProjectRecord) {
+  function beginEdit(project: ModpackRecord) {
     editing = project;
     metadataDraft = {
       ...project.application,
@@ -618,7 +618,7 @@
     tagsText = project.application.tags.join(", ");
   }
 
-  function openSettings(project: ProjectRecord) {
+  function openSettings(project: ModpackRecord) {
     if (!canLeaveSettings()) return;
     focusProject(project);
     beginEdit(project);
@@ -629,7 +629,7 @@
     if (!editing || !metadataDraft) return;
     busy = true;
     try {
-      const updated = await updateProjectMetadata(editing.id, {
+      const updated = await updateModpackMetadata(editing.id, {
         ...metadataDraft,
         tags: tagsText.split(",").map((tag) => tag.trim()).filter(Boolean),
       });
@@ -639,7 +639,7 @@
       editing = updated;
       metadataDraft = { ...updated.application, tags: [...updated.application.tags] };
       tagsText = updated.application.tags.join(", ");
-      toast({ title: "Project details updated", severity: "success" });
+      toast({ title: "Modpack details updated", severity: "success" });
     } catch (cause) {
       error = commandErrorMessage(cause);
     } finally {
@@ -648,17 +648,17 @@
   }
 
   async function changeLifecycle(
-    project: ProjectRecord,
+    project: ModpackRecord,
     action: "archive" | "restore" | "disconnect",
   ) {
     busy = true;
     try {
       const result =
         action === "archive"
-          ? await archiveProject(project.id)
+          ? await archiveModpack(project.id)
           : action === "restore"
-            ? await restoreProject(project.id)
-            : await disconnectProject(project.id);
+            ? await restoreModpack(project.id)
+            : await disconnectModpack(project.id);
       replace(result);
     } catch (cause) {
       error = commandErrorMessage(cause);
@@ -667,21 +667,21 @@
     }
   }
 
-  async function beginReconnect(project: ProjectRecord) {
+  async function beginReconnect(project: ModpackRecord) {
     reconnecting = project;
     showReconnect = true;
   }
 
   async function confirmReconnect() {
     if (!reconnecting) return;
-    const path = await chooseProjectDirectory();
+    const path = await chooseModpackDirectory();
     if (!path) return;
     busy = true;
     try {
-      replace(await reconnectProject(reconnecting.id, path));
+      replace(await reconnectModpack(reconnecting.id, path));
       showReconnect = false;
       reconnecting = null;
-      toast({ title: "Project reconnected", severity: "success" });
+      toast({ title: "Modpack reconnected", severity: "success" });
     } catch (cause) {
       error = commandErrorMessage(cause);
     } finally {
@@ -689,7 +689,7 @@
     }
   }
 
-  function replace(project: ProjectRecord) {
+  function replace(project: ModpackRecord) {
     projects = projects.map((candidate) =>
       candidate.id === project.id ? project : candidate,
     );
@@ -800,7 +800,7 @@
       type="button"
       loading={busy}
       onclick={selectProject}
-      ><PlusIcon size={17} weight="bold" /> Register project</Button
+      ><PlusIcon size={17} weight="bold" /> Register modpack</Button
     >
   </section>
 
@@ -815,7 +815,7 @@
     </div>{/if}
   {#if loading}<section class="state" role="status">
       <div class="loader" aria-hidden="true"></div>
-      <p>Loading registered projects...</p>
+      <p>Loading registered modpacks...</p>
     </section>
   {:else if projects.length === 0}<section
       class="state"
@@ -824,7 +824,7 @@
       <div class="empty-icon" aria-hidden="true">
         <FolderSimpleIcon size={34} weight="duotone" />
       </div>
-      <p class="eyebrow">No registered projects</p>
+      <p class="eyebrow">No registered modpacks</p>
       <h2 id="empty-title">Start with a local Packwiz directory</h2>
       <p>
         Choose a project folder to preview its Packwiz evidence before anything
@@ -850,15 +850,15 @@
             >{#if listCollapsed}<CaretDoubleRightIcon size={17} weight="bold" />{:else}<CaretDoubleLeftIcon size={17} weight="bold" />{/if}</Button>
           </Tooltip>
         </div>
-        <ProjectList
+        <ModpackList
           projects={projects}
           bind:showArchived
           collapsed={listCollapsed}
-          focusedProjectId={focusedProject?.id ?? null}
+          focusedModpackId={focusedProject?.id ?? null}
           busy={busy}
           inspecting={inspecting}
           discoveryBusy={discoveryBusy}
-          discoveryProjectId={discoveryProject?.id ?? null}
+          discoveryModpackId={discoveryProject?.id ?? null}
           onfocus={focusProject}
           oncheck={checkProjectForUpdates}
           onreconnect={beginReconnect}
@@ -877,7 +877,7 @@
         class="workspace-divider"
         role="separator"
         tabindex="0"
-        aria-label="Resize project list"
+              aria-label="Resize modpack list"
         aria-valuemin="240"
         aria-valuemax="600"
         aria-valuenow={paneWidth}
@@ -888,15 +888,15 @@
         onkeydown={handlePaneResizeKey}
       ></div>
       <div class="detail-pane">
-        <div class="detail-tabs" role="tablist" aria-label="Project details">
+        <div class="detail-tabs" role="tablist" aria-label="Modpack details">
           <button class:active={activeTab === "summary"} id="summary-tab" role="tab" aria-selected={activeTab === "summary"} aria-controls="summary-panel" tabindex={activeTab === "summary" ? 0 : -1} onclick={() => { if (activeTab !== "summary" && canLeaveSettings()) activeTab = "summary"; }}>Summary</button>
           <button class:active={activeTab === "versions"} id="versions-tab" role="tab" aria-selected={activeTab === "versions"} aria-controls="versions-panel" tabindex={activeTab === "versions" ? 0 : -1} onclick={() => { if (activeTab !== "versions" && canLeaveSettings()) activeTab = "versions"; }}>Versions</button>
           <button class:active={activeTab === "settings"} id="settings-tab" role="tab" aria-selected={activeTab === "settings"} aria-controls="settings-panel" tabindex={activeTab === "settings" ? 0 : -1} onclick={() => { if (activeTab !== "settings" && canLeaveSettings()) { if (focusedProject && (!metadataDraft || editing?.id !== focusedProject.id)) beginEdit(focusedProject); activeTab = "settings"; } }}>Settings</button>
         </div>
         {#if !focusedProject}
-          <section class="detail-empty" role="status"><p class="eyebrow">No focused project</p><h2>Select a project to begin</h2><p>Choose a project card to load its local evidence and project tools.</p></section>
+          <section class="detail-empty" role="status"><p class="eyebrow">No focused modpack</p><h2>Select a modpack to begin</h2><p>Choose a modpack card to load its local evidence and modpack tools.</p></section>
         {:else if activeTab === "summary"}
-          <ProjectSummary
+          <ModpackSummary
             inspected={inspected}
             overview={overview}
             inventory={inventory}
@@ -927,7 +927,7 @@
             snapshotStatus={snapshotStatus}
           />
         {:else}
-          <ProjectSettings
+          <ModpackSettings
             metadataDraft={metadataDraft}
             bind:tagsText
             busy={busy}
@@ -1001,7 +1001,7 @@
 
 <Modal
   bind:open={showPreview}
-  title="Review project registration"
+  title="Review modpack registration"
   onclose={() => (showPreview = false)}
 >
   {#if selected}<p class="modal-lede">
@@ -1094,10 +1094,10 @@
 
 <Modal
   bind:open={showReconnect}
-  title="Reconnect project"
+  title="Reconnect modpack"
   onclose={() => (showReconnect = false)}
   ><p>
-    Select the project directory again. CM Modpack Util will validate it before
+    Select the modpack directory again. CM Modpack Util will validate it before
     reconnecting this existing record.
   </p>
   <div class="modal-actions">

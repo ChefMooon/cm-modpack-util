@@ -38,7 +38,7 @@
   {:else if filter === "releases"}
     <div class="inspection-state" role="status"><p class="eyebrow">Releases unavailable</p><p>Release discovery and release records are not implemented.</p></div>
   {:else if !visibleSnapshots.length}
-    <div class="inspection-state" role="status"><p class="eyebrow">No snapshots</p><p>No supported snapshot records have been created for this project.</p></div>
+    <div class="inspection-state" role="status"><p class="eyebrow">No snapshots</p><p>No supported snapshot records have been created for this modpack.</p></div>
   {:else}
     <div class="snapshot-list" aria-label="Snapshot history">
       {#each visibleSnapshots as snapshot (snapshot.id)}

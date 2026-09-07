@@ -30,8 +30,8 @@ pub fn run() {
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             fs::create_dir_all(&app_data_dir)?;
-            let database = db::initialize(&app_data_dir.join("settings.sqlite"))
-                .map_err(|error| format!("Failed to initialize settings database: {error}"))?;
+            let database = db::initialize(&app_data_dir.join("cm-modpack-util.sqlite"))
+                .map_err(|error| format!("Failed to initialize application database: {error}"))?;
             let start_minimized = db::bool_setting(&database, "general.startMinimized", false);
             let restore_window_state =
                 db::bool_setting(&database, "general.restoreWindowState", true);
@@ -94,9 +94,9 @@ pub fn run() {
             db::set_setting,
             db::delete_setting,
             db::reset_settings,
-            db::preview_project,
-            db::register_project,
-            db::list_projects,
+            db::preview_modpack,
+            db::register_modpack,
+            db::list_modpacks,
             db::list_snapshots,
             db::get_snapshot,
             db::set_snapshot_decision,
@@ -104,23 +104,23 @@ pub fn run() {
             db::close_snapshot,
             db::link_snapshot_retry,
             db::recheck_snapshot,
-            db::open_project,
-            db::refresh_project,
-            db::get_project_inventory,
-            db::get_project_overview,
-            db::update_project_metadata,
-            db::archive_project,
-            db::restore_project,
-            db::disconnect_project,
-            db::reconnect_project,
+            db::open_modpack,
+            db::refresh_modpack,
+            db::get_modpack_inventory,
+            db::get_modpack_overview,
+            db::update_modpack_metadata,
+            db::archive_modpack,
+            db::restore_modpack,
+            db::disconnect_modpack,
+            db::reconnect_modpack,
             db::get_operation_history,
             db::record_recovery_acknowledgement,
             discovery::operations::cancel_update_check,
             discovery::pipeline::check_for_updates,
-            discovery::mutation::pin_project,
-            discovery::mutation::unpin_project,
+            discovery::mutation::pin_modpack,
+            discovery::mutation::unpin_modpack,
             discovery::mutation::cancel_operation,
-            discovery::mutation::apply_project,
+            discovery::mutation::apply_modpack,
             changelog::generate_changelog,
             changelog::cancel_changelog_generation,
             changelog::create_changelog_revision,

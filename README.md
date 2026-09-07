@@ -1,8 +1,8 @@
 # CM Modpack Util
 
-A local-first foundation for CM modpack projects, built with **Tauri 2**, **SvelteKit**, **TypeScript**, **Vite**, and **SQLite**.
+A local-first foundation for CM modpacks, built with **Tauri 2**, **SvelteKit**, **TypeScript**, **Vite**, and **SQLite**.
 
-The v0.0.7 alpha provides local Packwiz project registration, inventory inspection, durable update-check snapshots, review decisions and notes, verified positional-slug pin/unpin operations, sequential selected updates, mutation history, project overview facts, changelog generation, Markdown export, and the Projects, Activity, and Settings shell. It reads Packwiz evidence offline for discovery and uses normal Packwiz provider/network behavior for explicitly selected targeted updates. Each update is verified and recorded independently; failures are reported without stopping later selected targets.
+The v0.0.7 alpha provides local Packwiz modpack registration, inventory inspection, durable update-check snapshots, review decisions and notes, verified positional-slug pin/unpin operations, sequential selected updates, mutation history, modpack overview facts, changelog generation, Markdown export, and the Modpacks, Activity, and Settings shell. It reads Packwiz evidence offline for discovery and uses normal Packwiz provider/network behavior for explicitly selected targeted updates. Each update is verified and recorded independently; failures are reported without stopping later selected targets.
 
 ## Changelog workflow
 
@@ -23,7 +23,7 @@ to reduce API pressure. Progress events report preparation, each lookup,
 artifact persistence, and completion in the review view. Generation can be
 stopped between lookups; fetched entries are retained in a partial artifact and
 the review can keep or discard that result without deleting its history. Existing alpha databases use
-the current additive schema; stop the app and reset `settings.sqlite` if an
+the current schema; stop the app and reset `cm-modpack-util.sqlite` if an
 incompatible local schema prevents startup.
 ## v0.0.6 mutation boundaries
 
@@ -54,11 +54,11 @@ The Vite-only frontend can also be run with `npm run dev`.
 
 ## Project structure
 
-- `src/routes/+page.svelte` — Projects registration, validation, metadata, and lifecycle workflow
+- `src/routes/+page.svelte` — Modpack registration, validation, metadata, and lifecycle workflow
 - `src/routes/activity/+page.svelte` — durable snapshot and operation history
 - `src/routes/settings/+page.svelte` — settings screen with persisted theme preference
 - `src/lib/settings.ts` — product-owned typed settings invocation helper
-- `src/lib/domain.ts` — shared project, validation, and operation contracts
+- `src/lib/domain.ts` — shared modpack, validation, and operation contracts
 - `src/lib/errors.ts` — structured Tauri command error translation
 - `src/app.css` — shared theme tokens and global accessibility styles
 - `src/components/` — shared UI, settings components, and reusable application components
@@ -67,7 +67,7 @@ The Vite-only frontend can also be run with `npm run dev`.
 - `src/components/ui/Tooltip.svelte` — reusable tooltip wrapper
 - `src/components/ui/toast/` — global toast state, viewport, and toast item components
 - `src-tauri/src/lib.rs` — Rust commands and Tauri setup
-- `src-tauri/src/db/` — SQLite database setup and settings repository
+- `src-tauri/src/db/` — SQLite application database setup and settings repository
 - `src-tauri/src/domain/` — Rust-owned domain and structured error contracts
 - `src-tauri/src/safety/` — canonical registered-root path boundary and tests
 - `src-tauri/src/db/schema.sql` — canonical schema (no migration system)
@@ -97,29 +97,29 @@ All of these settings can be reset from the Advanced section of the Settings pag
 
 ## v0.0.2 boundaries
 
-- **Projects:** Local Packwiz directories can be previewed, validated, registered, reopened offline, refreshed, archived, restored, disconnected, reconnected, and edited without external file mutation.
+- **Modpacks:** Local Packwiz directories can be previewed, validated, registered, reopened offline, refreshed, archived, restored, disconnected, reconnected, and edited without external file mutation.
 - **Activity:** Operation history is not yet implemented because Packwiz execution, filesystem scans beyond registration evidence, and network requests remain unavailable.
 - **Source of truth:** Packwiz files remain authoritative for external modpack state. SQLite owns application metadata, observed evidence, validation results, and lifecycle state.
-- **Safety:** Rust owns canonicalization and registered-project containment. Equivalent path spellings are rejected as duplicates, and relative, nonexistent, escaping, and unregistered paths are rejected. Symlinks and junctions follow canonical operating-system path resolution and remain inside the registered root.
-- **Database:** Startup applies the idempotent settings and project schemas with `CREATE TABLE IF NOT EXISTS`; no migration framework is present.
+- **Safety:** Rust owns canonicalization and registered-modpack containment. Equivalent path spellings are rejected as duplicates, and relative, nonexistent, escaping, and unregistered paths are rejected. Symlinks and junctions follow canonical operating-system path resolution and remain inside the registered root.
+- **Database:** Startup applies the idempotent settings and modpack schemas with `CREATE TABLE IF NOT EXISTS`; no migration framework is present.
 - **Accessibility:** The shell preserves visible focus, keyboard navigation, accessible names, tooltips for unfamiliar controls, and color-independent status meaning.
 
 ## Alpha database behavior
 
 - The local SQLite database is initialized with the current schema at startup.
 - There is no migration, backup, or in-app database rebuild workflow in alpha.
-- When a clean reset is needed during development, stop the app and delete the local `settings.sqlite` file from Tauri's application data directory. The app recreates it on the next launch.
-- Packwiz project files remain outside the database lifecycle and are not deleted by a database reset.
+- When a clean reset is needed during development, stop the app and delete `cm-modpack-util.sqlite`, `cm-modpack-util.sqlite-wal`, and `cm-modpack-util.sqlite-shm` from Tauri's application data directory. The app recreates the application database on the next launch. Existing alpha installations using `settings.sqlite` must be reset manually; the app does not silently migrate or rename that file.
+- Packwiz modpack files remain outside the database lifecycle and are not deleted by a database reset.
 
 ## v0.0.5 snapshot review boundaries
 
 - **Review:** A safe, normal discovery result creates a durable snapshot with immutable candidate and fingerprint evidence. Selected, skipped, blocked, and deferred values are application-owned decisions; the Packwiz `pin` field remains evidence only.
 - **Abnormal outcomes:** Cancelled, unsafe, unsupported, failed, and indeterminate attempts remain visible but are not reviewable as authoritative candidate results.
-- **Freshness:** Native Rust rechecks the registered project's relevant fingerprint. Changed, missing, unreadable, incomplete, or incomparable evidence marks the snapshot stale and blocks further review writes.
+- **Freshness:** Native Rust rechecks the registered modpack's relevant fingerprint. Changed, missing, unreadable, incomplete, or incomparable evidence marks the snapshot stale and blocks further review writes.
 - **History:** Decisions and notes are append-only records. Closing, cancelling, and retrying never rewrites the original snapshot. A retry receives a new snapshot ID linked to its predecessor.
 - **Pin operations:** Pin and unpin resolve one fresh native inventory entry, derive its `.pw.toml` slug, run `packwiz pin <slug>` or `packwiz unpin <slug>` without `--yes`, re-read the metadata, and report success only after verification. The Activity route preserves the immutable attempt and its evidence.
 - **Apply boundary:** Apply uses only exact local metadata slugs with one `packwiz update <slug>` process per selected candidate. The audited `update -a` path remains discovery-only and is not used for mutation. A process exit code alone is not considered success; the application re-reads inventory and records per-target verification and failures.
-- **Reset fallback:** Because alpha uses additive `CREATE TABLE IF NOT EXISTS` schema setup without migrations, stop the app and delete `settings.sqlite` if an incompatible pre-v0.0.5 database prevents startup. This does not delete Packwiz files.
+- **Reset fallback:** Because alpha uses `CREATE TABLE IF NOT EXISTS` schema setup without migrations, stop the app and delete the incompatible application database and its WAL sidecars. This does not delete Packwiz files.
 
 ## Common UI components
 
@@ -182,11 +182,15 @@ const result = await invoke("my_command", { value: "hello" });
 
 See the [Tauri documentation](https://v2.tauri.app/) for APIs, capabilities, and release configuration.
 
-## Settings database
+## Application database
 
-The desktop app stores settings in `settings.sqlite` inside Tauri's application data directory. The Rust layer owns database access and exposes typed Tauri commands to the frontend. Settings values are stored as JSON by key, allowing new preferences to be added without changing the table structure.
+The desktop app stores its application state in `cm-modpack-util.sqlite` inside Tauri's application data directory. The database contains settings, registered modpacks, observed evidence, snapshots, operations, and changelog artifacts. The Rust layer owns database access and exposes typed Tauri commands to the frontend. Settings values are stored as JSON by key, allowing new preferences to be added without changing the table structure.
 
-This template intentionally does not use migrations. `src-tauri/src/db/schema.sql` is applied with `CREATE TABLE IF NOT EXISTS` during startup. If a future structural schema change is required, document it explicitly and reset or manually upgrade the local database rather than silently deleting user data. The development reset action is available on the Settings page.
+This alpha intentionally does not use migrations. `src-tauri/src/db/schema.sql` is applied with `CREATE TABLE IF NOT EXISTS` during startup. If a future structural schema change is required, document it explicitly and reset or manually upgrade the local database rather than silently deleting user data. The development reset action is available on the Settings page.
+
+### Terminology
+
+Within CM Modpack Util, a **modpack** is a registered local Packwiz directory and its application-owned metadata, observations, snapshots, and history. Provider APIs may still use **project** in fields such as Modrinth `project_id`, CurseForge or Packwiz `project-id`, provider URLs, and external fixture values; those names are external contracts and must not be renamed as part of the application vocabulary.
 
 ## Recommended VS Code extensions
 

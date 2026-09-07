@@ -5,11 +5,11 @@
   import XIcon from "phosphor-svelte/lib/XIcon";
   import WarningCircleIcon from "phosphor-svelte/lib/WarningCircleIcon";
   import Button from "../ui/Button.svelte";
-  import type { Evidence, InventoryEntry, ProjectOverview, ProjectRecord } from "../../lib/domain";
+  import type { Evidence, InventoryEntry, ModpackOverview, ModpackRecord } from "../../lib/domain";
 
   let { inspected, overview, inventory, inventoryFilter = $bindable("all"), overviewLoading, inventoryLoading, overviewError, inventoryError, inspecting, pinningEntry, evidenceLabel, freshnessLabel, freshnessTitle, onclose, onreread, onopenPage, onpin, onretry }: {
-    inspected: ProjectRecord | null;
-    overview: ProjectOverview | null;
+    inspected: ModpackRecord | null;
+    overview: ModpackOverview | null;
     inventory: InventoryEntry[];
     inventoryFilter?: string;
     overviewLoading: boolean;
@@ -22,10 +22,10 @@
     freshnessLabel: (value: string | null) => string;
     freshnessTitle: (value: string | null) => string;
     onclose: () => void;
-    onreread: (project: ProjectRecord) => void | Promise<void>;
+    onreread: (project: ModpackRecord) => void | Promise<void>;
     onopenPage: (entry: InventoryEntry) => void | Promise<void>;
     onpin: (entry: InventoryEntry, pin: boolean) => void;
-    onretry: (project: ProjectRecord) => void | Promise<void>;
+    onretry: (project: ModpackRecord) => void | Promise<void>;
   } = $props();
 
   const filteredInventory = $derived(inventory.filter((entry) => {
@@ -38,8 +38,8 @@
 
 {#if inspected}
   <section class="inspection" aria-labelledby="inspection-title" aria-live="polite">
-    <div class="inspection-heading"><div><p class="eyebrow">Current local evidence</p><h2 id="inspection-title">{inspected.application.display_name}</h2><p class="path" title={freshnessTitle(inspected.last_refreshed_at)}>Read-only observation from the registered project boundary. {freshnessLabel(inspected.last_refreshed_at)}.</p></div><div class="inspection-actions"><Button variant="ghost" size="icon" type="button" aria-label="Close inspection" onclick={onclose}><XIcon size={17} /></Button><Button variant="secondary" size="sm" type="button" loading={inspecting} onclick={() => onreread(inspected!)}><ArrowClockwiseIcon size={15} /> Re-read</Button></div></div>
-    {#if overviewLoading}<div class="inspection-state" role="status"><div class="loader" aria-hidden="true"></div><p>Reading local Packwiz evidence...</p></div>{:else if overviewError}<div class="inspection-state" role="alert"><WarningCircleIcon size={20} /><p>{overviewError}</p><Button variant="secondary" size="sm" type="button" onclick={() => onretry(inspected!)}>Retry overview</Button></div>{:else if !overview}<div class="inspection-state" role="status"><WarningCircleIcon size={20} /><p>Overview evidence is unavailable. The registered project record is still preserved.</p></div>{:else}
+    <div class="inspection-heading"><div><p class="eyebrow">Current local evidence</p><h2 id="inspection-title">{inspected.application.display_name}</h2><p class="path" title={freshnessTitle(inspected.last_refreshed_at)}>Read-only observation from the registered modpack boundary. {freshnessLabel(inspected.last_refreshed_at)}.</p></div><div class="inspection-actions"><Button variant="ghost" size="icon" type="button" aria-label="Close inspection" onclick={onclose}><XIcon size={17} /></Button><Button variant="secondary" size="sm" type="button" loading={inspecting} onclick={() => onreread(inspected!)}><ArrowClockwiseIcon size={15} /> Re-read</Button></div></div>
+    {#if overviewLoading}<div class="inspection-state" role="status"><div class="loader" aria-hidden="true"></div><p>Reading local Packwiz evidence...</p></div>{:else if overviewError}<div class="inspection-state" role="alert"><WarningCircleIcon size={20} /><p>{overviewError}</p><Button variant="secondary" size="sm" type="button" onclick={() => onretry(inspected!)}>Retry overview</Button></div>{:else if !overview}<div class="inspection-state" role="status"><WarningCircleIcon size={20} /><p>Overview evidence is unavailable. The registered modpack record is still preserved.</p></div>{:else}
       <div class="overview-grid"><div><span class="label">Minecraft</span><strong>{evidenceLabel(overview.minecraft_version)}</strong></div><div><span class="label">Loader</span><strong>{evidenceLabel(overview.loader)}</strong></div><div><span class="label">Mods</span><strong>{overview.inventory_counts.total}</strong></div><div><span class="label">Git</span><strong>{overview.git.state.replaceAll("_", " ")}</strong></div><div><span class="label">Providers</span><strong>{overview.inventory_counts.provider_modrinth} Modrinth · {overview.inventory_counts.provider_curseforge} CurseForge · {overview.inventory_counts.provider_unknown} unknown</strong></div><div><span class="label">Sides</span><strong>{overview.inventory_counts.side_client} client · {overview.inventory_counts.side_server} server · {overview.inventory_counts.side_both} both · {overview.inventory_counts.side_unknown} unknown</strong></div></div>
       <div class="validation-summary"><span class="label">Validation evidence</span>{#if overview.validation.length === 0}<span class="valid-text"><CheckCircleIcon size={15} /> Required local evidence is valid.</span>{:else}{#each overview.validation as item}<span class:item-warning={item.severity === "warning"} class:item-error={item.severity === "error"}><strong>{item.severity}</strong> {item.message}</span>{/each}{/if}</div>
       {#if inventoryLoading}<div class="inspection-state" role="status"><div class="loader" aria-hidden="true"></div><p>Reading mod inventory...</p></div>{:else if inventoryError}<div class="inspection-state" role="alert"><WarningCircleIcon size={20} /><p>{inventoryError}</p><Button variant="secondary" size="sm" type="button" onclick={() => onretry(inspected!)}>Retry inventory</Button></div>{:else}

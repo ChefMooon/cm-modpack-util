@@ -1,5 +1,5 @@
 use super::{
-    ApplicationProjectMetadata, CommandError, Observation, PackwizObservations, ProjectLifecycle,
+    ApplicationModpackMetadata, CommandError, ModpackLifecycle, Observation, PackwizObservations,
     RegistrationPreview, ValidationResult, ValidationSeverity,
 };
 use crate::safety::canonical_registered_path;
@@ -65,7 +65,7 @@ pub fn preview(path: &str) -> Result<RegistrationPreview, CommandError> {
         let index_path = canonical_registered_path(&root, &index_path).map_err(|_| {
             CommandError::new(
                 "invalid_index_reference",
-                "Packwiz index reference leaves the project directory",
+                "Packwiz index reference leaves the modpack directory",
             )
         })?;
         let index_text = read_required(&index_path, "referenced index")?;
@@ -76,7 +76,7 @@ pub fn preview(path: &str) -> Result<RegistrationPreview, CommandError> {
         validate_metadata_files(&root, &index_value, &mut validation)?;
     }
 
-    let application_defaults = ApplicationProjectMetadata {
+    let application_defaults = ApplicationModpackMetadata {
         display_name: name.clone().unwrap_or_else(|| {
             root.file_name()
                 .and_then(|value| value.to_str())
@@ -88,7 +88,7 @@ pub fn preview(path: &str) -> Result<RegistrationPreview, CommandError> {
         tags: Vec::new(),
         favorite: false,
         description: None,
-        lifecycle: ProjectLifecycle::Active,
+        lifecycle: ModpackLifecycle::Active,
     };
     Ok(RegistrationPreview {
         canonical_path: root.to_string_lossy().into_owned(),
@@ -212,7 +212,7 @@ fn validate_metadata_files(
         let metadata_path = canonical_registered_path(root, &root.join(file)).map_err(|_| {
             CommandError::new(
                 "invalid_metadata_reference",
-                "Packwiz metadata reference leaves the project directory",
+                "Packwiz metadata reference leaves the modpack directory",
             )
         })?;
         let metadata = read_required(&metadata_path, "mod metadata")?;

@@ -430,7 +430,7 @@ fn fetch_modrinth<T: ModrinthTransport>(
     result.match_evidence = ProviderMatchEvidence {
         confidence,
         project: Some(ModrinthProjectIdentity {
-            project_id: project_id.into(),
+            modpack_id: project_id.into(),
             slug: Some(slug.into()),
             title: None,
         }),
@@ -753,7 +753,7 @@ pub fn generate_changelog(
                         loader: None,
                         requested_fields: vec!["changelog".into()],
                     },
-                    &serde_json::json!({"id": version.version_id, "project_id": project.project_id, "version_number": version.version_number, "changelog": result.changelog}).to_string(),
+                    &serde_json::json!({"id": version.version_id, "project_id": project.modpack_id, "version_number": version.version_number, "changelog": result.changelog}).to_string(),
                     &result.match_evidence,
                 );
             }
@@ -878,9 +878,9 @@ pub fn get_changelog_artifact(
 #[tauri::command]
 pub fn list_changelog_artifacts(
     database: State<'_, db::Database>,
-    project_id: String,
+    modpack_id: String,
 ) -> Result<Vec<crate::domain::ChangelogArtifact>, CommandError> {
-    db::list_changelog_artifacts(&database, &project_id)
+    db::list_changelog_artifacts(&database, &modpack_id)
 }
 
 #[tauri::command]

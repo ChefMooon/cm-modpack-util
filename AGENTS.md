@@ -66,7 +66,7 @@ Read the relevant source before changing behavior:
 - [`README.md`](README.md) for setup, structure, supported alpha behavior, and database reset boundaries.
 - [`docs/CM-MODPACK-UTIL-SPEC.md`](docs/CM-MODPACK-UTIL-SPEC.md) for product scope and contracts.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) for planned release scope.
-- [`docs/project-registration.md`](docs/project-registration.md) for registration behavior and path safety.
+- [`docs/modpack-registration.md`](docs/modpack-registration.md) for registration behavior and path safety.
 - [`docs/packwiz-commands.md`](docs/packwiz-commands.md) for the supported Packwiz command profile and discovery safety decisions.
 - [`docs/desktop-ui-standards.md`](docs/desktop-ui-standards.md) and [`docs/STYLE-GUIDE.md`](docs/STYLE-GUIDE.md) for UI and styling conventions.
 - [`docs/toast.md`](docs/toast.md) for the global toast API.

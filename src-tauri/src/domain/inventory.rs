@@ -1,6 +1,6 @@
 use super::{
     CommandError, Evidence, GitStatusObservation, GitWorkingTreeState, InventoryCounts,
-    InventoryEntry, InventoryProvider, InventorySide, ProjectOverview, TrustedPageLink,
+    InventoryEntry, InventoryProvider, InventorySide, ModpackOverview, TrustedPageLink,
 };
 use crate::safety::canonical_registered_path;
 use std::fs;
@@ -38,7 +38,7 @@ pub fn read_inventory(root: &Path) -> Result<Vec<InventoryEntry>, CommandError> 
     let index_path = canonical_registered_path(&root, &root.join(index_file)).map_err(|_| {
         CommandError::new(
             "invalid_index_reference",
-            "Packwiz index reference leaves the project directory",
+            "Packwiz index reference leaves the modpack directory",
         )
     })?;
     let index = read_toml(&index_path, "referenced index")?;
@@ -69,7 +69,7 @@ pub fn read_inventory(root: &Path) -> Result<Vec<InventoryEntry>, CommandError> 
         let metadata_path = canonical_registered_path(&root, &root.join(file)).map_err(|_| {
             CommandError::new(
                 "invalid_metadata_reference",
-                "Packwiz metadata reference leaves the project directory",
+                "Packwiz metadata reference leaves the modpack directory",
             )
         })?;
         let metadata = read_toml(&metadata_path, "mod metadata")?;
@@ -290,7 +290,7 @@ pub fn aggregate(entries: &[InventoryEntry]) -> InventoryCounts {
     counts
 }
 
-pub fn read_overview(root: &Path) -> Result<ProjectOverview, CommandError> {
+pub fn read_overview(root: &Path) -> Result<ModpackOverview, CommandError> {
     let entries = read_inventory(root)?;
     let preview = super::validation::preview(&root.to_string_lossy())?;
     let git = observe_git(root);
@@ -308,7 +308,7 @@ pub fn read_overview(root: &Path) -> Result<ProjectOverview, CommandError> {
         .find(|(key, _)| key != "minecraft")
         .map(|(key, value)| Evidence::Observed(format!("{key} {value}")))
         .unwrap_or(Evidence::Unavailable);
-    Ok(ProjectOverview {
+    Ok(ModpackOverview {
         validation: preview.validation,
         minecraft_version,
         loader,

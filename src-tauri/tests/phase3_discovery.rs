@@ -38,7 +38,7 @@ fn discovery_observation_and_candidates_are_persisted() {
     let database = initialize(&path).unwrap();
     {
         let connection = database.0.lock().unwrap();
-        connection.execute("INSERT INTO projects (id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at) VALUES (?1, ?2, '{}', '{}', '[]', '0', '0')", params!["project-test", "."]).unwrap();
+        connection.execute("INSERT INTO modpacks (id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at) VALUES (?1, ?2, '{}', '{}', '[]', '0', '0')", params!["modpack-test", "."]).unwrap();
     }
     let result = DiscoveryResult {
         status: OperationStatus::Succeeded,
@@ -58,7 +58,7 @@ fn discovery_observation_and_candidates_are_persisted() {
         },
         error: None,
     };
-    persist_discovery_result(&database, "project-test", &result).unwrap();
+    persist_discovery_result(&database, "modpack-test", &result).unwrap();
     let connection = database.0.lock().unwrap();
     let attempts: i64 = connection
         .query_row("SELECT COUNT(*) FROM discovery_attempts", [], |row| {
@@ -74,7 +74,7 @@ fn discovery_observation_and_candidates_are_persisted() {
     assert_eq!(candidates, 1);
     let snapshots: i64 = connection
         .query_row(
-            "SELECT COUNT(*) FROM snapshots WHERE project_id = 'project-test'",
+            "SELECT COUNT(*) FROM snapshots WHERE modpack_id = 'modpack-test'",
             [],
             |row| row.get(0),
         )
@@ -86,7 +86,7 @@ fn discovery_observation_and_candidates_are_persisted() {
         .unwrap();
     let activity: i64 = connection
         .query_row(
-            "SELECT COUNT(*) FROM project_activity WHERE event_type = 'snapshot_created'",
+            "SELECT COUNT(*) FROM modpack_activity WHERE event_type = 'snapshot_created'",
             [],
             |row| row.get(0),
         )

@@ -1,6 +1,6 @@
 use crate::domain::{
-    inventory, validation, ActivityRecord, ApplicationProjectMetadata, CommandError,
-    DiscoveryResult, InventoryEntry, ProjectLifecycle, ProjectOverview, ProjectRecord,
+    inventory, validation, ActivityRecord, ApplicationModpackMetadata, CommandError,
+    DiscoveryResult, InventoryEntry, ModpackLifecycle, ModpackOverview, ModpackRecord,
     RegistrationPreview, SnapshotCandidateRecord, SnapshotDecision, SnapshotDecisionRecord,
     SnapshotLifecycle, SnapshotNoteRecord, SnapshotNoteScope, SnapshotRecheckRecord,
     SnapshotRecord, UpdateCandidate,
@@ -38,7 +38,7 @@ pub fn persist_discovery_result(
         .with_details(error.to_string())
     })?;
     let observed_at = timestamp();
-    transaction.execute("INSERT INTO discovery_attempts (project_id, observed_at, outcome, result_json) VALUES (?1, ?2, ?3, ?4)", params![project_id, observed_at, outcome.trim_matches('"'), result_json]).map_err(|error| CommandError::new("database_write_failed", "Discovery observation could not be saved").with_details(error.to_string()))?;
+    transaction.execute("INSERT INTO discovery_attempts (modpack_id, observed_at, outcome, result_json) VALUES (?1, ?2, ?3, ?4)", params![project_id, observed_at, outcome.trim_matches('"'), result_json]).map_err(|error| CommandError::new("database_write_failed", "Discovery observation could not be saved").with_details(error.to_string()))?;
     let attempt_id = connection.last_insert_rowid();
     for candidate in &result.candidates {
         transaction
@@ -66,14 +66,14 @@ pub fn persist_discovery_result(
         SnapshotLifecycle::Draft
     };
     let lifecycle_json = serde_json::to_string(&lifecycle).unwrap_or_else(|_| "draft".to_string());
-    transaction.execute("INSERT INTO snapshots (id, project_id, lifecycle, outcome, result_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)", params![snapshot_id, project_id, lifecycle_json.trim_matches('"'), outcome.trim_matches('"'), result_json, observed_at]).map_err(|error| CommandError::new("database_write_failed", "Snapshot could not be saved").with_details(error.to_string()))?;
+    transaction.execute("INSERT INTO snapshots (id, modpack_id, lifecycle, outcome, result_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)", params![snapshot_id, project_id, lifecycle_json.trim_matches('"'), outcome.trim_matches('"'), result_json, observed_at]).map_err(|error| CommandError::new("database_write_failed", "Snapshot could not be saved").with_details(error.to_string()))?;
     for (index, candidate) in result.candidates.iter().enumerate() {
         let candidate_id = format!("{snapshot_id}-candidate-{index}");
         transaction.execute("INSERT INTO snapshot_candidates (id, snapshot_id, candidate_json, observed_at) VALUES (?1, ?2, ?3, ?4)", params![candidate_id, snapshot_id, serialize(candidate, "snapshot candidate")?, observed_at]).map_err(|error| CommandError::new("database_write_failed", "Snapshot candidate could not be saved").with_details(error.to_string()))?;
     }
     transaction
         .execute(
-            "INSERT INTO project_activity (project_id, event_type, occurred_at, message) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO modpack_activity (modpack_id, event_type, occurred_at, message) VALUES (?1, ?2, ?3, ?4)",
             params![project_id, "snapshot_created", observed_at, format!("Discovery snapshot {snapshot_id} created")],
         )
         .map_err(|error| {
@@ -90,14 +90,14 @@ pub fn persist_discovery_result(
     Ok(())
 }
 
-pub fn registered_project_path(database: &Database, id: &str) -> Result<String, CommandError> {
+pub fn registered_modpack_path(database: &Database, id: &str) -> Result<String, CommandError> {
     let connection = database
         .0
         .lock()
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
     connection
         .query_row(
-            "SELECT canonical_path FROM projects WHERE id = ?1",
+            "SELECT canonical_path FROM modpacks WHERE id = ?1",
             [id],
             |row| row.get(0),
         )
@@ -114,7 +114,7 @@ pub fn load_snapshot(database: &Database, id: &str) -> Result<SnapshotRecord, Co
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
     let snapshot = connection
         .query_row(
-            "SELECT id, project_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1",
+            "SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1",
             [id],
             row_to_snapshot,
         )
@@ -142,10 +142,10 @@ pub fn persist_operation_attempt(
     })?;
     transaction
         .execute(
-            "INSERT INTO operation_attempts (id, project_id, snapshot_id, predecessor_id, kind, status, outcome, recovery_json, process_json, before_fingerprint_json, after_fingerprint_json, verification_json, error_json, created_at, finished_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            "INSERT INTO operation_attempts (id, modpack_id, snapshot_id, predecessor_id, kind, status, outcome, recovery_json, process_json, before_fingerprint_json, after_fingerprint_json, verification_json, error_json, created_at, finished_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 attempt.id,
-                attempt.project_id,
+                attempt.modpack_id,
                 attempt.snapshot_id,
                 attempt.predecessor_id,
                 serialize(&attempt.kind, "operation kind")?.trim_matches('"'),
@@ -206,10 +206,10 @@ pub fn persist_apply_attempt(
     })?;
     transaction
         .execute(
-            "INSERT INTO operation_attempts (id, project_id, snapshot_id, predecessor_id, kind, status, outcome, recovery_json, process_json, before_fingerprint_json, after_fingerprint_json, verification_json, error_json, created_at, finished_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            "INSERT INTO operation_attempts (id, modpack_id, snapshot_id, predecessor_id, kind, status, outcome, recovery_json, process_json, before_fingerprint_json, after_fingerprint_json, verification_json, error_json, created_at, finished_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 attempt.id,
-                attempt.project_id,
+                attempt.modpack_id,
                 attempt.snapshot_id,
                 attempt.predecessor_id,
                 serialize(&attempt.kind, "operation kind")?.trim_matches('"'),
@@ -250,7 +250,7 @@ pub fn list_operation_attempts(
         .lock()
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
     let mut statement = connection
-        .prepare("SELECT id, project_id, snapshot_id, predecessor_id, kind, status, outcome, recovery_json, process_json, before_fingerprint_json, after_fingerprint_json, verification_json, error_json, created_at, finished_at FROM operation_attempts WHERE project_id = ?1 ORDER BY created_at DESC")
+        .prepare("SELECT id, modpack_id, snapshot_id, predecessor_id, kind, status, outcome, recovery_json, process_json, before_fingerprint_json, after_fingerprint_json, verification_json, error_json, created_at, finished_at FROM operation_attempts WHERE modpack_id = ?1 ORDER BY created_at DESC")
         .map_err(|error| CommandError::new("database_read_failed", "Operations could not be read").with_details(error.to_string()))?;
     let result = statement
         .query_map([project_id], |row| {
@@ -267,7 +267,7 @@ pub fn list_operation_attempts(
             };
             Ok(crate::domain::OperationAttempt {
                 id: row.get(0)?,
-                project_id: row.get(1)?,
+                modpack_id: row.get(1)?,
                 snapshot_id: row.get(2)?,
                 predecessor_id: row.get(3)?,
                 kind: serde_json::from_value(serde_json::Value::String(kind))
@@ -358,7 +358,7 @@ pub fn record_recovery_acknowledgement(
         ));
     }
     if let Some(before_fingerprint) = before_fingerprint {
-        if before_fingerprint != acknowledgement.project_fingerprint {
+        if before_fingerprint != acknowledgement.modpack_fingerprint {
             return Err(CommandError::new(
                 "acknowledgement_mismatch",
                 "Acknowledgement fingerprint does not match the operation",
@@ -367,8 +367,8 @@ pub fn record_recovery_acknowledgement(
     }
     connection
         .execute(
-            "INSERT INTO operation_acknowledgements (operation_id, project_fingerprint, warning_category, recovery_state, acknowledged_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![acknowledgement.operation_id, acknowledgement.project_fingerprint, acknowledgement.warning_category, acknowledgement.recovery_state, acknowledgement.acknowledged_at],
+            "INSERT INTO operation_acknowledgements (operation_id, modpack_fingerprint, warning_category, recovery_state, acknowledged_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![acknowledgement.operation_id, acknowledgement.modpack_fingerprint, acknowledgement.warning_category, acknowledgement.recovery_state, acknowledgement.acknowledged_at],
         )
         .map_err(|error| CommandError::new("database_write_failed", "Recovery acknowledgement could not be saved").with_details(error.to_string()))?;
     Ok(())
@@ -434,13 +434,13 @@ pub fn persist_changelog_artifact(
         .to_string();
     transaction
         .execute(
-            "INSERT INTO changelog_attempts (id, project_id, snapshot_id, request_json, request_fingerprint, status, created_at, finished_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+            "INSERT INTO changelog_attempts (id, modpack_id, snapshot_id, request_json, request_fingerprint, status, created_at, finished_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
             params![artifact.attempt_id, request.project_id, request.snapshot_id, serialize(request, "changelog request")?, request.request_fingerprint, status, now],
         )
         .map_err(|error| CommandError::new("database_write_failed", "Changelog attempt could not be saved").with_details(error.to_string()))?;
     transaction
         .execute(
-            "INSERT INTO changelog_artifacts (id, project_id, snapshot_id, attempt_id, status, introduction, content, entries_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
+            "INSERT INTO changelog_artifacts (id, modpack_id, snapshot_id, attempt_id, status, introduction, content, entries_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
             params![artifact.id, artifact.project_id, artifact.snapshot_id, artifact.attempt_id, status, artifact.introduction, artifact.content, serialize(&artifact.entries, "changelog entries")?, now],
         )
         .map_err(|error| CommandError::new("database_write_failed", "Changelog artifact could not be saved").with_details(error.to_string()))?;
@@ -615,7 +615,7 @@ pub fn load_changelog_artifact(
         .0
         .lock()
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
-    connection.query_row("SELECT id, project_id, snapshot_id, attempt_id, status, introduction, content, entries_json, created_at, updated_at FROM changelog_artifacts WHERE id = ?1", [id], |row| {
+    connection.query_row("SELECT id, modpack_id, snapshot_id, attempt_id, status, introduction, content, entries_json, created_at, updated_at FROM changelog_artifacts WHERE id = ?1", [id], |row| {
         let status: String = row.get(4)?;
         let entries: String = row.get(7)?;
         Ok(crate::domain::ChangelogArtifact {
@@ -639,7 +639,7 @@ pub fn list_changelog_artifacts(
             .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
         let mut statement = connection
             .prepare(
-                "SELECT id FROM changelog_artifacts WHERE project_id = ?1 ORDER BY created_at DESC",
+                "SELECT id FROM changelog_artifacts WHERE modpack_id = ?1 ORDER BY created_at DESC",
             )
             .map_err(|error| {
                 CommandError::new(
@@ -892,7 +892,7 @@ fn record_activity(
 ) -> Result<(), CommandError> {
     connection
         .execute(
-            "INSERT INTO project_activity (project_id, event_type, occurred_at, message) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO modpack_activity (modpack_id, event_type, occurred_at, message) VALUES (?1, ?2, ?3, ?4)",
             params![project_id, event_type, timestamp(), message],
         )
         .map(|_| ())
@@ -907,7 +907,7 @@ fn read_activity(
     project_id: &str,
 ) -> Result<Vec<ActivityRecord>, CommandError> {
     let mut statement = connection
-        .prepare("SELECT event_type, occurred_at, message FROM project_activity WHERE project_id = ?1 ORDER BY occurred_at DESC LIMIT 10")
+        .prepare("SELECT event_type, occurred_at, message FROM modpack_activity WHERE modpack_id = ?1 ORDER BY occurred_at DESC LIMIT 10")
         .map_err(|error| CommandError::new("database_read_failed", "Project activity could not be read").with_details(error.to_string()))?;
     let records = statement
         .query_map([project_id], |row| {
@@ -938,11 +938,11 @@ fn read_activity(
     Ok(records)
 }
 
-fn row_to_project(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectRecord> {
+fn row_to_modpack(row: &rusqlite::Row<'_>) -> rusqlite::Result<ModpackRecord> {
     let application: String = row.get(2)?;
     let packwiz: String = row.get(3)?;
     let validation: String = row.get(4)?;
-    Ok(ProjectRecord {
+    Ok(ModpackRecord {
         id: row.get(0)?,
         canonical_path: row.get(1)?,
         application: serde_json::from_str(&application)
@@ -957,24 +957,24 @@ fn row_to_project(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectRecord> {
 }
 
 #[tauri::command]
-pub fn preview_project(path: String) -> Result<RegistrationPreview, CommandError> {
+pub fn preview_modpack(path: String) -> Result<RegistrationPreview, CommandError> {
     validation::preview(&path)
 }
 
 #[tauri::command]
-pub fn register_project(
+pub fn register_modpack(
     state: State<'_, Database>,
     path: String,
-    application: Option<ApplicationProjectMetadata>,
-) -> Result<ProjectRecord, CommandError> {
-    register_project_inner(&state, path, application)
+    application: Option<ApplicationModpackMetadata>,
+) -> Result<ModpackRecord, CommandError> {
+    register_modpack_inner(&state, path, application)
 }
 
-fn register_project_inner(
+fn register_modpack_inner(
     database: &Database,
     path: String,
-    application: Option<ApplicationProjectMetadata>,
-) -> Result<ProjectRecord, CommandError> {
+    application: Option<ApplicationModpackMetadata>,
+) -> Result<ModpackRecord, CommandError> {
     let preview = validation::preview(&path)?;
     if validation::has_errors(&preview.validation) {
         return Err(CommandError::new(
@@ -993,13 +993,13 @@ fn register_project_inner(
     let packwiz_json = serialize(&preview.packwiz, "Packwiz observations")?;
     let validation_json = serialize(&preview.validation, "validation results")?;
     connection.execute(
-        "INSERT INTO projects (id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at, last_opened_at, last_refreshed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?6, ?6)",
+        "INSERT INTO modpacks (id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at, last_opened_at, last_refreshed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?6, ?6)",
         params![id, preview.canonical_path, application_json, packwiz_json, validation_json, now],
     ).map_err(|error| {
-        if matches!(error, rusqlite::Error::SqliteFailure(_, _)) { CommandError::new("duplicate_project", "This project directory is already registered").with_details(error.to_string()) } else { CommandError::new("database_write_failed", "Project could not be registered").with_details(error.to_string()) }
+        if matches!(error, rusqlite::Error::SqliteFailure(_, _)) { CommandError::new("duplicate_modpack", "This modpack directory is already registered").with_details(error.to_string()) } else { CommandError::new("database_write_failed", "Modpack could not be registered").with_details(error.to_string()) }
     })?;
     record_activity(&connection, &id, "registered", "Project registered")?;
-    Ok(ProjectRecord {
+    Ok(ModpackRecord {
         id,
         canonical_path: preview.canonical_path,
         application,
@@ -1013,13 +1013,13 @@ fn register_project_inner(
 }
 
 #[tauri::command]
-pub fn list_projects(state: State<'_, Database>) -> Result<Vec<ProjectRecord>, CommandError> {
+pub fn list_modpacks(state: State<'_, Database>) -> Result<Vec<ModpackRecord>, CommandError> {
     let connection = state
         .0
         .lock()
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
-    let mut statement = connection.prepare("SELECT id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at, last_opened_at, last_refreshed_at FROM projects ORDER BY updated_at DESC").map_err(|error| CommandError::new("database_read_failed", "Projects could not be read").with_details(error.to_string()))?;
-    let rows = statement.query_map([], row_to_project).map_err(|error| {
+    let mut statement = connection.prepare("SELECT id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at, last_opened_at, last_refreshed_at FROM modpacks ORDER BY updated_at DESC").map_err(|error| CommandError::new("database_read_failed", "Modpacks could not be read").with_details(error.to_string()))?;
+    let rows = statement.query_map([], row_to_modpack).map_err(|error| {
         CommandError::new("database_read_failed", "Projects could not be read")
             .with_details(error.to_string())
     })?;
@@ -1094,7 +1094,7 @@ fn enrich_snapshot(
     snapshot.decisions.append(&mut decisions);
 
     let mut notes = connection
-        .prepare("SELECT id, project_id, snapshot_id, candidate_id, scope, note, is_current, recorded_at FROM snapshot_notes WHERE project_id = (SELECT project_id FROM snapshots WHERE id = ?1) AND (snapshot_id IS NULL OR snapshot_id = ?1) ORDER BY id")
+        .prepare("SELECT id, modpack_id, snapshot_id, candidate_id, scope, note, is_current, recorded_at FROM snapshot_notes WHERE modpack_id = (SELECT modpack_id FROM snapshots WHERE id = ?1) AND (snapshot_id IS NULL OR snapshot_id = ?1) ORDER BY id")
         .map_err(|error| CommandError::new("database_read_failed", "Snapshot notes could not be read").with_details(error.to_string()))?
         .query_map([&snapshot.id], |row| {
             let scope: String = row.get(4)?;
@@ -1138,17 +1138,17 @@ fn enrich_snapshot(
 #[tauri::command]
 pub fn list_snapshots(
     state: State<'_, Database>,
-    project_id: String,
+    modpack_id: String,
 ) -> Result<Vec<SnapshotRecord>, CommandError> {
     let connection = state
         .0
         .lock()
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
     let mut statement = connection
-        .prepare("SELECT id, project_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE project_id = ?1 ORDER BY created_at DESC")
+        .prepare("SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE modpack_id = ?1 ORDER BY created_at DESC")
         .map_err(|error| CommandError::new("database_read_failed", "Snapshots could not be read").with_details(error.to_string()))?;
     let snapshots = statement
-        .query_map([project_id], row_to_snapshot)
+        .query_map([modpack_id], row_to_snapshot)
         .map_err(|error| {
             CommandError::new("database_read_failed", "Snapshots could not be read")
                 .with_details(error.to_string())
@@ -1176,7 +1176,7 @@ pub fn get_snapshot(
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
     let snapshot = connection
         .query_row(
-            "SELECT id, project_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1",
+            "SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1",
             [id],
             row_to_snapshot,
         )
@@ -1253,7 +1253,7 @@ pub fn set_snapshot_decision(
 #[tauri::command]
 pub fn save_snapshot_note(
     state: State<'_, Database>,
-    project_id: String,
+    modpack_id: String,
     snapshot_id: Option<String>,
     candidate_id: Option<String>,
     scope: SnapshotNoteScope,
@@ -1294,9 +1294,9 @@ pub fn save_snapshot_note(
             ));
         }
     }
-    connection.execute("UPDATE snapshot_notes SET is_current = 0 WHERE project_id = ?1 AND ((snapshot_id = ?2) OR (snapshot_id IS NULL AND ?2 IS NULL)) AND ((candidate_id = ?3) OR (candidate_id IS NULL AND ?3 IS NULL))", params![project_id, snapshot_id, candidate_id]).map_err(|error| CommandError::new("database_write_failed", "Previous note could not be archived").with_details(error.to_string()))?;
+    connection.execute("UPDATE snapshot_notes SET is_current = 0 WHERE modpack_id = ?1 AND ((snapshot_id = ?2) OR (snapshot_id IS NULL AND ?2 IS NULL)) AND ((candidate_id = ?3) OR (candidate_id IS NULL AND ?3 IS NULL))", params![modpack_id, snapshot_id, candidate_id]).map_err(|error| CommandError::new("database_write_failed", "Previous note could not be archived").with_details(error.to_string()))?;
     let scope = serde_json::to_string(&scope).unwrap_or_else(|_| "project".into());
-    connection.execute("INSERT INTO snapshot_notes (project_id, snapshot_id, candidate_id, scope, note, recorded_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![project_id, snapshot_id, candidate_id, scope.trim_matches('"'), note, timestamp()]).map_err(|error| CommandError::new("database_write_failed", "Snapshot note could not be saved").with_details(error.to_string()))?;
+    connection.execute("INSERT INTO snapshot_notes (modpack_id, snapshot_id, candidate_id, scope, note, recorded_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![modpack_id, snapshot_id, candidate_id, scope.trim_matches('"'), note, timestamp()]).map_err(|error| CommandError::new("database_write_failed", "Snapshot note could not be saved").with_details(error.to_string()))?;
     Ok(())
 }
 
@@ -1322,7 +1322,7 @@ pub fn close_snapshot(
                 .with_details(error.to_string())
         })?;
     if current == requested {
-        let snapshot = connection.query_row("SELECT id, project_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1", [&id], row_to_snapshot).map_err(|error| CommandError::new("snapshot_not_found", "Snapshot is not available").with_details(error.to_string()))?;
+        let snapshot = connection.query_row("SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1", [&id], row_to_snapshot).map_err(|error| CommandError::new("snapshot_not_found", "Snapshot is not available").with_details(error.to_string()))?;
         return enrich_snapshot(&connection, snapshot);
     }
     if !matches!(current.as_str(), "draft" | "reviewable") {
@@ -1340,7 +1340,7 @@ pub fn close_snapshot(
             CommandError::new("database_write_failed", "Snapshot could not be closed")
                 .with_details(error.to_string())
         })?;
-    let snapshot = connection.query_row("SELECT id, project_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1", [&id], row_to_snapshot).map_err(|error| CommandError::new("snapshot_not_found", "Snapshot is not available").with_details(error.to_string()))?;
+    let snapshot = connection.query_row("SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1", [&id], row_to_snapshot).map_err(|error| CommandError::new("snapshot_not_found", "Snapshot is not available").with_details(error.to_string()))?;
     enrich_snapshot(&connection, snapshot)
 }
 
@@ -1356,7 +1356,7 @@ pub fn link_snapshot_retry(
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
     let predecessor_project: String = connection
         .query_row(
-            "SELECT project_id FROM snapshots WHERE id = ?1",
+            "SELECT modpack_id FROM snapshots WHERE id = ?1",
             [&predecessor_id],
             |row| row.get(0),
         )
@@ -1369,7 +1369,7 @@ pub fn link_snapshot_retry(
         })?;
     let retry_project: String = connection
         .query_row(
-            "SELECT project_id FROM snapshots WHERE id = ?1",
+            "SELECT modpack_id FROM snapshots WHERE id = ?1",
             [&retry_id],
             |row| row.get(0),
         )
@@ -1390,7 +1390,7 @@ pub fn link_snapshot_retry(
         )
         .map_err(|error| CommandError::new("database_write_failed", "Retry link could not be saved").with_details(error.to_string()))?;
     let snapshot = connection
-        .query_row("SELECT id, project_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1", [&retry_id], row_to_snapshot)
+        .query_row("SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1", [&retry_id], row_to_snapshot)
         .map_err(|error| CommandError::new("snapshot_not_found", "Retry snapshot is not available").with_details(error.to_string()))?;
     enrich_snapshot(&connection, snapshot)
 }
@@ -1405,7 +1405,7 @@ pub fn recheck_snapshot(
             .0
             .lock()
             .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
-        connection.query_row("SELECT projects.canonical_path, snapshots.result_json FROM snapshots JOIN projects ON projects.id = snapshots.project_id WHERE snapshots.id = ?1", [&id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).map_err(|_| CommandError::new("snapshot_not_found", "Snapshot is not available"))?
+        connection.query_row("SELECT modpacks.canonical_path, snapshots.result_json FROM snapshots JOIN modpacks ON modpacks.id = snapshots.modpack_id WHERE snapshots.id = ?1", [&id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).map_err(|_| CommandError::new("snapshot_not_found", "Snapshot is not available"))?
     };
     let result: DiscoveryResult = serde_json::from_str(&result_json).map_err(|_| {
         CommandError::new("snapshot_invalid", "Stored snapshot evidence is invalid")
@@ -1464,21 +1464,21 @@ pub fn recheck_snapshot(
                 .with_details(error.to_string())
             })?;
     }
-    let snapshot = connection.query_row("SELECT id, project_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1", [id], row_to_snapshot).map_err(|error| CommandError::new("snapshot_not_found", "Snapshot is not available").with_details(error.to_string()))?;
+    let snapshot = connection.query_row("SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1", [id], row_to_snapshot).map_err(|error| CommandError::new("snapshot_not_found", "Snapshot is not available").with_details(error.to_string()))?;
     enrich_snapshot(&connection, snapshot)
 }
 
 #[tauri::command]
-pub fn open_project(state: State<'_, Database>, id: String) -> Result<ProjectRecord, CommandError> {
+pub fn open_modpack(state: State<'_, Database>, id: String) -> Result<ModpackRecord, CommandError> {
     let connection = state
         .0
         .lock()
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
-    let mut project = connection.query_row("SELECT id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at, last_opened_at, last_refreshed_at FROM projects WHERE id = ?1", [&id], row_to_project).map_err(|error| CommandError::new("project_not_found", "Project is not registered").with_details(error.to_string()))?;
+    let mut project = connection.query_row("SELECT id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at, last_opened_at, last_refreshed_at FROM modpacks WHERE id = ?1", [&id], row_to_modpack).map_err(|error| CommandError::new("modpack_not_found", "Modpack is not registered").with_details(error.to_string()))?;
     let current = validation::preview(&project.canonical_path).map_err(|error| {
         CommandError::new(
             "project_state_unavailable",
-            "Registered project files could not be reopened",
+            "Registered modpack files could not be reopened",
         )
         .with_details(format!("{}: {}", error.code, error.message))
     })?;
@@ -1487,7 +1487,7 @@ pub fn open_project(state: State<'_, Database>, id: String) -> Result<ProjectRec
     let now = timestamp();
     connection
         .execute(
-            "UPDATE projects SET last_opened_at = ?1, updated_at = ?1 WHERE id = ?2",
+            "UPDATE modpacks SET last_opened_at = ?1, updated_at = ?1 WHERE id = ?2",
             params![now, id],
         )
         .map_err(|error| {
@@ -1507,17 +1507,17 @@ fn refresh_record(
     connection: &Connection,
     id: &str,
     preview: &RegistrationPreview,
-) -> Result<ProjectRecord, CommandError> {
-    let existing = connection.query_row("SELECT id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at, last_opened_at, last_refreshed_at FROM projects WHERE id = ?1", [id], row_to_project).map_err(|error| CommandError::new("project_not_found", "Project is not registered").with_details(error.to_string()))?;
+) -> Result<ModpackRecord, CommandError> {
+    let existing = connection.query_row("SELECT id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at, last_opened_at, last_refreshed_at FROM modpacks WHERE id = ?1", [id], row_to_modpack).map_err(|error| CommandError::new("modpack_not_found", "Modpack is not registered").with_details(error.to_string()))?;
     let inventory = inventory::read_inventory(std::path::Path::new(&preview.canonical_path))?;
     let overview = inventory::read_overview(std::path::Path::new(&preview.canonical_path))?;
     let inventory_json = serialize(&inventory, "inventory")?;
     let overview_json = serialize(&overview, "overview")?;
     let now = timestamp();
-    connection.execute("UPDATE projects SET canonical_path = ?1, packwiz_json = ?2, validation_json = ?3, updated_at = ?4, last_refreshed_at = ?4 WHERE id = ?5", params![preview.canonical_path, serialize(&preview.packwiz, "Packwiz observations")?, serialize(&preview.validation, "validation results")?, now, id]).map_err(|error| CommandError::new("database_write_failed", "Project refresh could not be saved").with_details(error.to_string()))?;
+    connection.execute("UPDATE modpacks SET canonical_path = ?1, packwiz_json = ?2, validation_json = ?3, updated_at = ?4, last_refreshed_at = ?4 WHERE id = ?5", params![preview.canonical_path, serialize(&preview.packwiz, "Packwiz observations")?, serialize(&preview.validation, "validation results")?, now, id]).map_err(|error| CommandError::new("database_write_failed", "Modpack refresh could not be saved").with_details(error.to_string()))?;
     connection
         .execute(
-            "INSERT INTO inventory_observations (project_id, observed_at, freshness, inventory_json, overview_json) VALUES (?1, ?2, 'current', ?3, ?4) ON CONFLICT(project_id) DO UPDATE SET observed_at = excluded.observed_at, freshness = excluded.freshness, inventory_json = excluded.inventory_json, overview_json = excluded.overview_json",
+            "INSERT INTO inventory_observations (modpack_id, observed_at, freshness, inventory_json, overview_json) VALUES (?1, ?2, 'current', ?3, ?4) ON CONFLICT(modpack_id) DO UPDATE SET observed_at = excluded.observed_at, freshness = excluded.freshness, inventory_json = excluded.inventory_json, overview_json = excluded.overview_json",
             params![
                 id,
                 now,
@@ -1535,7 +1535,7 @@ fn refresh_record(
         "refresh_succeeded",
         "Project inventory refreshed",
     )?;
-    Ok(ProjectRecord {
+    Ok(ModpackRecord {
         canonical_path: preview.canonical_path.clone(),
         packwiz: preview.packwiz.clone(),
         validation: preview.validation.clone(),
@@ -1546,21 +1546,21 @@ fn refresh_record(
 }
 
 #[tauri::command]
-pub fn refresh_project(
+pub fn refresh_modpack(
     state: State<'_, Database>,
     id: String,
-) -> Result<ProjectRecord, CommandError> {
-    refresh_project_inner(&state, &id)
+) -> Result<ModpackRecord, CommandError> {
+    refresh_modpack_inner(&state, &id)
 }
 
-fn refresh_project_inner(database: &Database, id: &str) -> Result<ProjectRecord, CommandError> {
+fn refresh_modpack_inner(database: &Database, id: &str) -> Result<ModpackRecord, CommandError> {
     let connection = database
         .0
         .lock()
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
     let path: String = connection
         .query_row(
-            "SELECT canonical_path FROM projects WHERE id = ?1",
+            "SELECT canonical_path FROM modpacks WHERE id = ?1",
             [id],
             |row| row.get(0),
         )
@@ -1572,7 +1572,7 @@ fn refresh_project_inner(database: &Database, id: &str) -> Result<ProjectRecord,
         Ok(preview) => preview,
         Err(error) => {
             let _ = connection.execute(
-                "UPDATE inventory_observations SET freshness = 'stale' WHERE project_id = ?1",
+                "UPDATE inventory_observations SET freshness = 'stale' WHERE modpack_id = ?1",
                 [id],
             );
             let _ = record_activity(&connection, id, "refresh_failed", &error.message);
@@ -1583,7 +1583,7 @@ fn refresh_project_inner(database: &Database, id: &str) -> Result<ProjectRecord,
 }
 
 #[tauri::command]
-pub fn get_project_inventory(
+pub fn get_modpack_inventory(
     state: State<'_, Database>,
     id: String,
 ) -> Result<Vec<InventoryEntry>, CommandError> {
@@ -1593,7 +1593,7 @@ pub fn get_project_inventory(
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
     let path: String = connection
         .query_row(
-            "SELECT canonical_path FROM projects WHERE id = ?1",
+            "SELECT canonical_path FROM modpacks WHERE id = ?1",
             [&id],
             |row| row.get(0),
         )
@@ -1605,17 +1605,17 @@ pub fn get_project_inventory(
 }
 
 #[tauri::command]
-pub fn get_project_overview(
+pub fn get_modpack_overview(
     state: State<'_, Database>,
     id: String,
-) -> Result<ProjectOverview, CommandError> {
+) -> Result<ModpackOverview, CommandError> {
     let connection = state
         .0
         .lock()
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
     let path: String = connection
         .query_row(
-            "SELECT canonical_path FROM projects WHERE id = ?1",
+            "SELECT canonical_path FROM modpacks WHERE id = ?1",
             [&id],
             |row| row.get(0),
         )
@@ -1629,30 +1629,30 @@ pub fn get_project_overview(
 }
 
 #[tauri::command]
-pub fn update_project_metadata(
+pub fn update_modpack_metadata(
     state: State<'_, Database>,
     id: String,
-    application: ApplicationProjectMetadata,
-) -> Result<ProjectRecord, CommandError> {
+    application: ApplicationModpackMetadata,
+) -> Result<ModpackRecord, CommandError> {
     let connection = state
         .0
         .lock()
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
-    let existing = connection.query_row("SELECT id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at, last_opened_at, last_refreshed_at FROM projects WHERE id = ?1", [&id], row_to_project).map_err(|error| CommandError::new("project_not_found", "Project is not registered").with_details(error.to_string()))?;
+    let existing = connection.query_row("SELECT id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at, last_opened_at, last_refreshed_at FROM modpacks WHERE id = ?1", [&id], row_to_modpack).map_err(|error| CommandError::new("modpack_not_found", "Modpack is not registered").with_details(error.to_string()))?;
     let now = timestamp();
     connection
         .execute(
-            "UPDATE projects SET application_json = ?1, updated_at = ?2 WHERE id = ?3",
+            "UPDATE modpacks SET application_json = ?1, updated_at = ?2 WHERE id = ?3",
             params![serialize(&application, "application metadata")?, now, id],
         )
         .map_err(|error| {
             CommandError::new(
                 "database_write_failed",
-                "Project metadata could not be saved",
+                "Modpack metadata could not be saved",
             )
             .with_details(error.to_string())
         })?;
-    Ok(ProjectRecord {
+    Ok(ModpackRecord {
         application,
         updated_at: now,
         ..existing
@@ -1662,18 +1662,18 @@ pub fn update_project_metadata(
 fn set_lifecycle(
     database: &Database,
     id: String,
-    lifecycle: ProjectLifecycle,
-) -> Result<ProjectRecord, CommandError> {
+    lifecycle: ModpackLifecycle,
+) -> Result<ModpackRecord, CommandError> {
     let connection = database
         .0
         .lock()
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
-    let mut project = connection.query_row("SELECT id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at, last_opened_at, last_refreshed_at FROM projects WHERE id = ?1", [&id], row_to_project).map_err(|error| CommandError::new("project_not_found", "Project is not registered").with_details(error.to_string()))?;
+    let mut project = connection.query_row("SELECT id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at, last_opened_at, last_refreshed_at FROM modpacks WHERE id = ?1", [&id], row_to_modpack).map_err(|error| CommandError::new("modpack_not_found", "Modpack is not registered").with_details(error.to_string()))?;
     project.application.lifecycle = lifecycle;
     let now = timestamp();
     connection
         .execute(
-            "UPDATE projects SET application_json = ?1, updated_at = ?2 WHERE id = ?3",
+            "UPDATE modpacks SET application_json = ?1, updated_at = ?2 WHERE id = ?3",
             params![
                 serialize(&project.application, "application metadata")?,
                 now,
@@ -1683,7 +1683,7 @@ fn set_lifecycle(
         .map_err(|error| {
             CommandError::new(
                 "database_write_failed",
-                "Project lifecycle could not be saved",
+                "Modpack lifecycle could not be saved",
             )
             .with_details(error.to_string())
         })?;
@@ -1692,43 +1692,43 @@ fn set_lifecycle(
 }
 
 #[tauri::command]
-pub fn archive_project(
+pub fn archive_modpack(
     state: State<'_, Database>,
     id: String,
-) -> Result<ProjectRecord, CommandError> {
-    set_lifecycle(&state, id, ProjectLifecycle::Archived)
+) -> Result<ModpackRecord, CommandError> {
+    set_lifecycle(&state, id, ModpackLifecycle::Archived)
 }
 
 #[tauri::command]
-pub fn restore_project(
+pub fn restore_modpack(
     state: State<'_, Database>,
     id: String,
-) -> Result<ProjectRecord, CommandError> {
-    set_lifecycle(&state, id, ProjectLifecycle::Active)
+) -> Result<ModpackRecord, CommandError> {
+    set_lifecycle(&state, id, ModpackLifecycle::Active)
 }
 
 #[tauri::command]
-pub fn disconnect_project(
+pub fn disconnect_modpack(
     state: State<'_, Database>,
     id: String,
-) -> Result<ProjectRecord, CommandError> {
-    set_lifecycle(&state, id, ProjectLifecycle::Disconnected)
+) -> Result<ModpackRecord, CommandError> {
+    set_lifecycle(&state, id, ModpackLifecycle::Disconnected)
 }
 
 #[tauri::command]
-pub fn reconnect_project(
+pub fn reconnect_modpack(
     state: State<'_, Database>,
     id: String,
     path: String,
-) -> Result<ProjectRecord, CommandError> {
-    reconnect_project_inner(&state, id, path)
+) -> Result<ModpackRecord, CommandError> {
+    reconnect_modpack_inner(&state, id, path)
 }
 
-fn reconnect_project_inner(
+fn reconnect_modpack_inner(
     database: &Database,
     id: String,
     path: String,
-) -> Result<ProjectRecord, CommandError> {
+) -> Result<ModpackRecord, CommandError> {
     let preview = validation::preview(&path)?;
     if validation::has_errors(&preview.validation) {
         return Err(CommandError::new(
@@ -1845,12 +1845,12 @@ mod tests {
             .expect("database lock should be available");
         let project_table: String = connection
             .query_row(
-                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'projects'",
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'modpacks'",
                 [],
                 |row| row.get(0),
             )
             .expect("project schema should be initialized");
-        assert_eq!(project_table, "projects");
+        assert_eq!(project_table, "modpacks");
         for table in [
             "operation_attempts",
             "operation_candidates",
@@ -1898,22 +1898,22 @@ mod tests {
         let database = initialize(Path::new(":memory:")).expect("database should initialize");
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/packwiz/valid");
         let path = fixture.to_string_lossy().into_owned();
-        let registered = super::register_project_inner(&database, path.clone(), None)
+        let registered = super::register_modpack_inner(&database, path.clone(), None)
             .expect("valid fixture should register");
-        let duplicate = super::register_project_inner(&database, path.clone(), None)
+        let duplicate = super::register_modpack_inner(&database, path.clone(), None)
             .expect_err("equivalent project should be rejected");
-        assert_eq!(duplicate.code, "duplicate_project");
+        assert_eq!(duplicate.code, "duplicate_modpack");
         let disconnected = super::set_lifecycle(
             &database,
             registered.id.clone(),
-            crate::domain::ProjectLifecycle::Disconnected,
+            crate::domain::ModpackLifecycle::Disconnected,
         )
         .expect("project should disconnect");
         assert_eq!(
             disconnected.application.lifecycle,
-            crate::domain::ProjectLifecycle::Disconnected
+            crate::domain::ModpackLifecycle::Disconnected
         );
-        let reconnected = super::reconnect_project_inner(&database, registered.id.clone(), path)
+        let reconnected = super::reconnect_modpack_inner(&database, registered.id.clone(), path)
             .expect("valid fixture should reconnect");
         assert_eq!(reconnected.id, registered.id);
         assert!(fixture.join("pack.toml").is_file());
@@ -1924,7 +1924,7 @@ mod tests {
         let database = initialize(Path::new(":memory:")).expect("database should initialize");
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/packwiz/mixed");
         let path = fixture.to_string_lossy().into_owned();
-        let registered = super::register_project_inner(&database, path.clone(), None)
+        let registered = super::register_modpack_inner(&database, path.clone(), None)
             .expect("valid fixture should register");
         let preview = crate::domain::validation::preview(&path).expect("fixture should preview");
         let connection = database
@@ -1936,14 +1936,14 @@ mod tests {
         assert_eq!(refreshed.last_refreshed_at.is_some(), true);
         let observation_count: i64 = connection
             .query_row(
-                "SELECT COUNT(*) FROM inventory_observations WHERE project_id = ?1",
+                "SELECT COUNT(*) FROM inventory_observations WHERE modpack_id = ?1",
                 [&registered.id],
                 |row| row.get(0),
             )
             .unwrap();
         let activity_count: i64 = connection
             .query_row(
-                "SELECT COUNT(*) FROM project_activity WHERE project_id = ?1 AND event_type = 'refresh_succeeded'",
+                "SELECT COUNT(*) FROM modpack_activity WHERE modpack_id = ?1 AND event_type = 'refresh_succeeded'",
                 [&registered.id],
                 |row| row.get(0),
             )
@@ -1961,18 +1961,18 @@ mod tests {
             .expect("database lock should be available");
         connection
             .execute(
-                "INSERT INTO projects (id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
-                params!["project-test", ".", "{}", "{}", "[]", "2026-09-06T00:00:00Z"],
+                "INSERT INTO modpacks (id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+                params!["modpack-test", ".", "{}", "{}", "[]", "2026-09-06T00:00:00Z"],
             )
             .expect("test project should be inserted");
         connection
             .execute(
-                "INSERT INTO project_activity (project_id, event_type, occurred_at, message) VALUES (?1, ?2, ?3, ?4)",
-                params!["project-test", "snapshot_created", "2026-09-06T00:00:00Z", "Snapshot created"],
+                "INSERT INTO modpack_activity (modpack_id, event_type, occurred_at, message) VALUES (?1, ?2, ?3, ?4)",
+                params!["modpack-test", "snapshot_created", "2026-09-06T00:00:00Z", "Snapshot created"],
             )
             .expect("snapshot activity should be inserted");
 
-        let activity = super::read_activity(&connection, "project-test")
+        let activity = super::read_activity(&connection, "modpack-test")
             .expect("snapshot activity should be readable");
 
         assert_eq!(activity.len(), 1);
@@ -1987,32 +1987,32 @@ mod tests {
         let database = initialize(Path::new(":memory:")).expect("database should initialize");
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/packwiz/mixed");
         let path = fixture.to_string_lossy().into_owned();
-        let registered = super::register_project_inner(&database, path.clone(), None)
+        let registered = super::register_modpack_inner(&database, path.clone(), None)
             .expect("valid fixture should register");
         let preview = crate::domain::validation::preview(&path).expect("fixture should preview");
         let connection = database.0.lock().unwrap();
         super::refresh_record(&connection, &registered.id, &preview).unwrap();
         connection
             .execute(
-                "UPDATE projects SET canonical_path = ?1 WHERE id = ?2",
-                ["C:/missing-project", registered.id.as_str()],
+                "UPDATE modpacks SET canonical_path = ?1 WHERE id = ?2",
+                ["C:/missing-modpack", registered.id.as_str()],
             )
             .unwrap();
         drop(connection);
 
-        let error = super::refresh_project_inner(&database, &registered.id).unwrap_err();
+        let error = super::refresh_modpack_inner(&database, &registered.id).unwrap_err();
         assert_eq!(error.code, "project_unavailable");
         let connection = database.0.lock().unwrap();
         let freshness: String = connection
             .query_row(
-                "SELECT freshness FROM inventory_observations WHERE project_id = ?1",
+                "SELECT freshness FROM inventory_observations WHERE modpack_id = ?1",
                 [&registered.id],
                 |row| row.get(0),
             )
             .unwrap();
         let failures: i64 = connection
             .query_row(
-                "SELECT COUNT(*) FROM project_activity WHERE project_id = ?1 AND event_type = 'refresh_failed'",
+                "SELECT COUNT(*) FROM modpack_activity WHERE modpack_id = ?1 AND event_type = 'refresh_failed'",
                 [&registered.id],
                 |row| row.get(0),
             )
@@ -2027,7 +2027,7 @@ mod tests {
         let association = crate::domain::ProviderMatchEvidence {
             confidence: crate::domain::ProviderMatchConfidence::Exact,
             project: Some(crate::domain::ModrinthProjectIdentity {
-                project_id: "project-id".into(),
+                modpack_id: "project-id".into(),
                 slug: Some("example".into()),
                 title: None,
             }),

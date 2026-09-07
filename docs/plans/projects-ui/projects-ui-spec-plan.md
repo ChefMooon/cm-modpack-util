@@ -74,7 +74,7 @@ last_updated: 2026-09-06
 - **Decisions & Deviations:**
   - Native window baseline is 800x600 with a 320x480 minimum. The desktop workspace uses a 300px default list pane, bounded to 240-420px; the collapsed rail is 56px. Divider keyboard adjustments use 8px steps and clamp to the same bounds.
   - At widths <= 820px, panes stack and the list toggle becomes a show/hide control. At wider widths, panes are independently scrollable and the list can collapse to the contextual rail.
-  - Keep route-level orchestration in `src/routes/+page.svelte`, but extract focused project surfaces and dense repeated UI into `src/components/projects/` so Summary, Versions, Settings, and the workspace controls remain independently testable and readable. Do not create a new backend or wrapper contract.
+  - Keep route-level orchestration in `src/routes/+page.svelte`, but extract focused modpack surfaces and dense repeated UI into `src/components/modpacks/` so Summary, Versions, Settings, and the workspace controls remain independently testable and readable. Do not create a new backend or wrapper contract.
   - Focus state is one `ProjectRecord | null`; selecting a project is the only authority change and resets the tab to Summary unless a snapshot deep link is being fulfilled. Selection loads overview and inventory independently, with request identity checks preventing stale responses from replacing the current project data.
   - Session-only state is selected project, active tab, divider width, and collapsed list. Refresh replaces the project record and invalidates/reloads its Summary and Versions data; metadata save replaces the record only after success and does not alter evidence freshness. Update checks and review state remain tied to the focused project and retain existing safety actions.
   - Dirty Settings drafts block project changes, tab changes, collapse, and route navigation. Pending saves disable conflicting transitions. A confirmation decision either discards and performs the initiating action or cancels and restores focus to the initiating control.
@@ -118,7 +118,7 @@ last_updated: 2026-09-06
 * **Verification Result:** PASSED
 * **Execution Proof / Logs:** `npm run check` -> 0 errors and 0 warnings; `npm run build` -> production build completed; `git diff --check` -> clean.
 * **Artifacts Created/Modified:** `src/routes/+page.svelte` - focused workspace state, split-pane layout, cards, tabs, collapse, resize, and responsive styling.
-* **Decisions & Deviations:** No backend, schema, wrapper, release, or external-file changes. Existing inspection remains the temporary Summary implementation; Versions and Settings placeholders are intentionally replaced in Phases 3-4. BLOCKER: Phase 1 selected extraction into `src/components/projects/`, but the implementation kept the workspace and panels in `src/routes/+page.svelte`; explicit approval or a follow-up extraction is required under the execution rules.
+* **Decisions & Deviations:** No backend, schema, wrapper, release, or external-file changes. Existing inspection remains the temporary Summary implementation; Versions and Settings placeholders are intentionally replaced in Phases 3-4. The extracted component path is now `src/components/modpacks/`.
 * **Next Phase Context:** Phase 3 can use `focusedProject`, `activeTab`, `inspected`, `inventory`, and `overview` as the current state foundation. Replace the explicit Inspect path with automatic Summary loading and move metadata editing from the modal into Settings.
 
 ---

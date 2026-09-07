@@ -9,7 +9,7 @@ use std::path::Path;
 use tauri::State;
 
 #[tauri::command]
-pub fn apply_project(
+pub fn apply_modpack(
     database: State<'_, Database>,
     runtime: State<'_, DiscoveryRuntime>,
     request: ApplyOperationRequest,
@@ -18,7 +18,7 @@ pub fn apply_project(
 }
 
 #[tauri::command]
-pub fn pin_project(
+pub fn pin_modpack(
     database: State<'_, Database>,
     runtime: State<'_, DiscoveryRuntime>,
     request: PinOperationRequest,
@@ -27,7 +27,7 @@ pub fn pin_project(
 }
 
 #[tauri::command]
-pub fn unpin_project(
+pub fn unpin_modpack(
     database: State<'_, Database>,
     runtime: State<'_, DiscoveryRuntime>,
     request: PinOperationRequest,
@@ -49,11 +49,11 @@ fn run_pin_operation(
     request: PinOperationRequest,
     pin: bool,
 ) -> Result<OperationAttempt, CommandError> {
-    let root = db::registered_project_path(database, &request.project_id)?;
+    let root = db::registered_modpack_path(database, &request.project_id)?;
     let root = Path::new(&root).canonicalize().map_err(|error| {
         CommandError::new(
             "project_unavailable",
-            "Registered project root is unavailable",
+            "Registered modpack root is unavailable",
         )
         .with_details(error.to_string())
     })?;
@@ -68,7 +68,7 @@ fn run_pin_operation(
         crate::safety::canonical_registered_path(&root, metadata_path).map_err(|_| {
             CommandError::new(
                 "invalid_metadata_path",
-                "Metadata path is outside the registered project",
+                "Metadata path is outside the registered modpack",
             )
         })?;
     let slug = crate::domain::inventory::packwiz_slug(&metadata_path)?;
@@ -134,7 +134,7 @@ fn run_pin_operation(
     };
     let attempt = OperationAttempt {
         id,
-        project_id: request.project_id,
+        modpack_id: request.project_id,
         snapshot_id: None,
         predecessor_id: None,
         kind: if pin {
@@ -209,7 +209,7 @@ fn run_apply_operation(
             "Only a current reviewable snapshot can be applied",
         ));
     }
-    let project_root = Path::new(&db::registered_project_path(
+    let project_root = Path::new(&db::registered_modpack_path(
         database,
         &snapshot.project_id,
     )?)
@@ -320,7 +320,7 @@ fn run_apply_operation(
         .map_err(|_| {
             CommandError::new(
                 "invalid_metadata_path",
-                "Candidate metadata is outside the registered project",
+                "Candidate metadata is outside the registered modpack",
             )
         })?;
         let slug = crate::domain::inventory::packwiz_slug(&metadata_path)?;
@@ -409,7 +409,7 @@ fn run_apply_operation(
         };
         let attempt = OperationAttempt {
             id: format!("{}-{}", request.operation_id, index),
-            project_id: snapshot.project_id.clone(),
+            modpack_id: snapshot.project_id.clone(),
             snapshot_id: Some(snapshot.id.clone()),
             predecessor_id: None,
             kind: OperationKind::Apply,

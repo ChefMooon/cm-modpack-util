@@ -9,7 +9,7 @@ pub enum Observation<T> {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum ProjectLifecycle {
+pub enum ModpackLifecycle {
     Active,
     Maintenance,
     Archived,
@@ -17,14 +17,14 @@ pub enum ProjectLifecycle {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ApplicationProjectMetadata {
+pub struct ApplicationModpackMetadata {
     pub display_name: String,
     pub icon: Option<String>,
     pub theme: Option<String>,
     pub tags: Vec<String>,
     pub favorite: bool,
     pub description: Option<String>,
-    pub lifecycle: ProjectLifecycle,
+    pub lifecycle: ModpackLifecycle,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -42,16 +42,16 @@ pub struct PackwizObservations {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RegistrationPreview {
     pub canonical_path: String,
-    pub application_defaults: ApplicationProjectMetadata,
+    pub application_defaults: ApplicationModpackMetadata,
     pub packwiz: PackwizObservations,
     pub validation: Vec<ValidationResult>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ProjectRecord {
+pub struct ModpackRecord {
     pub id: String,
     pub canonical_path: String,
-    pub application: ApplicationProjectMetadata,
+    pub application: ApplicationModpackMetadata,
     pub packwiz: PackwizObservations,
     pub validation: Vec<ValidationResult>,
     pub created_at: String,
@@ -150,7 +150,7 @@ pub struct GitStatusObservation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ProjectOverview {
+pub struct ModpackOverview {
     pub validation: Vec<ValidationResult>,
     pub minecraft_version: Evidence<String>,
     pub loader: Evidence<String>,
@@ -193,7 +193,7 @@ pub struct RefreshResult {
     pub freshness: ObservationFreshness,
     pub observed_at: Option<String>,
     pub inventory: Option<Vec<InventoryEntry>>,
-    pub overview: Option<ProjectOverview>,
+    pub overview: Option<ModpackOverview>,
     pub error: Option<CommandError>,
 }
 
@@ -284,7 +284,7 @@ pub struct FingerprintEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ProjectFingerprint {
+pub struct ModpackFingerprint {
     pub root: String,
     pub entries: Vec<FingerprintEntry>,
     pub complete: bool,
@@ -293,8 +293,8 @@ pub struct ProjectFingerprint {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FingerprintComparison {
-    pub before: ProjectFingerprint,
-    pub after: ProjectFingerprint,
+    pub before: ModpackFingerprint,
+    pub after: ModpackFingerprint,
     pub unchanged: bool,
     pub comparable: bool,
     pub differences: Vec<String>,
@@ -392,7 +392,7 @@ pub struct RecoveryObservation {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RecoveryAcknowledgement {
     pub operation_id: String,
-    pub project_fingerprint: String,
+    pub modpack_fingerprint: String,
     pub warning_category: String,
     pub recovery_state: String,
     pub acknowledged_at: String,
@@ -401,7 +401,7 @@ pub struct RecoveryAcknowledgement {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OperationAttempt {
     pub id: String,
-    pub project_id: String,
+    pub modpack_id: String,
     pub snapshot_id: Option<String>,
     pub predecessor_id: Option<String>,
     pub kind: OperationKind,
@@ -409,8 +409,8 @@ pub struct OperationAttempt {
     pub outcome: Option<OperationOutcome>,
     pub recovery: RecoveryObservation,
     pub process: Option<ProcessEvidence>,
-    pub before_fingerprint: Option<ProjectFingerprint>,
-    pub after_fingerprint: Option<ProjectFingerprint>,
+    pub before_fingerprint: Option<ModpackFingerprint>,
+    pub after_fingerprint: Option<ModpackFingerprint>,
     pub verification: Option<OperationVerification>,
     pub error: Option<CommandError>,
     pub created_at: String,
@@ -569,7 +569,7 @@ impl ValidationResult {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub struct ProjectReference {
+pub struct ModpackReference {
     pub id: String,
     pub name: String,
     pub root_path: String,
@@ -627,8 +627,8 @@ impl CommandError {
 #[cfg(test)]
 mod tests {
     use super::{
-        ApplicationProjectMetadata, CommandError, Evidence, InventoryCounts, InventoryProvider,
-        Observation, OperationKind, OperationOutcome, OperationStatus, ProjectLifecycle,
+        ApplicationModpackMetadata, CommandError, Evidence, InventoryCounts, InventoryProvider,
+        ModpackLifecycle, Observation, OperationKind, OperationOutcome, OperationStatus,
         SnapshotDecision, SnapshotLifecycle, SnapshotNoteScope, ValidationSeverity,
     };
 
@@ -674,16 +674,16 @@ mod tests {
 
     #[test]
     fn application_and_external_values_are_distinguishable() {
-        let application = ApplicationProjectMetadata {
+        let application = ApplicationModpackMetadata {
             display_name: "My pack".to_string(),
             icon: None,
             theme: Some("ember".to_string()),
             tags: vec!["survival".to_string()],
             favorite: true,
             description: None,
-            lifecycle: ProjectLifecycle::Active,
+            lifecycle: ModpackLifecycle::Active,
         };
-        assert_eq!(application.lifecycle, ProjectLifecycle::Active);
+        assert_eq!(application.lifecycle, ModpackLifecycle::Active);
         assert_eq!(Observation::<String>::Unavailable, Observation::Unavailable);
         assert_eq!(
             serde_json::to_string(&Observation::Unavailable::<String>).unwrap(),

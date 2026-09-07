@@ -30,7 +30,7 @@ export type Observation<T> = { observed: T } | "unavailable";
 
 export type ProjectLifecycle = "active" | "maintenance" | "archived" | "disconnected";
 
-export type ApplicationProjectMetadata = {
+export type ApplicationModpackMetadata = {
   display_name: string;
   icon: string | null;
   theme: string | null;
@@ -53,15 +53,15 @@ export type PackwizObservations = {
 
 export type RegistrationPreview = {
   canonical_path: string;
-  application_defaults: ApplicationProjectMetadata;
+  application_defaults: ApplicationModpackMetadata;
   packwiz: PackwizObservations;
   validation: ValidationResult[];
 };
 
-export type ProjectRecord = {
+export type ModpackRecord = {
   id: string;
   canonical_path: string;
-  application: ApplicationProjectMetadata;
+  application: ApplicationModpackMetadata;
   packwiz: PackwizObservations;
   validation: ValidationResult[];
   created_at: string;
@@ -142,7 +142,7 @@ export type ActivityRecord = {
   message: string;
 };
 
-export type ProjectOverview = {
+export type ModpackOverview = {
   validation: ValidationResult[];
   minecraft_version: Evidence<string>;
   loader: Evidence<string>;
@@ -159,7 +159,7 @@ export type RefreshResult = {
   freshness: ObservationFreshness;
   observed_at: string | null;
   inventory: InventoryEntry[] | null;
-  overview: ProjectOverview | null;
+  overview: ModpackOverview | null;
   error: CommandError | null;
 };
 
@@ -180,7 +180,7 @@ export type LocalEntryIdentity = {
   local_identity: Evidence<string>;
   local_version: Evidence<string>;
 };
-export type ModrinthProjectIdentity = { project_id: string; slug: string | null; title: string | null };
+export type ModrinthProjectIdentity = { modpack_id: string; slug: string | null; title: string | null };
 export type ModrinthVersionIdentity = {
   version_id: string;
   version_number: string | null;
@@ -219,7 +219,7 @@ export type ChangelogEntryResult = {
   diagnostic: CommandError | null;
 };
 export type ChangelogGenerationRequest = {
-  project_id: string;
+  modpack_id: string;
   snapshot_id: string;
   introduction: string | null;
   offline: boolean;
@@ -235,7 +235,7 @@ export type ChangelogProgress = {
 };
 export type ChangelogArtifact = {
   id: string;
-  project_id: string;
+  modpack_id: string;
   snapshot_id: string;
   attempt_id: string;
   status: ChangelogGenerationStatus;
@@ -333,15 +333,15 @@ export type FingerprintEntry = {
   modified_ns: number | null;
   content_hash: string | null;
 };
-export type ProjectFingerprint = {
+export type ModpackFingerprint = {
   root: string;
   entries: FingerprintEntry[];
   complete: boolean;
   diagnostic: string | null;
 };
 export type FingerprintComparison = {
-  before: ProjectFingerprint;
-  after: ProjectFingerprint;
+  before: ModpackFingerprint;
+  after: ModpackFingerprint;
   unchanged: boolean;
   comparable: boolean;
   differences: string[];
@@ -393,14 +393,14 @@ export type RecoveryObservation = {
 };
 export type RecoveryAcknowledgement = {
   operation_id: string;
-  project_fingerprint: string;
+  modpack_fingerprint: string;
   warning_category: string;
   recovery_state: string;
   acknowledged_at: string;
 };
 export type OperationAttempt = {
   id: string;
-  project_id: string;
+  modpack_id: string;
   snapshot_id: string | null;
   predecessor_id: string | null;
   kind: OperationKind;
@@ -408,15 +408,15 @@ export type OperationAttempt = {
   outcome: OperationOutcome | null;
   recovery: RecoveryObservation;
   process: ProcessEvidence | null;
-  before_fingerprint: ProjectFingerprint | null;
-  after_fingerprint: ProjectFingerprint | null;
+  before_fingerprint: ModpackFingerprint | null;
+  after_fingerprint: ModpackFingerprint | null;
   verification: OperationVerification | null;
   error: CommandError | null;
   created_at: string;
   finished_at: string | null;
 };
 export type PinOperationRequest = {
-  project_id: string;
+  modpack_id: string;
   entry_id: string;
 };
 export type ApplyOperationRequest = {
@@ -431,10 +431,10 @@ export type ApplyOperationReport = {
 };
 export type SnapshotLifecycle = "draft" | "reviewable" | "closed" | "cancelled" | "stale";
 export type SnapshotDecision = "undecided" | "selected" | "skipped" | "blocked" | "deferred";
-export type SnapshotNoteScope = "project" | "snapshot" | "candidate";
+export type SnapshotNoteScope = "modpack" | "snapshot" | "candidate";
 export type SnapshotRecord = {
   id: string;
-  project_id: string;
+  modpack_id: string;
   predecessor_id: string | null;
   lifecycle: SnapshotLifecycle;
   outcome: DiscoveryOutcomeKind;
@@ -450,11 +450,11 @@ export type SnapshotRecord = {
 };
 export type SnapshotCandidateRecord = { id: string; candidate: UpdateCandidate; observed_at: string };
 export type SnapshotDecisionRecord = { id: number; candidate_id: string; decision: SnapshotDecision; note: string | null; recorded_at: string };
-export type SnapshotNoteRecord = { id: number; project_id: string; snapshot_id: string | null; candidate_id: string | null; scope: SnapshotNoteScope; note: string; is_current: boolean; recorded_at: string };
+export type SnapshotNoteRecord = { id: number; modpack_id: string; snapshot_id: string | null; candidate_id: string | null; scope: SnapshotNoteScope; note: string; is_current: boolean; recorded_at: string };
 export type SnapshotRecheckRecord = { id: number; comparable: boolean; unchanged: boolean; differences: string[]; checked_at: string };
 export type DiscoveryProgressKind = "starting" | "running" | "prompt_detected" | "cancelling" | "finished";
 export type DiscoveryProgress = {
-  project_id: string;
+  modpack_id: string;
   kind: DiscoveryProgressKind;
   message: string;
   output_bytes: number;

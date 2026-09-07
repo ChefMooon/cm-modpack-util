@@ -12,7 +12,7 @@
     DiscoveryProgress,
     DiscoveryResult,
     ProcessEvidence,
-    ProjectRecord,
+    ModpackRecord,
     SnapshotRecord,
     UpdateCandidate,
   } from "../../lib/domain";
@@ -61,7 +61,7 @@
     onexport,
   }: {
     open?: boolean;
-    project: ProjectRecord | null;
+    project: ModpackRecord | null;
     discovery: DiscoveryResult | null;
     discoveryProgress: DiscoveryProgress | null;
     discoveryProcess: ProcessEvidence | null;

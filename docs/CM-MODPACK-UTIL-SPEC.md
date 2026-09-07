@@ -458,7 +458,7 @@ SQLite owns application state and historical records. Packwiz files own the curr
 
 ### Security and Privacy
 
-The application should use least-privilege Tauri capabilities. A project must be explicitly registered and canonicalized before operations are allowed. Filesystem operations must remain within the registered project boundary, reject ambiguous or escaping paths, and define behavior for links and junctions. Packwiz resolution and execution must be observable and must not allow project metadata to inject unintended command arguments. Network access should be limited to expected provider endpoints and should avoid sending unnecessary local project data. API keys, when CurseForge support is added, must not be stored in plain project metadata or exposed to the Svelte layer unnecessarily.
+The application should use least-privilege Tauri capabilities. A modpack must be explicitly registered and canonicalized before operations are allowed. Filesystem operations must remain within the registered modpack boundary, reject ambiguous or escaping paths, and define behavior for links and junctions. Packwiz resolution and execution must be observable and must not allow modpack metadata to inject unintended command arguments. Network access should be limited to expected provider endpoints and should avoid sending unnecessary local modpack data. API keys, when CurseForge support is added, must not be stored in plain modpack metadata or exposed to the Svelte layer unnecessarily.
 
 ### Long-Running Work and Errors
 

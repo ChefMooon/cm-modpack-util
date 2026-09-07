@@ -8,24 +8,24 @@
   import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
   import WarningCircleIcon from "phosphor-svelte/lib/WarningCircleIcon";
   import Button from "../ui/Button.svelte";
-  import type { ProjectRecord } from "../../lib/domain";
+  import type { ModpackRecord } from "../../lib/domain";
 
   type LifecycleAction = "archive" | "restore" | "disconnect";
-  let { projects, showArchived = $bindable(false), collapsed = false, focusedProjectId, busy, inspecting, discoveryBusy, discoveryProjectId, onfocus, oncheck, onreconnect, onrefresh, onedit, onlifecycle, observed, freshnessLabel, freshnessTitle, hasErrors }: {
-    projects: ProjectRecord[];
+  let { projects, showArchived = $bindable(false), collapsed = false, focusedModpackId, busy, inspecting, discoveryBusy, discoveryModpackId, onfocus, oncheck, onreconnect, onrefresh, onedit, onlifecycle, observed, freshnessLabel, freshnessTitle, hasErrors }: {
+    projects: ModpackRecord[];
     showArchived?: boolean;
     collapsed?: boolean;
-    focusedProjectId: string | null;
+    focusedModpackId: string | null;
     busy: boolean;
     inspecting: boolean;
     discoveryBusy: boolean;
-    discoveryProjectId: string | null;
-    onfocus: (project: ProjectRecord) => void;
-    oncheck: (project: ProjectRecord) => void | Promise<void>;
-    onreconnect: (project: ProjectRecord) => void | Promise<void>;
-    onrefresh: (project: ProjectRecord) => void | Promise<void>;
-    onedit: (project: ProjectRecord) => void | Promise<void>;
-    onlifecycle: (project: ProjectRecord, action: LifecycleAction) => void | Promise<void>;
+    discoveryModpackId: string | null;
+    onfocus: (project: ModpackRecord) => void;
+    oncheck: (project: ModpackRecord) => void | Promise<void>;
+    onreconnect: (project: ModpackRecord) => void | Promise<void>;
+    onrefresh: (project: ModpackRecord) => void | Promise<void>;
+    onedit: (project: ModpackRecord) => void | Promise<void>;
+    onlifecycle: (project: ModpackRecord, action: LifecycleAction) => void | Promise<void>;
     observed: (value: import("../../lib/domain").Observation<string>) => string;
     freshnessLabel: (value: string | null) => string;
     freshnessTitle: (value: string | null) => string;
@@ -40,13 +40,13 @@
   {#if visibleProjects.length === 0}<p class="no-results">Archived projects are hidden from the active list.</p>{/if}
   {#each visibleProjects as project (project.id)}
     {@const errorCount = project.validation.filter((item) => item.severity === "error").length}
-    <article class:disconnected={project.application.lifecycle === "disconnected"} class:archived={project.application.lifecycle === "archived"} class:selected={focusedProjectId === project.id} class="project-row">
-      <button class="project-select" type="button" disabled={busy || inspecting} aria-label={`Focus ${project.application.display_name}`} aria-current={focusedProjectId === project.id ? "true" : undefined} onclick={() => onfocus(project)}>
+    <article class:disconnected={project.application.lifecycle === "disconnected"} class:archived={project.application.lifecycle === "archived"} class:selected={focusedModpackId === project.id} class="project-row">
+      <button class="project-select" type="button" disabled={busy || inspecting} aria-label={`Focus ${project.application.display_name}`} aria-current={focusedModpackId === project.id ? "true" : undefined} onclick={() => onfocus(project)}>
         <div class="project-mark" aria-hidden="true">{#if project.application.lifecycle === "disconnected"}<LinkBreakIcon size={22} />{:else if hasErrors(project.validation)}<WarningCircleIcon size={22} />{:else}<CheckCircleIcon size={22} />{/if}</div>
         <div class="project-main"><div class="project-title"><h3>{project.application.display_name}</h3></div></div>
         <div class="project-info"><p class="path" title={project.canonical_path}>{project.canonical_path}</p><div class="evidence" aria-label="Project evidence summary"><span>Packwiz {observed(project.packwiz.version)}</span><span>{project.packwiz.declared_versions.length ? "Loader observed" : "Loader unavailable"}</span><span title={freshnessTitle(project.last_refreshed_at)}>{freshnessLabel(project.last_refreshed_at)}</span></div>{#if errorCount}<div class="issue-summary"><WarningCircleIcon size={14} aria-hidden="true" /><span>{errorCount} validation {errorCount === 1 ? "issue" : "issues"}</span></div>{/if}</div>
       </button>
-      <details class="project-menu"><summary aria-label={`More actions for ${project.application.display_name}`}><DotsThreeIcon size={18} weight="bold" /> More</summary><div class="project-menu-items"><Button variant="primary" size="sm" type="button" disabled={discoveryBusy || project.application.lifecycle !== "active"} loading={discoveryBusy && discoveryProjectId === project.id} onclick={() => oncheck(project)}><ArrowClockwiseIcon size={15} /> Check for updates</Button>{#if project.application.lifecycle === "disconnected"}<Button variant="secondary" size="sm" type="button" disabled={busy} onclick={() => onreconnect(project)}><LinkIcon size={15} /> Reconnect</Button>{:else}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => onrefresh(project)}><ArrowClockwiseIcon size={15} /> Refresh evidence</Button>{/if}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => onedit(project)}><PencilSimpleIcon size={15} /> Edit details</Button>{#if project.application.lifecycle === "archived"}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => onlifecycle(project, "restore")}>Restore</Button>{:else if project.application.lifecycle !== "disconnected"}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => onlifecycle(project, "archive")}><ArchiveIcon size={15} /> Archive</Button>{/if}{#if project.application.lifecycle !== "archived" && project.application.lifecycle !== "disconnected"}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => onlifecycle(project, "disconnect")}>Disconnect</Button>{/if}</div></details>
+      <details class="project-menu"><summary aria-label={`More actions for ${project.application.display_name}`}><DotsThreeIcon size={18} weight="bold" /> More</summary><div class="project-menu-items"><Button variant="primary" size="sm" type="button" disabled={discoveryBusy || project.application.lifecycle !== "active"} loading={discoveryBusy && discoveryModpackId === project.id} onclick={() => oncheck(project)}><ArrowClockwiseIcon size={15} /> Check for updates</Button>{#if project.application.lifecycle === "disconnected"}<Button variant="secondary" size="sm" type="button" disabled={busy} onclick={() => onreconnect(project)}><LinkIcon size={15} /> Reconnect</Button>{:else}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => onrefresh(project)}><ArrowClockwiseIcon size={15} /> Refresh evidence</Button>{/if}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => onedit(project)}><PencilSimpleIcon size={15} /> Edit details</Button>{#if project.application.lifecycle === "archived"}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => onlifecycle(project, "restore")}>Restore</Button>{:else if project.application.lifecycle !== "disconnected"}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => onlifecycle(project, "archive")}><ArchiveIcon size={15} /> Archive</Button>{/if}{#if project.application.lifecycle !== "archived" && project.application.lifecycle !== "disconnected"}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => onlifecycle(project, "disconnect")}>Disconnect</Button>{/if}</div></details>
     </article>
   {/each}
 </section>

@@ -42,7 +42,7 @@ pub struct LocalEntryIdentity {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ModrinthProjectIdentity {
-    pub project_id: String,
+    pub modpack_id: String,
     pub slug: Option<String>,
     pub title: Option<String>,
 }
