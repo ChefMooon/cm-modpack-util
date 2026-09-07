@@ -78,6 +78,52 @@ pub fn read_inventory(root: &Path) -> Result<Vec<InventoryEntry>, CommandError> 
     Ok(entries)
 }
 
+pub fn packwiz_slug(metadata_path: &Path) -> Result<String, CommandError> {
+    let file_name = metadata_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            CommandError::new(
+                "invalid_metadata_identity",
+                "Metadata filename is unavailable",
+            )
+        })?;
+    let slug = file_name
+        .strip_suffix(".pw.toml")
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            CommandError::new(
+                "invalid_metadata_identity",
+                "Metadata filename is not a Packwiz .pw.toml file",
+            )
+        })?;
+    if !slug
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.'))
+    {
+        return Err(CommandError::new(
+            "invalid_metadata_identity",
+            "Metadata filename cannot be converted to a safe Packwiz slug",
+        ));
+    }
+    Ok(slug.to_string())
+}
+
+pub fn metadata_filename(metadata_path: &Path) -> Result<String, CommandError> {
+    let metadata = read_toml(metadata_path, "mod metadata")?;
+    metadata
+        .get("filename")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            CommandError::new(
+                "missing_metadata_filename",
+                "Mod metadata does not contain a usable filename",
+            )
+        })
+}
+
 fn read_toml(path: &Path, label: &str) -> Result<Value, CommandError> {
     let text = fs::read_to_string(path).map_err(|error| {
         CommandError::new("project_read_failed", format!("{label} could not be read"))
@@ -314,10 +360,10 @@ pub fn observe_git(root: &Path) -> GitStatusObservation {
 
 #[cfg(test)]
 mod tests {
-    use super::{aggregate, observe_git, read_inventory};
+    use super::{aggregate, observe_git, packwiz_slug, read_inventory};
     use crate::domain::{Evidence, GitWorkingTreeState, InventoryProvider, InventorySide};
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -360,6 +406,16 @@ mod tests {
             entries[0].provider,
             Evidence::Observed(InventoryProvider::Curseforge)
         ));
+    }
+
+    #[test]
+    fn packwiz_slug_uses_only_the_exact_metadata_filename() {
+        assert_eq!(
+            packwiz_slug(Path::new("C:/pack/mods/ubes-delight.pw.toml")).unwrap(),
+            "ubes-delight"
+        );
+        assert!(packwiz_slug(Path::new("C:/pack/mods/ubes-delight.toml")).is_err());
+        assert!(packwiz_slug(Path::new("C:/pack/mods/ubes delight.pw.toml")).is_err());
     }
 
     #[test]

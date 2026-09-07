@@ -2,10 +2,11 @@
   import ClockCounterClockwiseIcon from "phosphor-svelte/lib/ClockCounterClockwiseIcon";
   import Header from "../../components/header/Header.svelte";
   import { onMount } from "svelte";
-  import { listProjects, listSnapshots } from "../../lib/projects";
-  import type { ProjectRecord, SnapshotRecord } from "../../lib/domain";
+  import { getOperationHistory, listProjects, listSnapshots } from "../../lib/projects";
+  import type { OperationAttempt, ProjectRecord, SnapshotRecord } from "../../lib/domain";
 
   let snapshots = $state<SnapshotRecord[]>([]);
+  let operations = $state<OperationAttempt[]>([]);
   let projects = $state<ProjectRecord[]>([]);
   let loading = $state(true);
   let error = $state("");
@@ -17,6 +18,8 @@
       projects = await listProjects();
       const results = await Promise.all(projects.map((project) => listSnapshots(project.id)));
       snapshots = results.flat().sort((left, right) => right.created_at.localeCompare(left.created_at));
+      const operationResults = await Promise.all(projects.map((project) => getOperationHistory(project.id)));
+      operations = operationResults.flat().sort((left, right) => right.created_at.localeCompare(left.created_at));
     } catch (cause) {
       error = cause instanceof Error ? cause.message : "Snapshot history could not be loaded.";
     } finally {
@@ -46,7 +49,7 @@
   {#if error}<section class="error-state" role="alert"><p>{error}</p><button type="button" onclick={loadHistory}>Retry</button></section>{/if}
   {#if loading}
     <section class="empty-state" aria-live="polite"><p>Loading snapshot history...</p></section>
-  {:else if snapshots.length === 0}
+  {:else if snapshots.length === 0 && operations.length === 0}
   <section class="empty-state" aria-labelledby="empty-title">
     <div class="empty-icon" aria-hidden="true"><ClockCounterClockwiseIcon size={34} weight="duotone" /></div>
     <p class="eyebrow">No operations yet</p>
@@ -54,6 +57,16 @@
     <p>Run a safe discovery check from a registered project to create its first durable review record.</p>
   </section>
   {:else}
+    {#if operations.length}<section class="snapshot-list" aria-labelledby="operation-title">
+      <h2 id="operation-title">Mutation attempts</h2>
+      {#each operations as operation (operation.id)}
+        <article class="snapshot-item operation-item">
+          <div class="snapshot-summary"><strong>{projectName(operation.project_id)}</strong><span>{operation.kind}</span><span data-outcome={operation.outcome ?? "pending"}>{operation.outcome ?? operation.status}</span></div>
+          <div class="snapshot-meta"><span>{operation.verification?.verified ? "Verified after re-read" : "Verification not complete"}</span><small>{operation.created_at}</small></div>
+          <p>{operation.error?.message ?? operation.verification?.observed_state ?? "No additional diagnostic"}</p>
+        </article>
+      {/each}
+    </section>{/if}
     <section class="snapshot-list" aria-labelledby="snapshot-title">
       <h2 id="snapshot-title">Snapshot history</h2>
       {#each snapshots as snapshot (snapshot.id)}
@@ -75,5 +88,7 @@
   .empty-state { display: grid; justify-items: center; padding: 72px 28px; border: 1px solid var(--color-border); background: var(--color-surface); box-shadow: 5px 5px 0 var(--color-text); text-align: center; }.empty-icon { display: grid; width: 68px; height: 68px; margin-bottom: 24px; place-items: center; border: 1px solid var(--color-accent); color: var(--color-accent-strong); background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface)); }.empty-state h2 { margin-bottom: 12px; font-size: 20px; }.empty-state > p:last-child { max-width: 580px; margin: 0; color: var(--color-text-muted); line-height: 1.6; }
   .snapshot-list { max-width: 1060px; margin: 0 auto; }.snapshot-list h2 { margin-bottom: 14px; }.snapshot-item { display: flex; justify-content: space-between; gap: 16px; padding: 16px; border-top: 1px solid var(--color-border); background: var(--color-surface); }.snapshot-item div { display: flex; gap: 12px; }.snapshot-item span, .snapshot-item p, .snapshot-item small { color: var(--color-text-muted); }.snapshot-item p { margin: 0; font-family: var(--font-mono); font-size: 12px; }
   .snapshot-summary, .snapshot-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }.snapshot-summary span { text-transform: capitalize; }.snapshot-meta { font-size: 12px; }.snapshot-item a { color: var(--color-accent-strong); font-size: 12px; }.review-link { font-weight: 700; }.error-state { max-width: 1060px; margin: 0 auto 18px; padding: 14px 16px; border-left: 3px solid var(--color-danger); background: var(--color-surface); }.error-state p { display: inline; margin: 0 16px 0 0; }.error-state button { border: 0; color: var(--color-accent-strong); background: transparent; font: inherit; font-weight: 700; cursor: pointer; }
+    [data-outcome="complete"] { color: var(--color-success); }
+    .operation-item [data-outcome="failed"], .operation-item [data-outcome="partial"], .operation-item [data-outcome="cancelled"], .operation-item [data-outcome="indeterminate"] { color: var(--color-danger); }
   @media (max-width: 700px) { .activity-shell { padding: 0 20px 28px; }.page-heading { margin-top: 36px; }.empty-state { padding: 52px 20px; } }
 </style>

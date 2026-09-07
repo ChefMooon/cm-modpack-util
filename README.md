@@ -2,7 +2,8 @@
 
 A local-first foundation for CM modpack projects, built with **Tauri 2**, **SvelteKit**, **TypeScript**, **Vite**, and **SQLite**.
 
-The v0.0.5 alpha provides local Packwiz project registration, read-only inventory inspection, durable update-check snapshots, review decisions and notes, project overview facts, and the Projects, Activity, and Settings shell. It reads Packwiz evidence offline, persists application-owned project metadata, observations, and review history, and manages lifecycle state without modifying external project directories. Network providers, Git history, and update application remain outside this release.
+The v0.0.6 alpha provides local Packwiz project registration, inventory inspection, durable update-check snapshots, review decisions and notes, verified positional-slug pin/unpin operations, sequential selected updates, mutation history, project overview facts, and the Projects, Activity, and Settings shell. It reads Packwiz evidence offline for discovery and uses normal Packwiz provider/network behavior for explicitly selected targeted updates. Each update is verified and recorded independently; failures are reported without stopping later selected targets.
+## v0.0.6 mutation boundaries
 
 ## Prerequisites
 
@@ -94,7 +95,8 @@ All of these settings can be reset from the Advanced section of the Settings pag
 - **Abnormal outcomes:** Cancelled, unsafe, unsupported, failed, and indeterminate attempts remain visible but are not reviewable as authoritative candidate results.
 - **Freshness:** Native Rust rechecks the registered project's relevant fingerprint. Changed, missing, unreadable, incomplete, or incomparable evidence marks the snapshot stale and blocks further review writes.
 - **History:** Decisions and notes are append-only records. Closing, cancelling, and retrying never rewrites the original snapshot. A retry receives a new snapshot ID linked to its predecessor.
-- **Mutation boundary:** v0.0.5 never sends `y`, applies updates, edits TOML, changes pins, or requests provider/network data. Those workflows belong to v0.0.6 or later.
+- **Pin operations:** Pin and unpin resolve one fresh native inventory entry, derive its `.pw.toml` slug, run `packwiz pin <slug>` or `packwiz unpin <slug>` without `--yes`, re-read the metadata, and report success only after verification. The Activity route preserves the immutable attempt and its evidence.
+- **Apply boundary:** Apply uses only exact local metadata slugs with one `packwiz update <slug>` process per selected candidate. The audited `update -a` path remains discovery-only and is not used for mutation. A process exit code alone is not considered success; the application re-reads inventory and records per-target verification and failures.
 - **Reset fallback:** Because alpha uses additive `CREATE TABLE IF NOT EXISTS` schema setup without migrations, stop the app and delete `settings.sqlite` if an incompatible pre-v0.0.5 database prevents startup. This does not delete Packwiz files.
 
 ## Common UI components

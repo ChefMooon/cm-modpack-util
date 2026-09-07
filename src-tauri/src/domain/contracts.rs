@@ -169,6 +169,7 @@ pub enum ActivityEventType {
     RefreshFailed,
     MetadataChanged,
     LifecycleChanged,
+    SnapshotCreated,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -350,6 +351,90 @@ pub struct DiscoveryResult {
     pub candidates: Vec<UpdateCandidate>,
     pub diagnostics: DiscoveryDiagnostics,
     pub error: Option<CommandError>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OperationKind {
+    Apply,
+    Pin,
+    Unpin,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OperationOutcome {
+    Complete,
+    Partial,
+    Failed,
+    Cancelled,
+    Unsafe,
+    Indeterminate,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OperationVerification {
+    pub comparable: bool,
+    pub intended_state: String,
+    pub observed_state: String,
+    pub differences: Vec<String>,
+    pub verified: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RecoveryObservation {
+    pub git: GitStatusObservation,
+    pub recovery_available: bool,
+    pub warning_category: Option<String>,
+    pub diagnostic: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RecoveryAcknowledgement {
+    pub operation_id: String,
+    pub project_fingerprint: String,
+    pub warning_category: String,
+    pub recovery_state: String,
+    pub acknowledged_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OperationAttempt {
+    pub id: String,
+    pub project_id: String,
+    pub snapshot_id: Option<String>,
+    pub predecessor_id: Option<String>,
+    pub kind: OperationKind,
+    pub status: OperationStatus,
+    pub outcome: Option<OperationOutcome>,
+    pub recovery: RecoveryObservation,
+    pub process: Option<ProcessEvidence>,
+    pub before_fingerprint: Option<ProjectFingerprint>,
+    pub after_fingerprint: Option<ProjectFingerprint>,
+    pub verification: Option<OperationVerification>,
+    pub error: Option<CommandError>,
+    pub created_at: String,
+    pub finished_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PinOperationRequest {
+    pub project_id: String,
+    pub entry_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ApplyOperationRequest {
+    pub operation_id: String,
+    pub snapshot_id: String,
+    pub candidate_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ApplyOperationReport {
+    pub snapshot_id: String,
+    pub attempts: Vec<OperationAttempt>,
+    pub outcome: OperationOutcome,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -543,8 +628,8 @@ impl CommandError {
 mod tests {
     use super::{
         ApplicationProjectMetadata, CommandError, Evidence, InventoryCounts, InventoryProvider,
-        Observation, OperationStatus, ProjectLifecycle, SnapshotDecision, SnapshotLifecycle,
-        SnapshotNoteScope, ValidationSeverity,
+        Observation, OperationKind, OperationOutcome, OperationStatus, ProjectLifecycle,
+        SnapshotDecision, SnapshotLifecycle, SnapshotNoteScope, ValidationSeverity,
     };
 
     #[test]
@@ -568,6 +653,14 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&SnapshotNoteScope::Candidate).unwrap(),
             "\"candidate\""
+        );
+        assert_eq!(
+            serde_json::to_string(&OperationKind::Unpin).unwrap(),
+            "\"unpin\""
+        );
+        assert_eq!(
+            serde_json::to_string(&OperationOutcome::Indeterminate).unwrap(),
+            "\"indeterminate\""
         );
         assert_eq!(
             serde_json::to_string(&CommandError::new(

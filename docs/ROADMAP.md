@@ -163,6 +163,14 @@ warnings.
 - Never use ambiguous `--yes` selection for pinning or unpinning.
 - Record the resulting Packwiz state and preserve failed or partial snapshots.
 
+**Current implementation boundary:** The audited Packwiz binary supports verified
+positional-slug pin/unpin operations, which are delivered with immutable
+operation history, cancellation evidence, confirmation UI, and post-read
+verification. Update application remains explicitly refused because its
+network-backed `update -a` behavior has no fixture-proven affirmative target,
+cancellation, or after-state contract. A future tested apply profile must close
+that gate before the apply exit criterion can be claimed.
+
 **Exit gate:** Updates are applied only from an explicit review, post-operation
 validation determines the outcome, and no operation is reported successful based
 only on process startup or exit status.

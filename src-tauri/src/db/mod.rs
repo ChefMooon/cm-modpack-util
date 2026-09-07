@@ -102,6 +102,281 @@ pub fn registered_project_path(database: &Database, id: &str) -> Result<String, 
         })
 }
 
+pub fn load_snapshot(database: &Database, id: &str) -> Result<SnapshotRecord, CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let snapshot = connection
+        .query_row(
+            "SELECT id, project_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1",
+            [id],
+            row_to_snapshot,
+        )
+        .map_err(|error| CommandError::new("snapshot_not_found", "Snapshot is not available").with_details(error.to_string()))?;
+    enrich_snapshot(&connection, snapshot)
+}
+
+pub fn persist_operation_attempt(
+    database: &Database,
+    attempt: &crate::domain::OperationAttempt,
+    metadata_path: &std::path::Path,
+    entry_id: &str,
+    requested_pin: bool,
+) -> Result<(), CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let transaction = connection.unchecked_transaction().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Operation transaction could not be started",
+        )
+        .with_details(error.to_string())
+    })?;
+    transaction
+        .execute(
+            "INSERT INTO operation_attempts (id, project_id, snapshot_id, predecessor_id, kind, status, outcome, recovery_json, process_json, before_fingerprint_json, after_fingerprint_json, verification_json, error_json, created_at, finished_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            params![
+                attempt.id,
+                attempt.project_id,
+                attempt.snapshot_id,
+                attempt.predecessor_id,
+                serialize(&attempt.kind, "operation kind")?.trim_matches('"'),
+                serialize(&attempt.status, "operation status")?.trim_matches('"'),
+                attempt.outcome.as_ref().map(|value| serialize(value, "operation outcome")).transpose()?.map(|value| value.trim_matches('"').to_string()),
+                serialize(&attempt.recovery, "recovery observation")?,
+                attempt.process.as_ref().map(|value| serialize(value, "process evidence")).transpose()?,
+                attempt.before_fingerprint.as_ref().map(|value| serialize(value, "before fingerprint")).transpose()?,
+                attempt.after_fingerprint.as_ref().map(|value| serialize(value, "after fingerprint")).transpose()?,
+                attempt.verification.as_ref().map(|value| serialize(value, "operation verification")).transpose()?,
+                attempt.error.as_ref().map(|value| serialize(value, "operation error")).transpose()?,
+                attempt.created_at,
+                attempt.finished_at,
+            ],
+        )
+        .map_err(|error| CommandError::new("database_write_failed", "Operation could not be saved").with_details(error.to_string()))?;
+    transaction
+        .execute(
+            "INSERT INTO operation_candidates (operation_id, entry_id, decision, observed_json) VALUES (?1, ?2, ?3, ?4)",
+            params![attempt.id, entry_id, if requested_pin { "pin" } else { "unpin" }, "{}"],
+        )
+        .map_err(|error| CommandError::new("database_write_failed", "Operation target could not be saved").with_details(error.to_string()))?;
+    if let Some(verification) = &attempt.verification {
+        transaction
+            .execute(
+                "INSERT INTO pin_observations (operation_id, entry_id, metadata_path, requested_pin, observed_pin, observed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![attempt.id, entry_id, metadata_path.to_string_lossy(), requested_pin as i32, verification.observed_state, attempt.finished_at.clone().unwrap_or_else(timestamp)],
+            )
+            .map_err(|error| CommandError::new("database_write_failed", "Pin observation could not be saved").with_details(error.to_string()))?;
+    }
+    transaction.commit().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Operation evidence could not be committed",
+        )
+        .with_details(error.to_string())
+    })?;
+    Ok(())
+}
+
+pub fn persist_apply_attempt(
+    database: &Database,
+    attempt: &crate::domain::OperationAttempt,
+    candidate_id: &str,
+    entry_id: &str,
+    observed_json: &str,
+) -> Result<(), CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let transaction = connection.unchecked_transaction().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Apply evidence could not be started",
+        )
+        .with_details(error.to_string())
+    })?;
+    transaction
+        .execute(
+            "INSERT INTO operation_attempts (id, project_id, snapshot_id, predecessor_id, kind, status, outcome, recovery_json, process_json, before_fingerprint_json, after_fingerprint_json, verification_json, error_json, created_at, finished_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            params![
+                attempt.id,
+                attempt.project_id,
+                attempt.snapshot_id,
+                attempt.predecessor_id,
+                serialize(&attempt.kind, "operation kind")?.trim_matches('"'),
+                serialize(&attempt.status, "operation status")?.trim_matches('"'),
+                attempt.outcome.as_ref().map(|value| serialize(value, "operation outcome")).transpose()?.map(|value| value.trim_matches('"').to_string()),
+                serialize(&attempt.recovery, "recovery observation")?,
+                attempt.process.as_ref().map(|value| serialize(value, "process evidence")).transpose()?,
+                attempt.before_fingerprint.as_ref().map(|value| serialize(value, "before fingerprint")).transpose()?,
+                attempt.after_fingerprint.as_ref().map(|value| serialize(value, "after fingerprint")).transpose()?,
+                attempt.verification.as_ref().map(|value| serialize(value, "operation verification")).transpose()?,
+                attempt.error.as_ref().map(|value| serialize(value, "operation error")).transpose()?,
+                attempt.created_at,
+                attempt.finished_at,
+            ],
+        )
+        .map_err(|error| CommandError::new("database_write_failed", "Apply operation could not be saved").with_details(error.to_string()))?;
+    transaction
+        .execute(
+            "INSERT INTO operation_candidates (operation_id, candidate_id, entry_id, decision, observed_json) VALUES (?1, ?2, ?3, 'selected', ?4)",
+            params![attempt.id, candidate_id, entry_id, observed_json],
+        )
+        .map_err(|error| CommandError::new("database_write_failed", "Apply target could not be saved").with_details(error.to_string()))?;
+    transaction.commit().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Apply evidence could not be committed",
+        )
+        .with_details(error.to_string())
+    })
+}
+
+pub fn list_operation_attempts(
+    database: &Database,
+    project_id: &str,
+) -> Result<Vec<crate::domain::OperationAttempt>, CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let mut statement = connection
+        .prepare("SELECT id, project_id, snapshot_id, predecessor_id, kind, status, outcome, recovery_json, process_json, before_fingerprint_json, after_fingerprint_json, verification_json, error_json, created_at, finished_at FROM operation_attempts WHERE project_id = ?1 ORDER BY created_at DESC")
+        .map_err(|error| CommandError::new("database_read_failed", "Operations could not be read").with_details(error.to_string()))?;
+    let result = statement
+        .query_map([project_id], |row| {
+            let kind: String = row.get(4)?;
+            let status: String = row.get(5)?;
+            let outcome: Option<String> = row.get(6)?;
+            let parse = |index: usize| -> rusqlite::Result<Option<serde_json::Value>> {
+                let value: Option<String> = row.get(index)?;
+                value
+                    .map(|json| {
+                        serde_json::from_str(&json).map_err(|_| rusqlite::Error::InvalidQuery)
+                    })
+                    .transpose()
+            };
+            Ok(crate::domain::OperationAttempt {
+                id: row.get(0)?,
+                project_id: row.get(1)?,
+                snapshot_id: row.get(2)?,
+                predecessor_id: row.get(3)?,
+                kind: serde_json::from_value(serde_json::Value::String(kind))
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                status: serde_json::from_value(serde_json::Value::String(status))
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                outcome: outcome
+                    .map(|value| {
+                        serde_json::from_value(serde_json::Value::String(value))
+                            .map_err(|_| rusqlite::Error::InvalidQuery)
+                    })
+                    .transpose()?,
+                recovery: serde_json::from_value(parse(7)?.ok_or(rusqlite::Error::InvalidQuery)?)
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                process: parse(8)?
+                    .map(|value| {
+                        serde_json::from_value(value).map_err(|_| rusqlite::Error::InvalidQuery)
+                    })
+                    .transpose()?,
+                before_fingerprint: parse(9)?
+                    .map(|value| {
+                        serde_json::from_value(value).map_err(|_| rusqlite::Error::InvalidQuery)
+                    })
+                    .transpose()?,
+                after_fingerprint: parse(10)?
+                    .map(|value| {
+                        serde_json::from_value(value).map_err(|_| rusqlite::Error::InvalidQuery)
+                    })
+                    .transpose()?,
+                verification: parse(11)?
+                    .map(|value| {
+                        serde_json::from_value(value).map_err(|_| rusqlite::Error::InvalidQuery)
+                    })
+                    .transpose()?,
+                error: parse(12)?
+                    .map(|value| {
+                        serde_json::from_value(value).map_err(|_| rusqlite::Error::InvalidQuery)
+                    })
+                    .transpose()?,
+                created_at: row.get(13)?,
+                finished_at: row.get(14)?,
+            })
+        })
+        .map_err(|error| {
+            CommandError::new("database_read_failed", "Operations could not be read")
+                .with_details(error.to_string())
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            CommandError::new("database_record_invalid", "A stored operation is invalid")
+                .with_details(error.to_string())
+        });
+    result
+}
+
+#[tauri::command]
+pub fn record_recovery_acknowledgement(
+    state: State<'_, Database>,
+    acknowledgement: crate::domain::RecoveryAcknowledgement,
+) -> Result<(), CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let (before_fingerprint, recovery_json): (Option<String>, String) = connection
+        .query_row(
+            "SELECT before_fingerprint_json, recovery_json FROM operation_attempts WHERE id = ?1",
+            [&acknowledgement.operation_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|error| {
+            CommandError::new("database_read_failed", "Operation could not be read")
+                .with_details(error.to_string())
+        })?;
+    let observed_recovery: crate::domain::RecoveryObservation =
+        serde_json::from_str(&recovery_json).map_err(|_| {
+            CommandError::new(
+                "operation_record_invalid",
+                "Stored recovery evidence is invalid",
+            )
+        })?;
+    if observed_recovery.warning_category.as_deref()
+        != Some(acknowledgement.warning_category.as_str())
+    {
+        return Err(CommandError::new(
+            "acknowledgement_mismatch",
+            "Acknowledgement warning does not match the operation",
+        ));
+    }
+    if let Some(before_fingerprint) = before_fingerprint {
+        if before_fingerprint != acknowledgement.project_fingerprint {
+            return Err(CommandError::new(
+                "acknowledgement_mismatch",
+                "Acknowledgement fingerprint does not match the operation",
+            ));
+        }
+    }
+    connection
+        .execute(
+            "INSERT INTO operation_acknowledgements (operation_id, project_fingerprint, warning_category, recovery_state, acknowledged_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![acknowledgement.operation_id, acknowledgement.project_fingerprint, acknowledgement.warning_category, acknowledgement.recovery_state, acknowledgement.acknowledged_at],
+        )
+        .map_err(|error| CommandError::new("database_write_failed", "Recovery acknowledgement could not be saved").with_details(error.to_string()))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_operation_history(
+    state: State<'_, Database>,
+    project_id: String,
+) -> Result<Vec<crate::domain::OperationAttempt>, CommandError> {
+    list_operation_attempts(&state, &project_id)
+}
+
 /// Read a boolean preference for native lifecycle decisions (tray/startup).
 pub fn bool_setting(database: &Database, key: &str, default: bool) -> bool {
     let Ok(connection) = database.0.lock() else {
@@ -1098,6 +1373,7 @@ pub fn reset_settings(state: State<'_, Database>) -> Result<(), CommandError> {
 #[cfg(test)]
 mod tests {
     use super::initialize;
+    use rusqlite::params;
     use std::path::Path;
 
     #[test]
@@ -1115,6 +1391,21 @@ mod tests {
             )
             .expect("project schema should be initialized");
         assert_eq!(project_table, "projects");
+        for table in [
+            "operation_attempts",
+            "operation_candidates",
+            "operation_acknowledgements",
+            "pin_observations",
+        ] {
+            let exists: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |row| row.get(0),
+                )
+                .expect("operation schema should be queryable");
+            assert_eq!(exists, 1, "missing operation table {table}");
+        }
         connection
             .execute(
                 "INSERT INTO settings (key, value_json, updated_at) VALUES (?1, ?2, ?3)",
@@ -1194,6 +1485,36 @@ mod tests {
             .unwrap();
         assert_eq!(observation_count, 1);
         assert_eq!(activity_count, 1);
+    }
+
+    #[test]
+    fn reads_snapshot_created_activity() {
+        let database = initialize(Path::new(":memory:")).expect("database should initialize");
+        let connection = database
+            .0
+            .lock()
+            .expect("database lock should be available");
+        connection
+            .execute(
+                "INSERT INTO projects (id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+                params!["project-test", ".", "{}", "{}", "[]", "2026-09-06T00:00:00Z"],
+            )
+            .expect("test project should be inserted");
+        connection
+            .execute(
+                "INSERT INTO project_activity (project_id, event_type, occurred_at, message) VALUES (?1, ?2, ?3, ?4)",
+                params!["project-test", "snapshot_created", "2026-09-06T00:00:00Z", "Snapshot created"],
+            )
+            .expect("snapshot activity should be inserted");
+
+        let activity = super::read_activity(&connection, "project-test")
+            .expect("snapshot activity should be readable");
+
+        assert_eq!(activity.len(), 1);
+        assert_eq!(
+            activity[0].event_type,
+            crate::domain::ActivityEventType::SnapshotCreated
+        );
     }
 
     #[test]

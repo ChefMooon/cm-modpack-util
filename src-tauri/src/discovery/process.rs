@@ -41,6 +41,32 @@ pub fn command_plan(
     })
 }
 
+pub fn command_plan_with_arguments(
+    executable: impl Into<PathBuf>,
+    arguments: Vec<String>,
+    root: impl Into<PathBuf>,
+) -> Result<CommandPlan, CommandError> {
+    let executable = executable.into();
+    let root = root.into();
+    if !executable.is_absolute() {
+        return Err(CommandError::new(
+            "executable_not_absolute",
+            "Packwiz executable must be absolute",
+        ));
+    }
+    if !root.is_absolute() {
+        return Err(CommandError::new(
+            "root_not_absolute",
+            "Project root must be absolute",
+        ));
+    }
+    Ok(CommandPlan {
+        executable,
+        arguments,
+        working_directory: root,
+    })
+}
+
 #[derive(Debug)]
 pub struct PromptMachine {
     pub state: PromptState,
@@ -163,6 +189,21 @@ enum OutputChunk {
 }
 
 pub fn run_probe(plan: &CommandPlan, limits: RunLimits) -> Result<ProcessEvidence, CommandError> {
+    run_probe_with_prompt_authorization(plan, limits, true)
+}
+
+pub fn run_probe_without_prompt_authorization(
+    plan: &CommandPlan,
+    limits: RunLimits,
+) -> Result<ProcessEvidence, CommandError> {
+    run_probe_with_prompt_authorization(plan, limits, false)
+}
+
+fn run_probe_with_prompt_authorization(
+    plan: &CommandPlan,
+    limits: RunLimits,
+    authorize_discovery_prompt: bool,
+) -> Result<ProcessEvidence, CommandError> {
     let started_at = timestamp();
     eprintln!(
         "[discovery] spawning executable={} args={:?} cwd={}",
@@ -302,7 +343,10 @@ pub fn run_probe(plan: &CommandPlan, limits: RunLimits) -> Result<ProcessEvidenc
                     limits.max_output_bytes,
                     &mut output_truncated,
                 );
-                if !sent_n && machine.observe(&combined_output(&stdout_text, &stderr_text)) {
+                if authorize_discovery_prompt
+                    && !sent_n
+                    && machine.observe(&combined_output(&stdout_text, &stderr_text))
+                {
                     eprintln!("[discovery] expected prompt observed on stdout; sending n and closing stdin");
                     let response = machine.authorize_n()?;
                     stdin
@@ -338,7 +382,10 @@ pub fn run_probe(plan: &CommandPlan, limits: RunLimits) -> Result<ProcessEvidenc
                     limits.max_output_bytes,
                     &mut output_truncated,
                 );
-                if !sent_n && machine.observe(&combined_output(&stdout_text, &stderr_text)) {
+                if authorize_discovery_prompt
+                    && !sent_n
+                    && machine.observe(&combined_output(&stdout_text, &stderr_text))
+                {
                     eprintln!("[discovery] expected prompt observed on stderr; sending n and closing stdin");
                     let response = machine.authorize_n()?;
                     stdin

@@ -11,6 +11,7 @@ pub const CANCELLATION_RESPONSE: &str = "n\n";
 pub const NO_UPDATES_MARKER: &str = "All files are up to date!";
 pub const MAX_OUTPUT_BYTES: u64 = 4 * 1024 * 1024;
 pub const TIMEOUT_SECONDS: u64 = 120;
+pub const PIN_PROFILE_ID: &str = "packwiz-1.1.0-pin-slug";
 
 pub fn tested_profile() -> CompatibilityProfile {
     CompatibilityProfile {
@@ -40,6 +41,37 @@ pub fn tested_profile() -> CompatibilityProfile {
             "The profile is offline-testable but live discovery requires a disposable project and network availability for Packwiz itself.".to_string(),
         ],
     }
+}
+
+pub fn pin_command(slug: &str, pin: bool) -> Result<Vec<String>, CommandError> {
+    if slug.trim().is_empty()
+        || !slug.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
+    {
+        return Err(CommandError::new(
+            "invalid_packwiz_slug",
+            "Packwiz pin target is not a valid native slug",
+        ));
+    }
+    Ok(vec![
+        if pin { "pin" } else { "unpin" }.to_string(),
+        slug.to_string(),
+    ])
+}
+
+pub fn update_command(slug: &str) -> Result<Vec<String>, CommandError> {
+    if slug.trim().is_empty()
+        || !slug.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
+    {
+        return Err(CommandError::new(
+            "invalid_packwiz_slug",
+            "Packwiz update target is not a valid native slug",
+        ));
+    }
+    Ok(vec!["update".to_string(), slug.to_string()])
 }
 
 pub fn unsupported(reason: impl Into<String>) -> CompatibilityEvidence {
@@ -226,5 +258,23 @@ mod tests {
         let evidence = unsupported("version not in profile");
         assert_eq!(evidence.status, CompatibilityStatus::Unsupported);
         assert!(evidence.profile.is_none());
+    }
+
+    #[test]
+    fn pin_profile_uses_one_slug_and_never_yes() {
+        let command = pin_command("ubes-delight", true).unwrap();
+        assert_eq!(command, ["pin", "ubes-delight"]);
+        assert!(!command.iter().any(|argument| argument == "--yes"));
+        assert!(pin_command("mods/ubes-delight", true).is_err());
+    }
+
+    #[test]
+    fn update_profile_uses_one_slug_and_never_yes() {
+        let command = update_command("ubes-delight").unwrap();
+        assert_eq!(command, ["update", "ubes-delight"]);
+        assert!(!command
+            .iter()
+            .any(|argument| argument == "--yes" || argument == "y"));
+        assert!(update_command("mods/ubes-delight").is_err());
     }
 }

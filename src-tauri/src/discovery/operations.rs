@@ -4,6 +4,7 @@ use super::{
 };
 use crate::db::{self, Database};
 use crate::domain::{CommandError, DiscoveryProgress, DiscoveryProgressKind, OperationStatus};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -11,18 +12,99 @@ use tauri::{AppHandle, Emitter, State};
 
 pub struct DiscoveryRuntime {
     pub coordinator: OperationCoordinator,
+    pub mutation_coordinator: MutationCoordinator,
     cancellation: Mutex<Option<Arc<AtomicBool>>>,
+    operation_cancellation: Mutex<HashMap<String, Arc<AtomicBool>>>,
 }
 impl Default for DiscoveryRuntime {
     fn default() -> Self {
         Self {
             coordinator: OperationCoordinator::default(),
+            mutation_coordinator: MutationCoordinator::default(),
             cancellation: Mutex::new(None),
+            operation_cancellation: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct MutationCoordinator {
+    active: Arc<Mutex<Option<String>>>,
+}
+
+impl MutationCoordinator {
+    pub fn acquire(&self, project_id: &str) -> Result<MutationLease, CommandError> {
+        let mut active = self.active.lock().map_err(|_| {
+            CommandError::new(
+                "operation_unavailable",
+                "Mutation coordinator is unavailable",
+            )
+        })?;
+        if active.is_some() {
+            return Err(CommandError::new(
+                "mutation_already_running",
+                "Another mutation operation is already running",
+            ));
+        }
+        *active = Some(project_id.to_string());
+        Ok(MutationLease {
+            project_id: project_id.to_string(),
+            active: Arc::clone(&self.active),
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct MutationLease {
+    project_id: String,
+    active: Arc<Mutex<Option<String>>>,
+}
+
+impl Drop for MutationLease {
+    fn drop(&mut self) {
+        if let Ok(mut active) = self.active.lock() {
+            if active.as_deref() == Some(&self.project_id) {
+                *active = None;
+            }
         }
     }
 }
 
 impl DiscoveryRuntime {
+    pub fn begin_operation_cancellation(
+        &self,
+        operation_id: &str,
+    ) -> Result<Arc<AtomicBool>, CommandError> {
+        let flag = Arc::new(AtomicBool::new(false));
+        self.operation_cancellation
+            .lock()
+            .map_err(|_| {
+                CommandError::new("operation_unavailable", "Operation state is unavailable")
+            })?
+            .insert(operation_id.to_string(), flag.clone());
+        Ok(flag)
+    }
+
+    pub fn cancel_operation(&self, operation_id: &str) -> Result<(), CommandError> {
+        let operations = self.operation_cancellation.lock().map_err(|_| {
+            CommandError::new("operation_unavailable", "Operation state is unavailable")
+        })?;
+        let Some(flag) = operations.get(operation_id) else {
+            return Err(CommandError::new(
+                "operation_not_running",
+                "Operation is not running",
+            ));
+        };
+        flag.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+
+    pub fn clear_operation_cancellation(&self, operation_id: &str) {
+        if let Ok(mut operations) = self.operation_cancellation.lock() {
+            operations.remove(operation_id);
+        }
+    }
+
     pub fn begin_cancellation(&self) -> Result<Arc<AtomicBool>, CommandError> {
         let flag = Arc::new(AtomicBool::new(false));
         *self.cancellation.lock().map_err(|_| {
@@ -175,5 +257,22 @@ pub fn cancel_update_check(
             "operation_not_running",
             "No discovery operation is running",
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MutationCoordinator;
+
+    #[test]
+    fn mutation_coordinator_is_global_and_releases_on_drop() {
+        let coordinator = MutationCoordinator::default();
+        let lease = coordinator.acquire("project-a").unwrap();
+        let error = coordinator.acquire("project-b").unwrap_err();
+        assert_eq!(error.code, "mutation_already_running");
+        drop(lease);
+        coordinator
+            .acquire("project-b")
+            .expect("mutation lease should be reusable after drop");
     }
 }

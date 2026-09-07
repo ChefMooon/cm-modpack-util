@@ -20,6 +20,7 @@
   import { commandErrorMessage } from "../lib/errors";
   import type {
     ApplicationProjectMetadata,
+    ApplyOperationReport,
     Evidence,
     InventoryEntry,
     ProjectOverview,
@@ -58,6 +59,10 @@
     closeSnapshot,
     recheckSnapshot,
     linkSnapshotRetry,
+    pinProject,
+    unpinProject,
+    applyProject,
+    cancelOperation,
   } from "../lib/projects";
 
   let projects = $state<ProjectRecord[]>([]);
@@ -79,6 +84,9 @@
   let overview = $state<ProjectOverview | null>(null);
   let inventoryFilter = $state("all");
   let inspecting = $state(false);
+  let pinningEntry = $state<string | null>(null);
+  let pinConfirmation = $state<{ entry: InventoryEntry; pin: boolean } | null>(null);
+  let showPinConfirmation = $state(false);
   let discoveryProject = $state<ProjectRecord | null>(null);
   let discovery = $state<DiscoveryResult | null>(null);
   let discoveryProgress = $state<DiscoveryProgress | null>(null);
@@ -87,6 +95,10 @@
   let discoverySnapshotId = $state<string | null>(null);
   let discoverySnapshot = $state<SnapshotRecord | null>(null);
   let showSnapshotNote = $state(false);
+  let showApplyConfirmation = $state(false);
+  let applyBusy = $state(false);
+  let applyOperationId = $state<string | null>(null);
+  let applyReport = $state<ApplyOperationReport | null>(null);
   let snapshotNoteDraft = $state("");
   let discoveryUnlisten: (() => void)[] = [];
   const { toast } = useToast();
@@ -290,6 +302,47 @@
     }
   }
 
+  function selectedCandidateIds(): string[] {
+    return (discoverySnapshot?.candidates ?? [])
+      .filter((candidate) => latestDecision(candidate.id) === "selected")
+      .map((candidate) => candidate.id);
+  }
+
+  async function applySelectedUpdates() {
+    if (!discoverySnapshot || discoverySnapshot.lifecycle !== "reviewable") return;
+    const candidateIds = selectedCandidateIds();
+    if (!candidateIds.length) return;
+    showApplyConfirmation = false;
+    applyBusy = true;
+    applyOperationId = crypto.randomUUID();
+    applyReport = null;
+    error = "";
+    try {
+      applyReport = await applyProject({
+        operation_id: applyOperationId,
+        snapshot_id: discoverySnapshot.id,
+        candidate_ids: candidateIds,
+      });
+      const severity = applyReport.outcome === "complete" ? "success" : applyReport.outcome === "partial" ? "warning" : "error";
+      toast({ title: `Update apply ${applyReport.outcome}`, description: "Each selected mod was re-read after its Packwiz command.", severity });
+      if (inspected) inventory = await getProjectInventory(inspected.id);
+    } catch (cause) {
+      error = commandErrorMessage(cause);
+    } finally {
+      applyBusy = false;
+      applyOperationId = null;
+    }
+  }
+
+  async function cancelApply() {
+    if (!applyOperationId) return;
+    try {
+      await cancelOperation(applyOperationId);
+    } catch (cause) {
+      error = commandErrorMessage(cause);
+    }
+  }
+
   function latestDecision(candidateId: string) {
     return discoverySnapshot?.decisions.filter((decision) => decision.candidate_id === candidateId).at(-1)?.decision;
   }
@@ -301,6 +354,34 @@
     } catch (cause) {
       error = commandErrorMessage(cause);
     }
+  }
+
+  async function changePin(entry: InventoryEntry, pin: boolean) {
+    if (!inspected || pinningEntry) return;
+    pinningEntry = entry.local_id;
+    error = "";
+    try {
+      const request = { project_id: inspected.id, entry_id: entry.local_id };
+      const attempt = pin ? await pinProject(request) : await unpinProject(request);
+      if (attempt.verification?.verified) {
+        inventory = await getProjectInventory(inspected.id);
+        toast({ title: pin ? "Mod pinned" : "Mod unpinned", description: "Packwiz metadata was verified after the operation.", severity: "success" });
+      } else {
+        error = attempt.error?.message ?? "Packwiz pin state could not be verified.";
+      }
+    } catch (cause) {
+      error = commandErrorMessage(cause);
+    } finally {
+      pinningEntry = null;
+    }
+  }
+
+  async function confirmPinChange() {
+    if (!pinConfirmation) return;
+    const change = pinConfirmation;
+    pinConfirmation = null;
+    showPinConfirmation = false;
+    await changePin(change.entry, change.pin);
   }
 
   async function openCandidatePage(url: string) {
@@ -665,14 +746,17 @@
             <label class="filter-label">Filter<select bind:value={inventoryFilter}><option value="all">All entries</option><option value="pinned">Pinned</option><option value="client">Client</option><option value="server">Server</option><option value="both">Both sides</option><option value="unknown">Unknown evidence</option></select></label>
           </div>
           <div class="inventory-table" role="table" aria-label="Current mod inventory">
-            <div class="inventory-row inventory-header" role="row"><span>Local entry</span><span>Provider</span><span>Side</span><span>Pin</span><span>Page</span></div>
+            <div class="inventory-row inventory-header" role="row"><span>Local entry</span><span>Provider</span><span>Side</span><span>Pin</span><span>Actions</span></div>
             {#each filteredInventory as entry (entry.local_id)}
               <div class="inventory-row" role="row">
                 <div><strong>{evidenceLabel(entry.name)}</strong><span class="path">{entry.local_id}</span><span class="metadata-path">{entry.metadata_path}</span></div>
                 <span>{evidenceLabel(entry.provider)}</span>
                 <span>{evidenceLabel(entry.side)}</span>
                 <span>{evidenceLabel(entry.pin)}</span>
-                {#if entry.page_link}<Button variant="quiet" size="sm" type="button" onclick={() => openPage(entry)}><ArrowSquareOutIcon size={14} /> Open</Button>{:else}<span class="unavailable">Unavailable</span>{/if}
+                <div class="inventory-actions">
+                  {#if entry.page_link}<Button variant="quiet" size="sm" type="button" onclick={() => openPage(entry)}><ArrowSquareOutIcon size={14} /> Open</Button>{/if}
+                  {#if evidenceLabel(entry.pin) === "true"}<Button variant="quiet" size="sm" type="button" disabled={pinningEntry !== null} loading={pinningEntry === entry.local_id} onclick={() => { pinConfirmation = { entry, pin: false }; showPinConfirmation = true; }}>Unpin</Button>{:else if evidenceLabel(entry.pin) === "false"}<Button variant="quiet" size="sm" type="button" disabled={pinningEntry !== null} loading={pinningEntry === entry.local_id} onclick={() => { pinConfirmation = { entry, pin: true }; showPinConfirmation = true; }}>Pin</Button>{:else}<span class="unavailable">Unavailable</span>{/if}
+                </div>
               </div>
             {/each}
           </div>
@@ -737,8 +821,9 @@
               </article>
             {/each}
           </div>{/if}
-        {#if discoverySnapshotId}<div class="snapshot-actions"><Button variant="secondary" size="sm" type="button" onclick={() => finishSnapshot(false)}>Close review</Button><Button variant="quiet" size="sm" type="button" onclick={() => finishSnapshot(true)}>Cancel review</Button><Button variant="quiet" size="sm" type="button" onclick={() => (showSnapshotNote = true)}>Add note</Button><Button variant="quiet" size="sm" type="button" onclick={recheckReview}>Recheck</Button><Button variant="quiet" size="sm" type="button" onclick={retryReview}>Fresh retry</Button></div>{/if}
+        {#if discoverySnapshot}<div class="snapshot-actions"><Button variant="secondary" size="sm" type="button" onclick={() => finishSnapshot(false)}>Close review</Button><Button variant="quiet" size="sm" type="button" onclick={() => finishSnapshot(true)}>Cancel review</Button><Button variant="quiet" size="sm" type="button" onclick={() => (showSnapshotNote = true)}>Add note</Button><Button variant="quiet" size="sm" type="button" onclick={recheckReview}>Recheck</Button><Button variant="quiet" size="sm" type="button" onclick={retryReview}>Fresh retry</Button>{#if discoverySnapshot.lifecycle === "reviewable" && selectedCandidateIds().length}<Button variant="primary" size="sm" type="button" disabled={applyBusy} loading={applyBusy} onclick={() => (showApplyConfirmation = true)}>Apply selected ({selectedCandidateIds().length})</Button>{/if}{#if applyBusy}<Button variant="danger" size="sm" type="button" onclick={cancelApply}><XIcon size={15} /> Cancel apply</Button>{/if}</div>{/if}
       {/if}
+      {#if applyReport}<section class="apply-report" aria-live="polite" aria-labelledby="apply-report-title"><div class="apply-report-heading"><div><p class="eyebrow">Verified operation report</p><h3 id="apply-report-title">Apply {applyReport.outcome}</h3></div></div><div class="apply-results">{#each applyReport.attempts as attempt (attempt.id)}<article class="apply-result" data-outcome={attempt.outcome ?? "unknown"}><strong>{attempt.verification?.intended_state ?? "Selected mod"}</strong><span>{attempt.outcome ?? attempt.status}</span><span>{attempt.verification?.verified ? "Verified after re-read" : attempt.error?.message ?? "Verification incomplete"}</span></article>{/each}</div></section>{/if}
       {#if discoverySnapshot?.lifecycle === "stale"}<p class="stale-message" role="status">This review is stale because the registered project changed or freshness could not be proven. Start a fresh retry before relying on these decisions.</p>{/if}
       <details class="discovery-evidence">
         <summary>Safety evidence</summary>
@@ -765,6 +850,19 @@
 <Modal bind:open={showSnapshotNote} title="Add review note" onclose={() => (showSnapshotNote = false)}>
   <label class="field"><span>Note</span><textarea bind:value={snapshotNoteDraft} rows="5" maxlength="4000" placeholder="Explain this review or its outcome"></textarea></label>
   <div class="modal-actions"><Button variant="quiet" type="button" onclick={() => (showSnapshotNote = false)}>Cancel</Button><Button variant="primary" type="button" onclick={saveReviewNote}>Save note</Button></div>
+</Modal>
+
+<Modal bind:open={showApplyConfirmation} title="Apply selected updates" onclose={() => (showApplyConfirmation = false)}>
+  <p class="modal-lede">Packwiz will update {selectedCandidateIds().length} selected mod{selectedCandidateIds().length === 1 ? "" : "s"} one at a time. The application will continue after an individual failure and show a partial report when needed.</p>
+  <div class="modal-actions"><Button variant="secondary" type="button" onclick={() => (showApplyConfirmation = false)}>Cancel</Button><Button variant="primary" type="button" onclick={applySelectedUpdates}>Apply updates</Button></div>
+</Modal>
+
+<Modal bind:open={showPinConfirmation} title={pinConfirmation?.pin ? "Pin Packwiz entry" : "Unpin Packwiz entry"} onclose={() => { pinConfirmation = null; showPinConfirmation = false; }}>
+  {#if pinConfirmation}
+    <p class="modal-lede">This runs the native Packwiz command for the exact current inventory entry. The metadata is re-read before success is shown.</p>
+    <div class="preview-grid"><div><span class="label">Entry</span><strong>{evidenceLabel(pinConfirmation.entry.name)}</strong></div><div><span class="label">Metadata</span><code>{pinConfirmation.entry.metadata_path}</code></div></div>
+    <div class="modal-actions"><Button variant="secondary" type="button" onclick={() => { pinConfirmation = null; showPinConfirmation = false; }}>Cancel</Button><Button variant={pinConfirmation.pin ? "primary" : "danger"} type="button" loading={pinningEntry === pinConfirmation.entry.local_id} onclick={confirmPinChange}>{pinConfirmation.pin ? "Pin entry" : "Unpin entry"}</Button></div>
+  {/if}
 </Modal>
 
 <Modal

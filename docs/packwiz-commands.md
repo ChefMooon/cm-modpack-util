@@ -33,8 +33,50 @@ are valid, otherwise unknown.
 
 Known limitations: the profile does not support alternate Packwiz output
 formats or versions, performs no provider requests, and does not apply or
-persist update decisions. The compatibility profile is the v0.0.4 boundary;
-review and application are deferred to later milestones.
+persist update decisions. The compatibility profile is the v0.0.4 boundary.
+
+## v0.0.6 mutation boundary
+
+The installed Packwiz binary was audited with a disposable fixture. Its pin
+commands use one positional project slug and do not emit a selection prompt:
+
+```text
+packwiz pin <slug>
+packwiz unpin <slug>
+```
+
+CM Modpack Util derives that slug from the exact native `.pw.toml` filename
+after resolving one fresh inventory entry inside the registered root. It never
+passes a metadata path, display name, shell string, or `--yes`. After the
+process exits, Rust re-reads the same entry and reports success only when the
+observed Packwiz pin state matches the requested state. Pin and unpin attempts
+are recorded as immutable operation history and can be cancelled through the
+bounded process runner.
+
+Targeted updates are supported through one native command per selected
+candidate:
+
+```text
+packwiz update <slug>
+```
+
+The slug is derived from the exact local `.pw.toml` filename after the
+snapshot candidate is re-resolved against a fresh inventory. The command is
+run with separated arguments from the registered project root, without
+`--yes`, shell interpolation, display-name matching, or provider-ID targeting.
+The tested Packwiz 1.1.0 Windows x86_64 behavior is non-interactive for this
+targeted form and uses the normal provider/network flow.
+
+Each selected target gets its own bounded process, before/after fingerprint,
+inventory re-read, verification result, stdout/stderr evidence, and immutable
+operation-history record. A failed target does not prevent later selected
+targets from running. The aggregate is `complete` only when every target is
+verified, `partial` when some targets verify, `failed` when none verify, and
+`cancelled` when the user cancels the sequence. A process exit code alone is
+never treated as a verified update.
+
+The all-target command remains discovery-only and is not used for apply:
+`packwiz update -a` is intentionally unsupported for mutation.
 
 ## packwiz update
 Update an external file (or all external files) in the modpack
@@ -54,7 +96,7 @@ Options inherited from parent commands
 ## packwiz unpin
 Unpin a file so it receives updates
 
-packwiz unpin [flags]
+packwiz unpin <slug>
 Options
   -h, --help   help for unpin
 Options inherited from parent commands
@@ -69,7 +111,7 @@ Options inherited from parent commands
 ## packwiz pin
 Pin a file so it does not get updated automatically
 
-packwiz pin [flags]
+packwiz pin <slug>
 Options
   -h, --help   help for pin
 Options inherited from parent commands

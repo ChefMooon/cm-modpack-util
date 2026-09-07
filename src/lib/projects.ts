@@ -4,6 +4,8 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
   ApplicationProjectMetadata,
+  ApplyOperationReport,
+  ApplyOperationRequest,
   InventoryEntry,
   ProjectOverview,
   ProjectRecord,
@@ -14,6 +16,9 @@ import type {
   SnapshotRecord,
   SnapshotDecision,
   SnapshotNoteScope,
+  OperationAttempt,
+  PinOperationRequest,
+  RecoveryAcknowledgement,
 } from "./domain";
 
 export async function chooseProjectDirectory(): Promise<string | null> {
@@ -115,4 +120,28 @@ export function linkSnapshotRetry(predecessorId: string, retryId: string): Promi
 
 export function recheckSnapshot(id: string): Promise<SnapshotRecord> {
   return invoke("recheck_snapshot", { id });
+}
+
+export function pinProject(request: PinOperationRequest): Promise<OperationAttempt> {
+  return invoke("pin_project", { request });
+}
+
+export function unpinProject(request: PinOperationRequest): Promise<OperationAttempt> {
+  return invoke("unpin_project", { request });
+}
+
+export function cancelOperation(operationId: string): Promise<void> {
+  return invoke("cancel_operation", { operationId });
+}
+
+export function getOperationHistory(projectId: string): Promise<OperationAttempt[]> {
+  return invoke("get_operation_history", { projectId });
+}
+
+export function recordRecoveryAcknowledgement(acknowledgement: RecoveryAcknowledgement): Promise<void> {
+  return invoke("record_recovery_acknowledgement", { acknowledgement });
+}
+
+export function applyProject(request: ApplyOperationRequest): Promise<ApplyOperationReport> {
+  return invoke("apply_project", { request });
 }

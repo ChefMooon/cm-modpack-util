@@ -110,8 +110,14 @@ pub fn run() {
             db::restore_project,
             db::disconnect_project,
             db::reconnect_project,
+            db::get_operation_history,
+            db::record_recovery_acknowledgement,
             discovery::operations::cancel_update_check,
-            discovery::pipeline::check_for_updates
+            discovery::pipeline::check_for_updates,
+            discovery::mutation::pin_project,
+            discovery::mutation::unpin_project,
+            discovery::mutation::cancel_operation,
+            discovery::mutation::apply_project
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

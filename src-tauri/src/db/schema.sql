@@ -107,3 +107,57 @@ CREATE TABLE IF NOT EXISTS snapshot_rechecks (
     checked_at TEXT NOT NULL,
     FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE RESTRICT
 );
+
+CREATE TABLE IF NOT EXISTS operation_attempts (
+    id TEXT PRIMARY KEY NOT NULL,
+    project_id TEXT NOT NULL,
+    snapshot_id TEXT,
+    predecessor_id TEXT,
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL,
+    outcome TEXT,
+    recovery_json TEXT NOT NULL,
+    process_json TEXT,
+    before_fingerprint_json TEXT,
+    after_fingerprint_json TEXT,
+    verification_json TEXT,
+    error_json TEXT,
+    created_at TEXT NOT NULL,
+    finished_at TEXT,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE RESTRICT,
+    FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE RESTRICT,
+    FOREIGN KEY (predecessor_id) REFERENCES operation_attempts(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS operation_candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    operation_id TEXT NOT NULL,
+    candidate_id TEXT,
+    entry_id TEXT,
+    decision TEXT NOT NULL,
+    observed_json TEXT NOT NULL,
+    FOREIGN KEY (operation_id) REFERENCES operation_attempts(id) ON DELETE RESTRICT,
+    FOREIGN KEY (candidate_id) REFERENCES snapshot_candidates(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS operation_acknowledgements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    operation_id TEXT NOT NULL,
+    project_fingerprint TEXT NOT NULL,
+    warning_category TEXT NOT NULL,
+    recovery_state TEXT NOT NULL,
+    acknowledged_at TEXT NOT NULL,
+    UNIQUE (operation_id),
+    FOREIGN KEY (operation_id) REFERENCES operation_attempts(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS pin_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    operation_id TEXT NOT NULL,
+    entry_id TEXT NOT NULL,
+    metadata_path TEXT NOT NULL,
+    requested_pin INTEGER NOT NULL,
+    observed_pin TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    FOREIGN KEY (operation_id) REFERENCES operation_attempts(id) ON DELETE RESTRICT
+);

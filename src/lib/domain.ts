@@ -133,7 +133,8 @@ export type ActivityEventType =
   | "refresh_succeeded"
   | "refresh_failed"
   | "metadata_changed"
-  | "lifecycle_changed";
+  | "lifecycle_changed"
+  | "snapshot_created";
 
 export type ActivityRecord = {
   event_type: ActivityEventType;
@@ -256,6 +257,60 @@ export type DiscoveryResult = {
   candidates: UpdateCandidate[];
   diagnostics: DiscoveryDiagnostics;
   error: CommandError | null;
+};
+
+export type OperationKind = "apply" | "pin" | "unpin";
+export type OperationOutcome = "complete" | "partial" | "failed" | "cancelled" | "unsafe" | "indeterminate";
+export type OperationVerification = {
+  comparable: boolean;
+  intended_state: string;
+  observed_state: string;
+  differences: string[];
+  verified: boolean;
+};
+export type RecoveryObservation = {
+  git: GitStatusObservation;
+  recovery_available: boolean;
+  warning_category: string | null;
+  diagnostic: string | null;
+};
+export type RecoveryAcknowledgement = {
+  operation_id: string;
+  project_fingerprint: string;
+  warning_category: string;
+  recovery_state: string;
+  acknowledged_at: string;
+};
+export type OperationAttempt = {
+  id: string;
+  project_id: string;
+  snapshot_id: string | null;
+  predecessor_id: string | null;
+  kind: OperationKind;
+  status: OperationStatus;
+  outcome: OperationOutcome | null;
+  recovery: RecoveryObservation;
+  process: ProcessEvidence | null;
+  before_fingerprint: ProjectFingerprint | null;
+  after_fingerprint: ProjectFingerprint | null;
+  verification: OperationVerification | null;
+  error: CommandError | null;
+  created_at: string;
+  finished_at: string | null;
+};
+export type PinOperationRequest = {
+  project_id: string;
+  entry_id: string;
+};
+export type ApplyOperationRequest = {
+  operation_id: string;
+  snapshot_id: string;
+  candidate_ids: string[];
+};
+export type ApplyOperationReport = {
+  snapshot_id: string;
+  attempts: OperationAttempt[];
+  outcome: OperationOutcome;
 };
 export type SnapshotLifecycle = "draft" | "reviewable" | "closed" | "cancelled" | "stale";
 export type SnapshotDecision = "undecided" | "selected" | "skipped" | "blocked" | "deferred";
