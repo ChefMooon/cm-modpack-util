@@ -33,6 +33,10 @@
     DiscoveryResult,
     ProcessEvidence,
     SnapshotRecord,
+    ChangelogArtifact,
+    ChangelogRevision,
+    ChangelogExport,
+    ChangelogProgress,
   } from "../lib/domain";
   import {
     archiveProject,
@@ -63,6 +67,15 @@
     unpinProject,
     applyProject,
     cancelOperation,
+    generateChangelog,
+    chooseChangelogDestination,
+    exportChangelog,
+    createChangelogRevision,
+    cancelChangelogGeneration,
+    listenChangelogProgress,
+    listChangelogArtifacts,
+    listChangelogRevisions,
+    listChangelogExports,
   } from "../lib/projects";
 
   let projects = $state<ProjectRecord[]>([]);
@@ -99,6 +112,16 @@
   let applyBusy = $state(false);
   let applyOperationId = $state<string | null>(null);
   let applyReport = $state<ApplyOperationReport | null>(null);
+  let changelog = $state<ChangelogArtifact | null>(null);
+  let changelogRevision = $state<ChangelogRevision | null>(null);
+  let changelogRevisions = $state<ChangelogRevision[]>([]);
+  let changelogExports = $state<ChangelogExport[]>([]);
+  let changelogIntroduction = $state("");
+  let changelogOffline = $state(false);
+  let changelogBusy = $state(false);
+  let changelogProgress = $state<ChangelogProgress | null>(null);
+  let changelogPartialChoice = $state(false);
+  let changelogDraft = $state("");
   let snapshotNoteDraft = $state("");
   let discoveryUnlisten: (() => void)[] = [];
   const { toast } = useToast();
@@ -116,6 +139,9 @@
       }),
       listenUpdateCheckProcess((process) => {
         discoveryProcess = process;
+      }),
+      listenChangelogProgress((progress) => {
+        if (!changelogBusy || progress.attempt_id === changelog?.attempt_id) changelogProgress = progress;
       }),
     ]);
   }
@@ -142,6 +168,13 @@
     discoverySnapshot = snapshot;
     discoverySnapshotId = snapshot.id;
     discovery = snapshot.result;
+    const artifacts = await listChangelogArtifacts(project.id);
+    changelog = artifacts.find((artifact) => artifact.snapshot_id === snapshot.id) ?? null;
+    changelogRevisions = changelog ? await listChangelogRevisions(changelog.id) : [];
+    changelogExports = changelog ? await listChangelogExports(changelog.id) : [];
+    changelogRevision = changelogRevisions.find((revision) => revision.is_current) ?? null;
+    changelogDraft = changelog?.content ?? "";
+    if (changelogRevision) changelogDraft = changelogRevision.content;
   }
 
   async function selectProject() {
@@ -297,6 +330,78 @@
       discoverySnapshot = await linkSnapshotRetry(predecessorId, discoverySnapshotId);
       discovery = discoverySnapshot.result;
       toast({ title: "Linked retry created", severity: "success" });
+    } catch (cause) {
+      error = commandErrorMessage(cause);
+    }
+  }
+
+  async function generateSnapshotChangelog() {
+    if (!discoveryProject || !discoverySnapshot || !["reviewable", "closed"].includes(discoverySnapshot.lifecycle) || changelogBusy) return;
+    changelogBusy = true;
+    changelogProgress = { attempt_id: "", completed: 0, total: discoverySnapshot.candidates.length, message: "Preparing changelog lookups", cancellable: false };
+    error = "";
+    try {
+      changelog = await generateChangelog({
+        project_id: discoveryProject.id,
+        snapshot_id: discoverySnapshot.id,
+        introduction: changelogIntroduction.trim() || null,
+        offline: changelogOffline,
+        source: discoverySnapshot.lifecycle === "closed" ? "applied_operation" : "discovery_candidates",
+        request_fingerprint: crypto.randomUUID(),
+      });
+      changelogProgress = null;
+      changelogRevision = null;
+      changelogDraft = changelog.content;
+      changelogPartialChoice = changelog.status === "partial" || changelog.status === "cancelled";
+      toast({ title: "Changelog generated", description: "Review provider evidence before exporting.", severity: changelog.status === "complete" ? "success" : "warning" });
+    } catch (cause) {
+      error = commandErrorMessage(cause);
+    } finally {
+      changelogBusy = false;
+      if (!changelog) changelogProgress = null;
+    }
+  }
+
+  async function cancelSnapshotChangelog() {
+    if (!changelogBusy) return;
+    try {
+      await cancelChangelogGeneration();
+      toast({ title: "Stopping changelog generation", description: "The completed lookups will be preserved as a partial result.", severity: "warning" });
+    } catch (cause) {
+      error = commandErrorMessage(cause);
+    }
+  }
+
+  function discardPartialChangelog() {
+    changelog = null;
+    changelogRevision = null;
+    changelogDraft = "";
+    changelogPartialChoice = false;
+  }
+
+  function keepPartialChangelog() {
+    changelogPartialChoice = false;
+  }
+
+  async function saveChangelogRevision() {
+    if (!changelog || changelogDraft === changelog.content) return;
+    try {
+      changelogRevision = await createChangelogRevision({ artifact_id: changelog.id, prior_revision_id: changelogRevision?.id ?? null, content: changelogDraft, introduction: changelog.introduction });
+      changelogRevisions = [changelogRevision, ...changelogRevisions];
+      toast({ title: "Revision saved", description: "The generated artifact remains unchanged.", severity: "success" });
+    } catch (cause) {
+      error = commandErrorMessage(cause);
+    }
+  }
+
+  async function exportSnapshotChangelog() {
+    if (!changelog) return;
+    const destination = await chooseChangelogDestination();
+    if (!destination) return;
+    try {
+      const exported = await exportChangelog({ artifact_id: changelog.id, revision_id: changelogRevision?.id ?? null, destination, content: changelogDraft });
+      changelogExports = [exported, ...changelogExports];
+      toast({ title: exported.status === "exported" ? "Changelog exported" : "Export unavailable", description: exported.diagnostic?.message, severity: exported.status === "exported" ? "success" : "warning" });
     } catch (cause) {
       error = commandErrorMessage(cause);
     }
@@ -822,6 +927,31 @@
             {/each}
           </div>{/if}
         {#if discoverySnapshot}<div class="snapshot-actions"><Button variant="secondary" size="sm" type="button" onclick={() => finishSnapshot(false)}>Close review</Button><Button variant="quiet" size="sm" type="button" onclick={() => finishSnapshot(true)}>Cancel review</Button><Button variant="quiet" size="sm" type="button" onclick={() => (showSnapshotNote = true)}>Add note</Button><Button variant="quiet" size="sm" type="button" onclick={recheckReview}>Recheck</Button><Button variant="quiet" size="sm" type="button" onclick={retryReview}>Fresh retry</Button>{#if discoverySnapshot.lifecycle === "reviewable" && selectedCandidateIds().length}<Button variant="primary" size="sm" type="button" disabled={applyBusy} loading={applyBusy} onclick={() => (showApplyConfirmation = true)}>Apply selected ({selectedCandidateIds().length})</Button>{/if}{#if applyBusy}<Button variant="danger" size="sm" type="button" onclick={cancelApply}><XIcon size={15} /> Cancel apply</Button>{/if}</div>{/if}
+        {#if discoverySnapshot?.lifecycle === "reviewable" || discoverySnapshot?.lifecycle === "closed"}
+          <section class="changelog-compose" aria-labelledby="changelog-title">
+            <div><p class="eyebrow">Changelog</p><h3 id="changelog-title">Generate from this review</h3><p>Provider requests happen only when you generate. Unconfirmed entries remain visible in the result.</p></div>
+            <label class="field"><span>Introduction (optional)</span><textarea bind:value={changelogIntroduction} rows="3" maxlength="4000" placeholder="Summarize this update"></textarea></label>
+            <label class="toggle-field"><input type="checkbox" bind:checked={changelogOffline} /> <span>Use cached data only</span></label>
+            <Button variant="primary" size="sm" type="button" loading={changelogBusy} disabled={changelogBusy} onclick={generateSnapshotChangelog}>Generate changelog</Button>
+            {#if changelogBusy}<Button variant="danger" size="sm" type="button" onclick={cancelSnapshotChangelog}><XIcon size={15} /> Stop generation</Button>{/if}
+            {#if changelogProgress}
+              <p class="status" role="status" aria-live="polite">{changelogProgress.message}</p>
+            {/if}
+          </section>
+        {/if}
+        {#if changelog}
+          <section class="changelog-result" aria-labelledby="changelog-result-title">
+            <div class="apply-report-heading"><div><p class="eyebrow">Stored artifact</p><h3 id="changelog-result-title">Generation {changelog.status}</h3></div><span>{changelog.entries.length} entries</span></div>
+            {#if changelogPartialChoice}<div class="status-panel" role="alert"><strong>This generation stopped before all lookups finished.</strong><p>The fetched entries are stored as a partial artifact. Choose whether to keep this result open for review.</p><div class="snapshot-actions"><Button variant="primary" size="sm" type="button" onclick={keepPartialChangelog}>Keep partial result</Button><Button variant="quiet" size="sm" type="button" onclick={discardPartialChangelog}>Discard from review</Button></div></div>{/if}
+            <div class="candidate-list">{#each changelog.entries as entry (entry.local.entry_id)}<article class="candidate"><div class="candidate-identity"><strong>{evidenceLabel(entry.local.local_identity)}</strong><span>{entry.retrieval.replaceAll("_", " ")}</span><span>{entry.match_evidence.confidence} confidence</span></div><p>{entry.changelog ?? entry.match_evidence.reason}</p></article>{/each}</div>
+            <div class="snapshot-actions"><Button variant="primary" size="sm" type="button" onclick={exportSnapshotChangelog}>Export Markdown</Button></div>
+            <label class="field"><span>Editable revision</span><textarea bind:value={changelogDraft} rows="10"></textarea></label>
+            <div class="snapshot-actions"><Button variant="quiet" size="sm" type="button" disabled={changelogDraft === changelog.content} onclick={saveChangelogRevision}>Save revision</Button></div>
+            <details class="discovery-evidence"><summary>Original generated Markdown</summary><pre>{changelog.content}</pre></details>
+            <details class="discovery-evidence"><summary>Revision history ({changelogRevisions.length})</summary><div class="candidate-list">{#each changelogRevisions as revision (revision.id)}<article class="candidate"><div class="candidate-identity"><strong>{revision.is_current ? "Current revision" : "Revision"}</strong><span>{revision.created_at}</span></div><p>{revision.content.slice(0, 180)}{revision.content.length > 180 ? "..." : ""}</p></article>{/each}</div></details>
+            <details class="discovery-evidence"><summary>Export history ({changelogExports.length})</summary><div class="candidate-list">{#each changelogExports as exportRecord (exportRecord.id)}<article class="candidate"><div class="candidate-identity"><strong>{exportRecord.status}</strong><span>{exportRecord.destination}</span></div><p>{exportRecord.exported_at}</p></article>{/each}</div></details>
+          </section>
+        {/if}
       {/if}
       {#if applyReport}<section class="apply-report" aria-live="polite" aria-labelledby="apply-report-title"><div class="apply-report-heading"><div><p class="eyebrow">Verified operation report</p><h3 id="apply-report-title">Apply {applyReport.outcome}</h3></div></div><div class="apply-results">{#each applyReport.attempts as attempt (attempt.id)}<article class="apply-result" data-outcome={attempt.outcome ?? "unknown"}><strong>{attempt.verification?.intended_state ?? "Selected mod"}</strong><span>{attempt.outcome ?? attempt.status}</span><span>{attempt.verification?.verified ? "Verified after re-read" : attempt.error?.message ?? "Verification incomplete"}</span></article>{/each}</div></section>{/if}
       {#if discoverySnapshot?.lifecycle === "stale"}<p class="stale-message" role="status">This review is stale because the registered project changed or freshness could not be proven. Start a fresh retry before relying on these decisions.</p>{/if}

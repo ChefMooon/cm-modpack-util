@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
   ApplicationProjectMetadata,
@@ -19,6 +19,13 @@ import type {
   OperationAttempt,
   PinOperationRequest,
   RecoveryAcknowledgement,
+  ChangelogArtifact,
+  ChangelogGenerationRequest,
+  ChangelogRevision,
+  ChangelogRevisionRequest,
+  ChangelogExport,
+  ChangelogExportRequest,
+  ChangelogProgress,
 } from "./domain";
 
 export async function chooseProjectDirectory(): Promise<string | null> {
@@ -144,4 +151,46 @@ export function recordRecoveryAcknowledgement(acknowledgement: RecoveryAcknowled
 
 export function applyProject(request: ApplyOperationRequest): Promise<ApplyOperationReport> {
   return invoke("apply_project", { request });
+}
+
+export function generateChangelog(request: ChangelogGenerationRequest): Promise<ChangelogArtifact> {
+  return invoke("generate_changelog", { request });
+}
+
+export function cancelChangelogGeneration(): Promise<void> {
+  return invoke("cancel_changelog_generation");
+}
+
+export function listenChangelogProgress(
+  handler: (progress: ChangelogProgress) => void,
+): Promise<UnlistenFn> {
+  return listen<ChangelogProgress>("changelog-progress", (event) => handler(event.payload));
+}
+
+export function createChangelogRevision(request: ChangelogRevisionRequest): Promise<ChangelogRevision> {
+  return invoke("create_changelog_revision", { request });
+}
+
+export function exportChangelog(request: ChangelogExportRequest): Promise<ChangelogExport> {
+  return invoke("export_changelog", { request });
+}
+
+export async function chooseChangelogDestination(): Promise<string | null> {
+  return save({ title: "Export Markdown changelog", defaultPath: "CHANGELOG.md", filters: [{ name: "Markdown", extensions: ["md"] }] });
+}
+
+export function getChangelogArtifact(artifactId: string): Promise<ChangelogArtifact> {
+  return invoke("get_changelog_artifact", { artifactId });
+}
+
+export function listChangelogArtifacts(projectId: string): Promise<ChangelogArtifact[]> {
+  return invoke("list_changelog_artifacts", { projectId });
+}
+
+export function listChangelogRevisions(artifactId: string): Promise<ChangelogRevision[]> {
+  return invoke("list_changelog_revisions", { artifactId });
+}
+
+export function listChangelogExports(artifactId: string): Promise<ChangelogExport[]> {
+  return invoke("list_changelog_exports", { artifactId });
 }

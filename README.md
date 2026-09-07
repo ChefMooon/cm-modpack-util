@@ -2,7 +2,29 @@
 
 A local-first foundation for CM modpack projects, built with **Tauri 2**, **SvelteKit**, **TypeScript**, **Vite**, and **SQLite**.
 
-The v0.0.6 alpha provides local Packwiz project registration, inventory inspection, durable update-check snapshots, review decisions and notes, verified positional-slug pin/unpin operations, sequential selected updates, mutation history, project overview facts, and the Projects, Activity, and Settings shell. It reads Packwiz evidence offline for discovery and uses normal Packwiz provider/network behavior for explicitly selected targeted updates. Each update is verified and recorded independently; failures are reported without stopping later selected targets.
+The v0.0.7 alpha provides local Packwiz project registration, inventory inspection, durable update-check snapshots, review decisions and notes, verified positional-slug pin/unpin operations, sequential selected updates, mutation history, project overview facts, changelog generation, Markdown export, and the Projects, Activity, and Settings shell. It reads Packwiz evidence offline for discovery and uses normal Packwiz provider/network behavior for explicitly selected targeted updates. Each update is verified and recorded independently; failures are reported without stopping later selected targets.
+
+## Changelog workflow
+
+The snapshot review includes an explicit **Generate changelog** action. It uses
+the selected snapshot's immutable candidates, keeps the local download provider
+separate from Modrinth changelog evidence, and shows unresolved, ambiguous,
+missing, and failed provider results without presenting them as confirmed.
+Generated Markdown is stored as an application-owned artifact and can be sent
+to a destination selected through the native save dialog. Export observations
+retain the destination, content, SHA-256 hash, status, and timestamp; the
+application does not delete external files.
+
+Provider access is limited to explicit generation. Exact cached Modrinth
+responses can be reused offline only when the stored project/version
+association matches the requested local version. Online generation performs one
+exact version lookup per changed entry and waits three seconds between lookups
+to reduce API pressure. Progress events report preparation, each lookup,
+artifact persistence, and completion in the review view. Generation can be
+stopped between lookups; fetched entries are retained in a partial artifact and
+the review can keep or discard that result without deleting its history. Existing alpha databases use
+the current additive schema; stop the app and reset `settings.sqlite` if an
+incompatible local schema prevents startup.
 ## v0.0.6 mutation boundaries
 
 ## Prerequisites

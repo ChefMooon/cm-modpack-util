@@ -161,3 +161,70 @@ CREATE TABLE IF NOT EXISTS pin_observations (
     observed_at TEXT NOT NULL,
     FOREIGN KEY (operation_id) REFERENCES operation_attempts(id) ON DELETE RESTRICT
 );
+
+CREATE TABLE IF NOT EXISTS changelog_cache (
+    id TEXT PRIMARY KEY NOT NULL,
+    cache_key_json TEXT NOT NULL UNIQUE,
+    raw_response TEXT NOT NULL,
+    association_json TEXT NOT NULL,
+    retrieved_at TEXT NOT NULL,
+    request_context TEXT NOT NULL,
+    response_context TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS changelog_attempts (
+    id TEXT PRIMARY KEY NOT NULL,
+    project_id TEXT NOT NULL,
+    snapshot_id TEXT NOT NULL,
+    request_json TEXT NOT NULL,
+    request_fingerprint TEXT NOT NULL,
+    status TEXT NOT NULL,
+    error_json TEXT,
+    created_at TEXT NOT NULL,
+    finished_at TEXT,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE RESTRICT,
+    FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS changelog_artifacts (
+    id TEXT PRIMARY KEY NOT NULL,
+    project_id TEXT NOT NULL,
+    snapshot_id TEXT NOT NULL,
+    attempt_id TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL,
+    introduction TEXT,
+    content TEXT NOT NULL,
+    entries_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE RESTRICT,
+    FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE RESTRICT,
+    FOREIGN KEY (attempt_id) REFERENCES changelog_attempts(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS changelog_revisions (
+    id TEXT PRIMARY KEY NOT NULL,
+    artifact_id TEXT NOT NULL,
+    prior_revision_id TEXT,
+    content TEXT NOT NULL,
+    introduction TEXT,
+    created_at TEXT NOT NULL,
+    is_current INTEGER NOT NULL DEFAULT 1,
+    FOREIGN KEY (artifact_id) REFERENCES changelog_artifacts(id) ON DELETE RESTRICT,
+    FOREIGN KEY (prior_revision_id) REFERENCES changelog_revisions(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS changelog_exports (
+    id TEXT PRIMARY KEY NOT NULL,
+    artifact_id TEXT NOT NULL,
+    revision_id TEXT,
+    destination TEXT NOT NULL,
+    format TEXT NOT NULL,
+    content TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    status TEXT NOT NULL,
+    exported_at TEXT NOT NULL,
+    diagnostic_json TEXT,
+    FOREIGN KEY (artifact_id) REFERENCES changelog_artifacts(id) ON DELETE RESTRICT,
+    FOREIGN KEY (revision_id) REFERENCES changelog_revisions(id) ON DELETE RESTRICT
+);

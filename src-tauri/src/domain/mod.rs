@@ -1,7 +1,16 @@
+pub mod changelog;
 mod contracts;
 pub mod inventory;
 pub mod validation;
 
+pub use changelog::{
+    ChangelogArtifact, ChangelogCacheKey, ChangelogCacheRecord, ChangelogEntryResult,
+    ChangelogExport, ChangelogExportRequest, ChangelogExportStatus, ChangelogGenerationRequest,
+    ChangelogGenerationStatus, ChangelogProgress, ChangelogRetrievalStatus, ChangelogRevision,
+    ChangelogRevisionRequest, ChangelogSourceKind, LocalEntryIdentity, ModrinthProjectIdentity,
+    ModrinthVersionIdentity, ProviderMatchConfidence, ProviderMatchEvidence,
+    VersionAssociationEvidence,
+};
 pub use contracts::{
     ActivityEventType, ActivityRecord, ApplicationProjectMetadata, ApplyOperationReport,
     ApplyOperationRequest, CancellationState, CandidateSeverity, CommandError,

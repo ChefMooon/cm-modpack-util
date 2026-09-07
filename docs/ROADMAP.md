@@ -179,6 +179,12 @@ only on process startup or exit status.
 
 Complete the initial update-to-changelog workflow using targeted Modrinth access.
 
+The implementation is being delivered through the phased plan in
+`docs/plans/v0.1.0/v0.0.7.md`. The supported boundary is explicit snapshot
+generation, visible provider evidence, durable artifacts and revisions, and
+native Markdown export. Automatic cache expiration, CurseForge API access,
+Packwiz mutation, releases, and cleanup remain outside this milestone.
+
 - Identify changed mods from a selected snapshot.
 - Resolve Modrinth project and version identities with confidence and evidence.
 - Request only the changelog data required for the selected snapshot.

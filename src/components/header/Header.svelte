@@ -1,5 +1,5 @@
 <script lang="ts">
-  export let version = "v0.0.6";
+  export let version = "v0.0.7";
 </script>
 
 <header class="site-header">

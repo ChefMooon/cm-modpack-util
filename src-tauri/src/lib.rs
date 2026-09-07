@@ -1,4 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+pub mod changelog;
+mod changelog_transport;
 pub mod db;
 pub mod discovery;
 pub mod domain;
@@ -35,6 +37,7 @@ pub fn run() {
                 db::bool_setting(&database, "general.restoreWindowState", true);
             app.manage(database);
             app.manage(discovery::operations::DiscoveryRuntime::default());
+            app.manage(changelog::ChangelogRuntime::default());
 
             let show = MenuItem::with_id(app, "show", "Show window", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -117,7 +120,15 @@ pub fn run() {
             discovery::mutation::pin_project,
             discovery::mutation::unpin_project,
             discovery::mutation::cancel_operation,
-            discovery::mutation::apply_project
+            discovery::mutation::apply_project,
+            changelog::generate_changelog,
+            changelog::cancel_changelog_generation,
+            changelog::create_changelog_revision,
+            changelog::get_changelog_artifact,
+            changelog::list_changelog_artifacts,
+            changelog::list_changelog_revisions,
+            changelog::list_changelog_exports,
+            changelog::export_changelog
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

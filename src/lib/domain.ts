@@ -163,6 +163,123 @@ export type RefreshResult = {
   error: CommandError | null;
 };
 
+export type ChangelogSourceKind = "discovery_candidates" | "applied_operation";
+export type ChangelogGenerationStatus =
+  | "pending"
+  | "running"
+  | "complete"
+  | "partial"
+  | "failed"
+  | "cancelled"
+  | "indeterminate";
+export type ProviderMatchConfidence = "exact" | "high" | "ambiguous" | "unresolved" | "unknown";
+export type LocalEntryIdentity = {
+  entry_id: string;
+  metadata_path: string;
+  local_provider: InventoryProvider;
+  local_identity: Evidence<string>;
+  local_version: Evidence<string>;
+};
+export type ModrinthProjectIdentity = { project_id: string; slug: string | null; title: string | null };
+export type ModrinthVersionIdentity = {
+  version_id: string;
+  version_number: string | null;
+  game_versions: string[];
+  loaders: string[];
+};
+export type VersionAssociationEvidence = {
+  local_version: Evidence<string>;
+  provider_version: string | null;
+  matched_exactly: boolean;
+  details: string[];
+};
+export type ProviderMatchEvidence = {
+  confidence: ProviderMatchConfidence;
+  project: ModrinthProjectIdentity | null;
+  version: ModrinthVersionIdentity | null;
+  association: VersionAssociationEvidence | null;
+  candidates: string[];
+  reason: string;
+};
+export type ChangelogRetrievalStatus =
+  | "not_requested"
+  | "cached"
+  | "cached_stale"
+  | "retrieved"
+  | "missing"
+  | "ambiguous"
+  | "unresolved"
+  | "failed"
+  | "offline_unavailable";
+export type ChangelogEntryResult = {
+  local: LocalEntryIdentity;
+  match_evidence: ProviderMatchEvidence;
+  retrieval: ChangelogRetrievalStatus;
+  changelog: string | null;
+  diagnostic: CommandError | null;
+};
+export type ChangelogGenerationRequest = {
+  project_id: string;
+  snapshot_id: string;
+  introduction: string | null;
+  offline: boolean;
+  source: ChangelogSourceKind;
+  request_fingerprint: string;
+};
+export type ChangelogProgress = {
+  attempt_id: string;
+  completed: number;
+  total: number;
+  message: string;
+  cancellable: boolean;
+};
+export type ChangelogArtifact = {
+  id: string;
+  project_id: string;
+  snapshot_id: string;
+  attempt_id: string;
+  status: ChangelogGenerationStatus;
+  introduction: string | null;
+  content: string;
+  entries: ChangelogEntryResult[];
+  created_at: string;
+  updated_at: string;
+};
+export type ChangelogRevision = {
+  id: string;
+  artifact_id: string;
+  prior_revision_id: string | null;
+  content: string;
+  introduction: string | null;
+  created_at: string;
+  is_current: boolean;
+};
+export type ChangelogRevisionRequest = {
+  artifact_id: string;
+  prior_revision_id: string | null;
+  content: string;
+  introduction: string | null;
+};
+export type ChangelogExportStatus = "exported" | "unavailable" | "failed";
+export type ChangelogExport = {
+  id: string;
+  artifact_id: string;
+  revision_id: string | null;
+  destination: string;
+  format: string;
+  content: string;
+  content_hash: string;
+  status: ChangelogExportStatus;
+  exported_at: string;
+  diagnostic: CommandError | null;
+};
+export type ChangelogExportRequest = {
+  artifact_id: string;
+  revision_id: string | null;
+  destination: string;
+  content: string;
+};
+
 export type CompatibilityStatus = "supported" | "unsupported";
 export type VersionEvidence = { observed: string } | "unavailable";
 export type CompatibilityProfile = {
