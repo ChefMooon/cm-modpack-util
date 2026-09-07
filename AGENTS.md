@@ -54,6 +54,7 @@ Run focused checks before broad validation when changing one layer. Use `git dif
 ## Frontend Conventions
 
 - Follow the shared design tokens and accessibility rules in `src/app.css` and [`docs/desktop-ui-standards.md`](docs/desktop-ui-standards.md).
+- Keep the code modular, especially in the frontend: avoid large files, and prefer small components that are easy to test and reusable when practical.
 - Prefer shared primitives in `src/components/ui/`, especially `Button.svelte`, `Modal.svelte`, `Tooltip.svelte`, and the toast system.
 - Use typed wrappers in `src/lib/` for Tauri commands rather than scattering direct `invoke` calls through routes.
 - Preserve loading, empty, unavailable, stale, disconnected, validation-failure, and command-failure states where a workflow can produce them.
