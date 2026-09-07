@@ -7,15 +7,22 @@
   import LinkIcon from "phosphor-svelte/lib/LinkIcon";
   import ArchiveIcon from "phosphor-svelte/lib/ArchiveIcon";
   import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
-  import MagnifyingGlassIcon from "phosphor-svelte/lib/MagnifyingGlassIcon";
   import ArrowSquareOutIcon from "phosphor-svelte/lib/ArrowSquareOutIcon";
   import XIcon from "phosphor-svelte/lib/XIcon";
   import CheckCircleIcon from "phosphor-svelte/lib/CheckCircleIcon";
   import WarningCircleIcon from "phosphor-svelte/lib/WarningCircleIcon";
+  import CaretDoubleLeftIcon from "phosphor-svelte/lib/CaretDoubleLeftIcon";
+  import CaretDoubleRightIcon from "phosphor-svelte/lib/CaretDoubleRightIcon";
+  import DotsThreeIcon from "phosphor-svelte/lib/DotsThreeIcon";
   import Header from "../components/header/Header.svelte";
   import Button from "../components/ui/Button.svelte";
   import Modal from "../components/ui/Modal.svelte";
   import Tooltip from "../components/ui/Tooltip.svelte";
+  import SnapshotReviewModal from "../components/projects/SnapshotReviewModal.svelte";
+  import SnapshotHistory from "../components/projects/SnapshotHistory.svelte";
+  import ProjectSettings from "../components/projects/ProjectSettings.svelte";
+  import ProjectList from "../components/projects/ProjectList.svelte";
+  import ProjectSummary from "../components/projects/ProjectSummary.svelte";
   import { useToast } from "../components/ui/toast/toast.svelte";
   import { commandErrorMessage } from "../lib/errors";
   import type {
@@ -79,6 +86,14 @@
   } from "../lib/projects";
 
   let projects = $state<ProjectRecord[]>([]);
+  type DetailTab = "summary" | "versions" | "settings";
+  let focusedProject = $state<ProjectRecord | null>(null);
+  let activeTab = $state<DetailTab>("summary");
+  let listCollapsed = $state(false);
+  let paneWidth = $state(300);
+  let resizingPane = $state(false);
+  let resizeStartX = 0;
+  let resizeStartWidth = 300;
   let loading = $state(true);
   let busy = $state(false);
   let error = $state("");
@@ -90,23 +105,32 @@
   let tagsText = $state("");
   let showPreview = $state(false);
   let showReconnect = $state(false);
-  let showEdit = $state(false);
   let showArchived = $state(false);
   let inspected = $state<ProjectRecord | null>(null);
   let inventory = $state<InventoryEntry[]>([]);
   let overview = $state<ProjectOverview | null>(null);
   let inventoryFilter = $state("all");
   let inspecting = $state(false);
+  let overviewLoading = $state(false);
+  let inventoryLoading = $state(false);
+  let overviewError = $state("");
+  let inventoryError = $state("");
+  let summaryRequest = 0;
   let pinningEntry = $state<string | null>(null);
   let pinConfirmation = $state<{ entry: InventoryEntry; pin: boolean } | null>(null);
   let showPinConfirmation = $state(false);
   let discoveryProject = $state<ProjectRecord | null>(null);
+  let showReviewModal = $state(false);
   let discovery = $state<DiscoveryResult | null>(null);
   let discoveryProgress = $state<DiscoveryProgress | null>(null);
   let discoveryProcess = $state<ProcessEvidence | null>(null);
   let discoveryBusy = $state(false);
   let discoverySnapshotId = $state<string | null>(null);
   let discoverySnapshot = $state<SnapshotRecord | null>(null);
+  let snapshots = $state<SnapshotRecord[]>([]);
+  let snapshotsLoading = $state(false);
+  let snapshotsError = $state("");
+  let versionFilter = $state<"all" | "releases" | "snapshots">("all");
   let showSnapshotNote = $state(false);
   let showApplyConfirmation = $state(false);
   let applyBusy = $state(false);
@@ -129,7 +153,28 @@
   onMount(() => {
     void loadProjects();
     void hydrateDiscoveryEvents();
-    return () => discoveryUnlisten.forEach((unlisten) => unlisten());
+    const closeProjectMenus = (event: PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest(".project-menu")) return;
+      document.querySelectorAll<HTMLDetailsElement>(".project-menu[open]").forEach((menu) => { menu.open = false; });
+    };
+    const handleProjectMenuKeydown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      document.querySelectorAll<HTMLDetailsElement>(".project-menu[open]").forEach((menu) => { menu.open = false; });
+    };
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!settingsDirty()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    document.addEventListener("pointerdown", closeProjectMenus);
+    document.addEventListener("keydown", handleProjectMenuKeydown);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      document.removeEventListener("pointerdown", closeProjectMenus);
+      document.removeEventListener("keydown", handleProjectMenuKeydown);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      discoveryUnlisten.forEach((unlisten) => unlisten());
+    };
   });
 
   async function hydrateDiscoveryEvents() {
@@ -164,10 +209,14 @@
     const snapshot = await getSnapshot(snapshotId);
     const project = projects.find((candidate) => candidate.id === snapshot.project_id);
     if (!project) return;
+    focusedProject = project;
+    activeTab = "versions";
+    void loadSnapshots(project);
     discoveryProject = project;
     discoverySnapshot = snapshot;
     discoverySnapshotId = snapshot.id;
     discovery = snapshot.result;
+    showReviewModal = true;
     const artifacts = await listChangelogArtifacts(project.id);
     changelog = artifacts.find((artifact) => artifact.snapshot_id === snapshot.id) ?? null;
     changelogRevisions = changelog ? await listChangelogRevisions(changelog.id) : [];
@@ -228,26 +277,85 @@
   }
 
   async function inspectProject(project: ProjectRecord) {
+    const requestId = ++summaryRequest;
+    focusedProject = project;
     inspected = project;
     inspecting = true;
     error = "";
-    try {
-      [inventory, overview] = await Promise.all([
-        getProjectInventory(project.id),
-        getProjectOverview(project.id),
-      ]);
-    } catch (cause) {
-      inventory = [];
+    overviewLoading = true;
+    inventoryLoading = true;
+    overviewError = "";
+    inventoryError = "";
+    void getProjectOverview(project.id).then((result) => {
+      if (requestId !== summaryRequest) return;
+      overview = result;
+    }).catch((cause) => {
+      if (requestId !== summaryRequest) return;
       overview = null;
-      error = commandErrorMessage(cause);
+      overviewError = commandErrorMessage(cause);
+    }).finally(() => {
+      if (requestId === summaryRequest) overviewLoading = false;
+    });
+    void getProjectInventory(project.id).then((result) => {
+      if (requestId !== summaryRequest) return;
+      inventory = result;
+    }).catch((cause) => {
+      if (requestId !== summaryRequest) return;
+      inventory = [];
+      inventoryError = commandErrorMessage(cause);
+    }).finally(() => {
+      if (requestId === summaryRequest) {
+        inventoryLoading = false;
+        inspecting = false;
+      }
+    });
+  }
+
+  function focusProject(project: ProjectRecord) {
+    if (focusedProject?.id !== project.id && !canLeaveSettings()) return;
+    focusedProject = project;
+    activeTab = "summary";
+    void inspectProject(project);
+    void loadSnapshots(project);
+  }
+
+  async function loadSnapshots(project: ProjectRecord) {
+    snapshotsLoading = true;
+    snapshotsError = "";
+    try {
+      snapshots = await listSnapshots(project.id);
+    } catch (cause) {
+      snapshots = [];
+      snapshotsError = commandErrorMessage(cause);
     } finally {
-      inspecting = false;
+      snapshotsLoading = false;
     }
   }
+
+  function settingsDirty() {
+    if (!editing || !metadataDraft) return false;
+    return JSON.stringify({ ...metadataDraft, tags: tagsText.split(",").map((tag) => tag.trim()).filter(Boolean) }) !== JSON.stringify(editing.application);
+  }
+
+  function canLeaveSettings() {
+    if (busy && settingsDirty()) return false;
+    if (!settingsDirty()) return true;
+    const initiatingControl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const discard = window.confirm("Discard unsaved project settings?");
+    if (discard) {
+      metadataDraft = null;
+      editing = null;
+      return true;
+    }
+    queueMicrotask(() => initiatingControl?.focus());
+    return false;
+  }
+
 
   async function checkProjectForUpdates(project: ProjectRecord) {
     if (discoveryBusy) return;
     discoveryProject = project;
+    showReviewModal = true;
     discovery = null;
     discoverySnapshot = null;
     discoveryProcess = null;
@@ -291,6 +399,10 @@
     try {
       discoverySnapshot = await closeSnapshot(discoverySnapshotId, cancelled);
       discovery = discoverySnapshot.result;
+      const project = discoveryProject;
+      if (project) await loadSnapshots(project);
+      discoveryProcess = null;
+      discoveryProgress = null;
       toast({ title: cancelled ? "Review cancelled" : "Review closed", severity: "success" });
     } catch (cause) {
       error = commandErrorMessage(cause);
@@ -504,20 +616,29 @@
       tags: [...project.application.tags],
     };
     tagsText = project.application.tags.join(", ");
-    showEdit = true;
+  }
+
+  function openSettings(project: ProjectRecord) {
+    if (!canLeaveSettings()) return;
+    focusProject(project);
+    beginEdit(project);
+    activeTab = "settings";
   }
 
   async function saveMetadata() {
     if (!editing || !metadataDraft) return;
     busy = true;
     try {
-      replace(await updateProjectMetadata(editing.id, {
+      const updated = await updateProjectMetadata(editing.id, {
         ...metadataDraft,
         tags: tagsText.split(",").map((tag) => tag.trim()).filter(Boolean),
-      }));
-      showEdit = false;
-      editing = null;
-      metadataDraft = null;
+      });
+      replace(updated);
+      focusedProject = updated;
+      inspected = updated;
+      editing = updated;
+      metadataDraft = { ...updated.application, tags: [...updated.application.tags] };
+      tagsText = updated.application.tags.join(", ");
       toast({ title: "Project details updated", severity: "success" });
     } catch (cause) {
       error = commandErrorMessage(cause);
@@ -574,6 +695,35 @@
     );
   }
 
+  function startPaneResize(event: PointerEvent) {
+    if (event.button !== 0) return;
+    resizingPane = true;
+    resizeStartX = event.clientX;
+    resizeStartWidth = paneWidth;
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    event.preventDefault();
+  }
+
+  function movePaneResize(event: PointerEvent) {
+    if (!resizingPane) return;
+    paneWidth = Math.min(600, Math.max(240, resizeStartWidth + event.clientX - resizeStartX));
+  }
+
+  function endPaneResize(event: PointerEvent) {
+    if (!resizingPane) return;
+    resizingPane = false;
+    const target = event.currentTarget as HTMLElement;
+    if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
+  }
+
+  function handlePaneResizeKey(event: KeyboardEvent) {
+    const step = event.shiftKey ? 32 : 8;
+    if (event.key === "ArrowLeft") paneWidth = Math.max(240, paneWidth - step);
+    else if (event.key === "ArrowRight") paneWidth = Math.min(600, paneWidth + step);
+    else return;
+    event.preventDefault();
+  }
+
   function observed(value: Observation<string>): string {
     return typeof value === "string" ? "Unavailable" : value.observed;
   }
@@ -588,26 +738,25 @@
     return `Malformed: ${value.malformed.message}`;
   }
 
-  const filteredInventory = $derived(
-    inventory.filter((entry) => {
-      if (inventoryFilter === "all") return true;
-      if (inventoryFilter === "pinned") return evidenceLabel(entry.pin) === "true";
-      if (inventoryFilter === "unknown") {
-        return [entry.provider, entry.side, entry.source_url, entry.version].some(
-          (value) => evidenceLabel(value).startsWith("Unknown") || evidenceLabel(value).startsWith("Unavailable") || evidenceLabel(value).startsWith("Malformed"),
-        );
-      }
-      return evidenceLabel(entry.side).toLowerCase() === inventoryFilter;
-    }),
-  );
-  function statusLabel(project: ProjectRecord) {
-    return project.application.lifecycle === "disconnected"
-      ? "Disconnected"
-      : project.application.lifecycle === "archived"
-        ? "Archived"
-        : hasErrors(project.validation)
-          ? "Needs attention"
-          : "Ready";
+  function freshnessLabel(timestamp: string | null) {
+    if (!timestamp) return "Not read yet";
+    const seconds = Number(timestamp);
+    if (!Number.isFinite(seconds) || seconds <= 0) return "Read time unavailable";
+    const ageMinutes = Math.max(0, Math.floor((Date.now() - seconds * 1000) / 60000));
+    if (ageMinutes < 1) return "Read just now";
+    if (ageMinutes < 60) return `Read ${ageMinutes}m ago`;
+    const ageHours = Math.floor(ageMinutes / 60);
+    if (ageHours < 24) return `Read ${ageHours}h ago`;
+    const ageDays = Math.floor(ageHours / 24);
+    if (ageDays < 7) return `Read ${ageDays}d ago`;
+    return `Read ${new Date(seconds * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+  }
+
+  function freshnessTitle(timestamp: string | null) {
+    if (!timestamp) return "Evidence has not been read yet";
+    const seconds = Number(timestamp);
+    if (!Number.isFinite(seconds) || seconds <= 0) return "The evidence read time is unavailable";
+    return `Evidence read ${new Date(seconds * 1000).toLocaleString()}`;
   }
 
   function outcomeMessage(outcome: DiscoveryOutcomeKind) {
@@ -621,11 +770,10 @@
     }[outcome];
   }
 
-  const visibleProjects = $derived(
-    showArchived
-      ? projects
-      : projects.filter((project) => project.application.lifecycle !== "archived"),
-  );
+  function snapshotStatus(snapshot: SnapshotRecord) {
+    return snapshot.lifecycle === "stale" ? "Stale" : snapshot.lifecycle === "cancelled" ? "Cancelled" : snapshot.outcome.replaceAll("_", " ");
+  }
+
 </script>
 
 <svelte:head>
@@ -686,296 +834,152 @@
         ><PlusIcon size={16} /> Choose directory</Button
       >
     </section>
-  {:else}<section class="project-list" aria-labelledby="list-title">
-      <div class="list-heading">
-        <div>
-          <p class="eyebrow">Registered projects</p>
-          <h2 id="list-title">Local project records</h2>
-        </div>
-        <div class="list-controls">
-          <span class="count"
-            >{visibleProjects.length} active
-            {visibleProjects.length === 1 ? "project" : "projects"}</span
-          >
-          <Button
-            variant="ghost"
-            size="sm"
-            type="button"
-            onclick={() => (showArchived = !showArchived)}
-            >{showArchived ? "Hide archived" : "Show archived"}</Button
-          >
-        </div>
-      </div>
-      {#if visibleProjects.length === 0}<p class="no-results">
-        Archived projects are hidden from the active list.
-      </p>{/if}
-      {#each visibleProjects as project (project.id)}<article
-          class:disconnected={project.application.lifecycle === "disconnected"}
-          class:archived={project.application.lifecycle === "archived"}
-          class="project-row"
-        >
-          <div class="project-mark" aria-hidden="true">
-            {#if project.application.lifecycle === "disconnected"}<LinkBreakIcon
-                size={22}
-              />{:else if hasErrors(project.validation)}<WarningCircleIcon
-                size={22}
-              />{:else}<CheckCircleIcon size={22} />{/if}
-          </div>
-          <div class="project-main">
-            <div class="project-title">
-              <h3>{project.application.display_name}</h3>
-              <span class="status" data-status={project.application.lifecycle}
-                >{statusLabel(project)}</span
-              >
-            </div>
-            <p class="path">{project.canonical_path}</p>
-            <div class="evidence">
-              <span>Packwiz name: {observed(project.packwiz.name)}</span><span
-                >Version: {observed(project.packwiz.version)}</span
-              ><span
-                >Loader data: {project.packwiz.declared_versions.length
-                  ? "Observed"
-                  : "Unavailable"}</span
-              >
-            </div>
-            {#if hasErrors(project.validation)}<ul class="issues">
-                {#each project.validation.filter((item) => item.severity === "error") as issue}<li
-                  >
-                    {issue.message}
-                  </li>{/each}
-              </ul>{/if}
-          </div>
-          <div class="actions">
+  {:else}<section class="workspace" class:collapsed={listCollapsed} style={`--list-width: ${paneWidth}px`}>
+      <aside class="list-pane" class:collapsed={listCollapsed} aria-label="Project list">
+        <div class="workspace-tools">
+          <Tooltip text={listCollapsed ? "Expand projects" : "Collapse projects"} position="bottom">
             <Button
-              variant="secondary"
-              size="sm"
+              variant="ghost"
+              size="icon"
               type="button"
-              disabled={busy || inspecting}
-              onclick={() => inspectProject(project)}
-              ><MagnifyingGlassIcon size={15} /> Inspect</Button
-            >
-            <Button
-              variant="primary"
-              size="sm"
-              type="button"
-              disabled={discoveryBusy || project.application.lifecycle !== "active"}
-              loading={discoveryBusy && discoveryProject?.id === project.id}
-              onclick={() => checkProjectForUpdates(project)}
-              ><ArrowClockwiseIcon size={15} /> Check for updates</Button
-            >
-            <Tooltip text="Edit application-owned project details"
-              ><Button
-                variant="ghost"
-                size="icon"
-                type="button"
-                aria-label={`Edit ${project.application.display_name}`}
-                disabled={busy}
-                onclick={() => beginEdit(project)}
-                ><PencilSimpleIcon size={17} /></Button
-              ></Tooltip
-            >
-            {#if project.application.lifecycle === "disconnected"}<Button
-                variant="secondary"
-                size="sm"
-                type="button"
-                disabled={busy}
-                onclick={() => beginReconnect(project)}
-                ><LinkIcon size={15} /> Reconnect</Button
-              >{:else}<Tooltip text="Read local Packwiz evidence again"
-                ><Button
-                  variant="ghost"
-                  size="icon"
-                  type="button"
-                  aria-label={`Refresh ${project.application.display_name}`}
-                  disabled={busy}
-                  onclick={() => refresh(project)}
-                  ><ArrowClockwiseIcon size={17} /></Button
-                ></Tooltip
-              >{#if project.application.lifecycle === "archived"}<Button
-                  variant="secondary"
-                  size="sm"
-                  type="button"
-                  disabled={busy}
-                  onclick={() => changeLifecycle(project, "restore")}
-                  >Restore</Button
-                >{:else}<Button
-                  variant="ghost"
-                  size="sm"
-                  type="button"
-                  disabled={busy}
-                  onclick={() => changeLifecycle(project, "archive")}
-                  ><ArchiveIcon size={15} /> Archive</Button
-                >{/if}<Button
-                variant="ghost"
-                size="sm"
-                type="button"
-                disabled={busy}
-                onclick={() => changeLifecycle(project, "disconnect")}
-                >Disconnect</Button
-              >{/if}
-          </div>
-        </article>{/each}
-    </section>
-    {#if inspected}
-      <section class="inspection" aria-labelledby="inspection-title" aria-live="polite">
-        <div class="inspection-heading">
-          <div>
-            <p class="eyebrow">Current local evidence</p>
-            <h2 id="inspection-title">{inspected.application.display_name}</h2>
-            <p class="path">Read-only observation from the registered project boundary.</p>
-          </div>
-          <div class="inspection-actions">
-            <Button variant="ghost" size="icon" type="button" aria-label="Close inspection" onclick={() => (inspected = null)}><XIcon size={17} /></Button>
-            <Button variant="secondary" size="sm" type="button" loading={inspecting} onclick={() => inspectProject(inspected!)}><ArrowClockwiseIcon size={15} /> Re-read</Button>
-          </div>
+              aria-label={listCollapsed ? "Expand projects" : "Collapse projects"}
+              aria-expanded={!listCollapsed}
+              aria-controls="project-list"
+              onpointerdown={(event) => event.preventDefault()}
+              onclick={() => { if (canLeaveSettings()) listCollapsed = !listCollapsed; }}
+            >{#if listCollapsed}<CaretDoubleRightIcon size={17} weight="bold" />{:else}<CaretDoubleLeftIcon size={17} weight="bold" />{/if}</Button>
+          </Tooltip>
         </div>
-        {#if inspecting}
-          <div class="inspection-state" role="status"><div class="loader" aria-hidden="true"></div><p>Reading local Packwiz evidence...</p></div>
-        {:else if !overview}
-          <div class="inspection-state" role="status"><WarningCircleIcon size={20} /><p>Current inventory is unavailable. The registered project record is still preserved.</p></div>
+        <ProjectList
+          projects={projects}
+          bind:showArchived
+          collapsed={listCollapsed}
+          focusedProjectId={focusedProject?.id ?? null}
+          busy={busy}
+          inspecting={inspecting}
+          discoveryBusy={discoveryBusy}
+          discoveryProjectId={discoveryProject?.id ?? null}
+          onfocus={focusProject}
+          oncheck={checkProjectForUpdates}
+          onreconnect={beginReconnect}
+          onrefresh={refresh}
+          onedit={openSettings}
+          onlifecycle={changeLifecycle}
+          observed={observed}
+          freshnessLabel={freshnessLabel}
+          freshnessTitle={freshnessTitle}
+          hasErrors={hasErrors}
+        />
+      </aside>
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+      <div
+        class="workspace-divider"
+        role="separator"
+        tabindex="0"
+        aria-label="Resize project list"
+        aria-valuemin="240"
+        aria-valuemax="600"
+        aria-valuenow={paneWidth}
+        onpointerdown={startPaneResize}
+        onpointermove={movePaneResize}
+        onpointerup={endPaneResize}
+        onpointercancel={endPaneResize}
+        onkeydown={handlePaneResizeKey}
+      ></div>
+      <div class="detail-pane">
+        <div class="detail-tabs" role="tablist" aria-label="Project details">
+          <button class:active={activeTab === "summary"} id="summary-tab" role="tab" aria-selected={activeTab === "summary"} aria-controls="summary-panel" tabindex={activeTab === "summary" ? 0 : -1} onclick={() => { if (activeTab !== "summary" && canLeaveSettings()) activeTab = "summary"; }}>Summary</button>
+          <button class:active={activeTab === "versions"} id="versions-tab" role="tab" aria-selected={activeTab === "versions"} aria-controls="versions-panel" tabindex={activeTab === "versions" ? 0 : -1} onclick={() => { if (activeTab !== "versions" && canLeaveSettings()) activeTab = "versions"; }}>Versions</button>
+          <button class:active={activeTab === "settings"} id="settings-tab" role="tab" aria-selected={activeTab === "settings"} aria-controls="settings-panel" tabindex={activeTab === "settings" ? 0 : -1} onclick={() => { if (activeTab !== "settings" && canLeaveSettings()) { if (focusedProject && (!metadataDraft || editing?.id !== focusedProject.id)) beginEdit(focusedProject); activeTab = "settings"; } }}>Settings</button>
+        </div>
+        {#if !focusedProject}
+          <section class="detail-empty" role="status"><p class="eyebrow">No focused project</p><h2>Select a project to begin</h2><p>Choose a project card to load its local evidence and project tools.</p></section>
+        {:else if activeTab === "summary"}
+          <ProjectSummary
+            inspected={inspected}
+            overview={overview}
+            inventory={inventory}
+            bind:inventoryFilter
+            overviewLoading={overviewLoading}
+            inventoryLoading={inventoryLoading}
+            overviewError={overviewError}
+            inventoryError={inventoryError}
+            inspecting={inspecting}
+            pinningEntry={pinningEntry}
+            evidenceLabel={evidenceLabel}
+            freshnessLabel={freshnessLabel}
+            freshnessTitle={freshnessTitle}
+            onclose={() => { inspected = null; focusedProject = null; }}
+            onreread={inspectProject}
+            onopenPage={openPage}
+            onpin={(entry, pin) => { pinConfirmation = { entry, pin }; showPinConfirmation = true; }}
+            onretry={inspectProject}
+          />
+        {:else if activeTab === "versions"}
+          <SnapshotHistory
+            bind:filter={versionFilter}
+            snapshots={snapshots}
+            loading={snapshotsLoading}
+            error={snapshotsError}
+            onretry={() => { if (focusedProject) void loadSnapshots(focusedProject); }}
+            onopen={(snapshotId) => { if (canLeaveSettings()) { activeTab = "versions"; void openSnapshot(snapshotId); } }}
+            snapshotStatus={snapshotStatus}
+          />
         {:else}
-          <div class="overview-grid">
-            <div><span class="label">Minecraft</span><strong>{evidenceLabel(overview.minecraft_version)}</strong></div>
-            <div><span class="label">Loader</span><strong>{evidenceLabel(overview.loader)}</strong></div>
-            <div><span class="label">Mods</span><strong>{overview.inventory_counts.total}</strong></div>
-            <div><span class="label">Git</span><strong>{overview.git.state.replaceAll("_", " ")}</strong></div>
-            <div><span class="label">Providers</span><strong>{overview.inventory_counts.provider_modrinth} Modrinth · {overview.inventory_counts.provider_curseforge} CurseForge · {overview.inventory_counts.provider_unknown} unknown</strong></div>
-            <div><span class="label">Sides</span><strong>{overview.inventory_counts.side_client} client · {overview.inventory_counts.side_server} server · {overview.inventory_counts.side_both} both · {overview.inventory_counts.side_unknown} unknown</strong></div>
-          </div>
-          <div class="validation-summary">
-            <span class="label">Validation evidence</span>
-            {#if overview.validation.length === 0}<span class="valid-text"><CheckCircleIcon size={15} /> Required local evidence is valid.</span>{:else}{#each overview.validation as item}<span class:item-warning={item.severity === "warning"} class:item-error={item.severity === "error"}><strong>{item.severity}</strong> {item.message}</span>{/each}{/if}
-          </div>
-          <div class="inventory-heading">
-            <div><p class="eyebrow">Mod inventory</p><h3>{filteredInventory.length} of {inventory.length} entries</h3></div>
-            <label class="filter-label">Filter<select bind:value={inventoryFilter}><option value="all">All entries</option><option value="pinned">Pinned</option><option value="client">Client</option><option value="server">Server</option><option value="both">Both sides</option><option value="unknown">Unknown evidence</option></select></label>
-          </div>
-          <div class="inventory-table" role="table" aria-label="Current mod inventory">
-            <div class="inventory-row inventory-header" role="row"><span>Local entry</span><span>Provider</span><span>Side</span><span>Pin</span><span>Actions</span></div>
-            {#each filteredInventory as entry (entry.local_id)}
-              <div class="inventory-row" role="row">
-                <div><strong>{evidenceLabel(entry.name)}</strong><span class="path">{entry.local_id}</span><span class="metadata-path">{entry.metadata_path}</span></div>
-                <span>{evidenceLabel(entry.provider)}</span>
-                <span>{evidenceLabel(entry.side)}</span>
-                <span>{evidenceLabel(entry.pin)}</span>
-                <div class="inventory-actions">
-                  {#if entry.page_link}<Button variant="quiet" size="sm" type="button" onclick={() => openPage(entry)}><ArrowSquareOutIcon size={14} /> Open</Button>{/if}
-                  {#if evidenceLabel(entry.pin) === "true"}<Button variant="quiet" size="sm" type="button" disabled={pinningEntry !== null} loading={pinningEntry === entry.local_id} onclick={() => { pinConfirmation = { entry, pin: false }; showPinConfirmation = true; }}>Unpin</Button>{:else if evidenceLabel(entry.pin) === "false"}<Button variant="quiet" size="sm" type="button" disabled={pinningEntry !== null} loading={pinningEntry === entry.local_id} onclick={() => { pinConfirmation = { entry, pin: true }; showPinConfirmation = true; }}>Pin</Button>{:else}<span class="unavailable">Unavailable</span>{/if}
-                </div>
-              </div>
-            {/each}
-          </div>
-          {#if overview.activity.length}
-            <div class="activity-section">
-              <p class="eyebrow">Recent activity</p>
-              <div class="activity-list">
-                {#each overview.activity as event}
-                  <div class="activity-item"><span class="label">{event.occurred_at}</span><strong>{event.event_type.replaceAll("_", " ")}</strong><span>{event.message}</span></div>
-                {/each}
-              </div>
-            </div>
-          {/if}
+          <ProjectSettings
+            metadataDraft={metadataDraft}
+            bind:tagsText
+            busy={busy}
+            onsave={saveMetadata}
+          />
         {/if}
-      </section>
-    {/if}
+      </div>
+    </section>
   {/if}
 </main>
 
-{#if discoveryProject}
-  <section class="discovery-panel" aria-labelledby="discovery-title" aria-live="polite">
-    <div class="discovery-heading">
-      <div>
-        <p class="eyebrow">Update check</p>
-        <h2 id="discovery-title">{discoveryProject.application.display_name}</h2>
-        <p class="path">{discovery?.diagnostics.process?.prompt === "no_updates" ? "Packwiz reported no available updates. No update was applied." : "Packwiz output is observed and cancelled. No update is applied."}</p>
-      </div>
-      {#if discoveryBusy}<Button variant="danger" size="sm" type="button" onclick={cancelUpdateCheckForProject}><XIcon size={15} /> Cancel</Button>{/if}
-    </div>
-    {#if discoveryBusy}
-      <div class="discovery-progress" role="status"><div class="loader" aria-hidden="true"></div><span>{discoveryProgress?.message ?? "Preparing the Packwiz safety probe..."}</span></div>
-    {/if}
-    {#if discovery}
-      <div class="discovery-outcome" data-outcome={discovery.outcome}>
-        <strong>{discovery.outcome === "normal" ? "Update check completed" : discovery.outcome.replaceAll("_", " ")}</strong>
-        <span>{discovery.diagnostics.messages[0] ?? outcomeMessage(discovery.outcome)}</span>
-      </div>
-      {#if discovery.outcome === "normal"}
-        {#if discovery.candidates.length === 0}<p class="discovery-empty">No updates were presented by Packwiz.</p>
-        {:else}<div class="candidate-list" aria-label="Available updates">
-            {#each (discoverySnapshot?.candidates ?? discovery.candidates.map((candidate, index) => ({ id: `${discoverySnapshotId}-candidate-${index}`, candidate, observed_at: "" }))) as record (record.id)}
-              {@const candidate = record.candidate}
-              <article class="candidate">
-                <div class="candidate-evidence">
-                  <div class="candidate-identity"><strong>{evidenceLabel(candidate.identity)}</strong><span class="path">{evidenceLabel(candidate.local_path)}</span></div>
-                  <div><span class="label">Version</span><strong>{evidenceLabel(candidate.current_version)} <span class="version-arrow">→</span> {evidenceLabel(candidate.available_version)}</strong></div>
-                  <div><span class="label">Change</span><strong>{candidate.version_change}</strong></div>
-                  <div><span class="label">Provider / side</span><strong>{evidenceLabel(candidate.provider)} / {evidenceLabel(candidate.side)}</strong></div>
-                  <div><span class="label">Pin</span><strong>{evidenceLabel(candidate.pin)}</strong></div>
-                  <div><span class="label">Severity</span><strong>{evidenceLabel(candidate.severity)}</strong></div>
-                </div>
-                <div class="candidate-actions">
-                  <div class="decision-controls" aria-label="Review decision">
-                    <span class="current-decision">{latestDecision(record.id) ?? "undecided"}</span>
-                    <Button variant="quiet" size="sm" type="button" onclick={() => decideCandidate(record.id, "selected")}>Select</Button>
-                    <Button variant="quiet" size="sm" type="button" onclick={() => decideCandidate(record.id, "skipped")}>Skip</Button>
-                    <Button variant="quiet" size="sm" type="button" onclick={() => decideCandidate(record.id, "blocked")}>Block</Button>
-                    <Button variant="quiet" size="sm" type="button" onclick={() => decideCandidate(record.id, "deferred")}>Defer</Button>
-                  </div>
-                  {#if candidate.page_link}<Button variant="quiet" size="sm" type="button" onclick={() => openCandidatePage(candidate.page_link!.url)}><ArrowSquareOutIcon size={14} /> Open source</Button>{/if}
-                </div>
-              </article>
-            {/each}
-          </div>{/if}
-        {#if discoverySnapshot}<div class="snapshot-actions"><Button variant="secondary" size="sm" type="button" onclick={() => finishSnapshot(false)}>Close review</Button><Button variant="quiet" size="sm" type="button" onclick={() => finishSnapshot(true)}>Cancel review</Button><Button variant="quiet" size="sm" type="button" onclick={() => (showSnapshotNote = true)}>Add note</Button><Button variant="quiet" size="sm" type="button" onclick={recheckReview}>Recheck</Button><Button variant="quiet" size="sm" type="button" onclick={retryReview}>Fresh retry</Button>{#if discoverySnapshot.lifecycle === "reviewable" && selectedCandidateIds().length}<Button variant="primary" size="sm" type="button" disabled={applyBusy} loading={applyBusy} onclick={() => (showApplyConfirmation = true)}>Apply selected ({selectedCandidateIds().length})</Button>{/if}{#if applyBusy}<Button variant="danger" size="sm" type="button" onclick={cancelApply}><XIcon size={15} /> Cancel apply</Button>{/if}</div>{/if}
-        {#if discoverySnapshot?.lifecycle === "reviewable" || discoverySnapshot?.lifecycle === "closed"}
-          <section class="changelog-compose" aria-labelledby="changelog-title">
-            <div><p class="eyebrow">Changelog</p><h3 id="changelog-title">Generate from this review</h3><p>Provider requests happen only when you generate. Unconfirmed entries remain visible in the result.</p></div>
-            <label class="field"><span>Introduction (optional)</span><textarea bind:value={changelogIntroduction} rows="3" maxlength="4000" placeholder="Summarize this update"></textarea></label>
-            <label class="toggle-field"><input type="checkbox" bind:checked={changelogOffline} /> <span>Use cached data only</span></label>
-            <Button variant="primary" size="sm" type="button" loading={changelogBusy} disabled={changelogBusy} onclick={generateSnapshotChangelog}>Generate changelog</Button>
-            {#if changelogBusy}<Button variant="danger" size="sm" type="button" onclick={cancelSnapshotChangelog}><XIcon size={15} /> Stop generation</Button>{/if}
-            {#if changelogProgress}
-              <p class="status" role="status" aria-live="polite">{changelogProgress.message}</p>
-            {/if}
-          </section>
-        {/if}
-        {#if changelog}
-          <section class="changelog-result" aria-labelledby="changelog-result-title">
-            <div class="apply-report-heading"><div><p class="eyebrow">Stored artifact</p><h3 id="changelog-result-title">Generation {changelog.status}</h3></div><span>{changelog.entries.length} entries</span></div>
-            {#if changelogPartialChoice}<div class="status-panel" role="alert"><strong>This generation stopped before all lookups finished.</strong><p>The fetched entries are stored as a partial artifact. Choose whether to keep this result open for review.</p><div class="snapshot-actions"><Button variant="primary" size="sm" type="button" onclick={keepPartialChangelog}>Keep partial result</Button><Button variant="quiet" size="sm" type="button" onclick={discardPartialChangelog}>Discard from review</Button></div></div>{/if}
-            <div class="candidate-list">{#each changelog.entries as entry (entry.local.entry_id)}<article class="candidate"><div class="candidate-identity"><strong>{evidenceLabel(entry.local.local_identity)}</strong><span>{entry.retrieval.replaceAll("_", " ")}</span><span>{entry.match_evidence.confidence} confidence</span></div><p>{entry.changelog ?? entry.match_evidence.reason}</p></article>{/each}</div>
-            <div class="snapshot-actions"><Button variant="primary" size="sm" type="button" onclick={exportSnapshotChangelog}>Export Markdown</Button></div>
-            <label class="field"><span>Editable revision</span><textarea bind:value={changelogDraft} rows="10"></textarea></label>
-            <div class="snapshot-actions"><Button variant="quiet" size="sm" type="button" disabled={changelogDraft === changelog.content} onclick={saveChangelogRevision}>Save revision</Button></div>
-            <details class="discovery-evidence"><summary>Original generated Markdown</summary><pre>{changelog.content}</pre></details>
-            <details class="discovery-evidence"><summary>Revision history ({changelogRevisions.length})</summary><div class="candidate-list">{#each changelogRevisions as revision (revision.id)}<article class="candidate"><div class="candidate-identity"><strong>{revision.is_current ? "Current revision" : "Revision"}</strong><span>{revision.created_at}</span></div><p>{revision.content.slice(0, 180)}{revision.content.length > 180 ? "..." : ""}</p></article>{/each}</div></details>
-            <details class="discovery-evidence"><summary>Export history ({changelogExports.length})</summary><div class="candidate-list">{#each changelogExports as exportRecord (exportRecord.id)}<article class="candidate"><div class="candidate-identity"><strong>{exportRecord.status}</strong><span>{exportRecord.destination}</span></div><p>{exportRecord.exported_at}</p></article>{/each}</div></details>
-          </section>
-        {/if}
-      {/if}
-      {#if applyReport}<section class="apply-report" aria-live="polite" aria-labelledby="apply-report-title"><div class="apply-report-heading"><div><p class="eyebrow">Verified operation report</p><h3 id="apply-report-title">Apply {applyReport.outcome}</h3></div></div><div class="apply-results">{#each applyReport.attempts as attempt (attempt.id)}<article class="apply-result" data-outcome={attempt.outcome ?? "unknown"}><strong>{attempt.verification?.intended_state ?? "Selected mod"}</strong><span>{attempt.outcome ?? attempt.status}</span><span>{attempt.verification?.verified ? "Verified after re-read" : attempt.error?.message ?? "Verification incomplete"}</span></article>{/each}</div></section>{/if}
-      {#if discoverySnapshot?.lifecycle === "stale"}<p class="stale-message" role="status">This review is stale because the registered project changed or freshness could not be proven. Start a fresh retry before relying on these decisions.</p>{/if}
-      <details class="discovery-evidence">
-        <summary>Safety evidence</summary>
-        <div class="evidence-grid">
-          <span>Prompt <strong>{discovery.diagnostics.process?.prompt ?? "Unavailable"}</strong></span>
-          <span>Cancellation <strong>{discovery.diagnostics.process?.cancellation ?? "Unavailable"}</strong></span>
-          <span>Fingerprint <strong>{discovery.diagnostics.fingerprint?.unchanged ? "Unchanged" : "Not proven unchanged"}</strong></span>
-          <span>Output <strong>{discovery.diagnostics.process?.output_truncated ? "Truncated" : "Complete"}</strong></span>
-          <span>Exit code <strong>{discovery.diagnostics.process?.exit_code ?? "Unavailable"}</strong></span>
-        </div>
-        {#if discovery.diagnostics.process}
-          <div class="captured-output">
-            <span class="label">Captured stdout</span>
-            <pre>{discovery.diagnostics.process.stdout || "(empty)"}</pre>
-            <span class="label">Captured stderr</span>
-            <pre>{discovery.diagnostics.process.stderr || "(empty)"}</pre>
-          </div>
-        {/if}
-      </details>
-    {/if}
-  </section>
-{/if}
+<SnapshotReviewModal
+  bind:open={showReviewModal}
+  project={discoveryProject}
+  discovery={discovery}
+  discoveryProgress={discoveryProgress}
+  discoveryProcess={discoveryProcess}
+  snapshot={discoverySnapshot}
+  snapshotId={discoverySnapshotId}
+  discoveryBusy={discoveryBusy}
+  applyBusy={applyBusy}
+  applyReport={applyReport}
+  changelog={changelog}
+  changelogRevision={changelogRevision}
+  changelogRevisions={changelogRevisions}
+  changelogExports={changelogExports}
+  bind:changelogIntroduction
+  bind:changelogOffline
+  changelogBusy={changelogBusy}
+  changelogProgress={changelogProgress}
+  changelogPartialChoice={changelogPartialChoice}
+  bind:changelogDraft
+  bind:noteDraft={snapshotNoteDraft}
+  selectedCandidateIds={selectedCandidateIds}
+  latestDecision={latestDecision}
+  evidenceLabel={evidenceLabel}
+  oncancelDiscovery={cancelUpdateCheckForProject}
+  oncloseReview={finishSnapshot}
+  ondecideCandidate={decideCandidate}
+  onsaveNote={saveReviewNote}
+  onrecheck={recheckReview}
+  onretry={retryReview}
+  onapply={() => (showApplyConfirmation = false, applySelectedUpdates())}
+  oncancelApply={cancelApply}
+  onopenPage={openCandidatePage}
+  ongenerator={generateSnapshotChangelog}
+  oncancelChangelog={cancelSnapshotChangelog}
+  onkeepPartial={keepPartialChangelog}
+  ondiscardPartial={discardPartialChangelog}
+  onsaveRevision={saveChangelogRevision}
+  onexport={exportSnapshotChangelog}
+/>
 
 <Modal bind:open={showSnapshotNote} title="Add review note" onclose={() => (showSnapshotNote = false)}>
   <label class="field"><span>Note</span><textarea bind:value={snapshotNoteDraft} rows="5" maxlength="4000" placeholder="Explain this review or its outcome"></textarea></label>
@@ -1089,63 +1093,6 @@
 </Modal>
 
 <Modal
-  bind:open={showEdit}
-  title="Edit project details"
-  onclose={() => (showEdit = false)}
->
-  {#if editing && metadataDraft}
-    <p class="modal-lede">
-      Update application-owned details for <strong
-        >{editing.application.display_name}</strong
-      >. Packwiz evidence remains read-only.
-    </p>
-    <div class="owned-fields">
-      <label class="field"
-        >Display name<input bind:value={metadataDraft.display_name} /></label
-      >
-      <label class="field"
-        >Theme / color<input
-          value={metadataDraft.theme ?? ""}
-          oninput={(event) =>
-            (metadataDraft!.theme = event.currentTarget.value || null)}
-        /></label
-      >
-      <label class="field wide"
-        >Tags<input
-          value={tagsText}
-          placeholder="client, favorite"
-          oninput={(event) => (tagsText = event.currentTarget.value)}
-        /></label
-      >
-      <label class="field wide"
-        >Description<textarea
-          rows="3"
-          value={metadataDraft.description ?? ""}
-          oninput={(event) =>
-            (metadataDraft!.description = event.currentTarget.value || null)}
-        ></textarea></label
-      >
-      <label class="favorite"
-        ><input type="checkbox" bind:checked={metadataDraft.favorite} /> Favorite
-        project</label
-      >
-    </div>
-    <div class="modal-actions">
-      <Button
-        variant="secondary"
-        type="button"
-        onclick={() => (showEdit = false)}>Cancel</Button
-      ><Button
-        variant="primary"
-        type="button"
-        loading={busy}
-        onclick={saveMetadata}>Save details</Button
-      >
-    </div>
-  {/if}
-</Modal>
-
-<Modal
   bind:open={showReconnect}
   title="Reconnect project"
   onclose={() => (showReconnect = false)}
@@ -1173,6 +1120,140 @@
     padding: 0 42px 42px;
     background: var(--color-bg);
   }
+  .workspace {
+    display: grid;
+    grid-template-columns: minmax(240px, var(--list-width)) 28px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    width: min(1180px, 100%);
+    height: min(720px, calc(100vh - 190px));
+    min-height: 480px;
+    margin: 0 auto;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    transition: grid-template-columns 0.24s ease;
+  }
+  .workspace.collapsed {
+    grid-template-columns: 56px 28px minmax(0, 1fr);
+  }
+  .list-pane,
+  .detail-pane {
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  .list-pane {
+    position: relative;
+    z-index: 4;
+    container-type: inline-size;
+  }
+  .list-pane.collapsed {
+    overflow: visible;
+  }
+  .list-pane.collapsed .workspace-tools {
+    justify-items: center;
+    padding: 0;
+  }
+  .workspace-tools {
+    display: grid;
+    gap: 0;
+    position: relative;
+    z-index: 5;
+    height: 58px;
+    min-height: 58px;
+    padding: 0;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface-raised);
+  }
+  .workspace-tools > :global(.tooltip) {
+    display: flex;
+    width: 100%;
+    height: 100%;
+  }
+  .workspace-tools :global(.tooltip-content) {
+    z-index: 10;
+  }
+  .workspace-tools :global(.button) {
+    width: 100%;
+    height: 58px;
+    justify-content: flex-start;
+    padding: 0 12px;
+  }
+  .list-pane.collapsed .workspace-tools :global(.button) {
+    justify-content: center;
+    padding: 0;
+  }
+  .workspace-divider {
+    position: relative;
+    z-index: 2;
+    width: 28px;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    cursor: col-resize;
+    background: transparent;
+    touch-action: none;
+  }
+  .workspace-divider::before {
+    display: block;
+    width: 8px;
+    height: 100%;
+    margin: 0 auto;
+    background: var(--color-border);
+    content: "";
+  }
+  .workspace-divider:hover::before,
+  .workspace-divider:focus-visible::before,
+  .workspace-divider:active::before {
+    background: var(--color-accent);
+  }
+  .workspace-divider:focus-visible {
+    box-shadow: var(--focus-ring);
+    outline: none;
+  }
+  .detail-pane {
+    background: var(--color-bg);
+  }
+  .detail-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    gap: 4px;
+    padding: 12px 18px 0;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-bg);
+  }
+  .detail-tabs button {
+    min-height: 40px;
+    padding: 0 14px;
+    border: 0;
+    border-bottom: 3px solid transparent;
+    color: var(--color-text-muted);
+    background: transparent;
+    font: 700 12px var(--font-mono);
+    cursor: pointer;
+  }
+  .detail-tabs button.active {
+    border-bottom-color: var(--color-accent);
+    color: var(--color-text);
+  }
+  .detail-tabs button:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+  .detail-empty {
+    display: grid;
+    align-content: center;
+    min-height: 360px;
+    padding: 32px;
+  }
+  .detail-empty p:not(.eyebrow) {
+    max-width: 440px;
+    color: var(--color-text-muted);
+    line-height: 1.6;
+  }
   .hero {
     display: flex;
     align-items: flex-end;
@@ -1189,8 +1270,7 @@
     text-transform: uppercase;
   }
   h1,
-  h2,
-  h3 {
+  h2 {
     margin: 0;
   }
   h1 {
@@ -1200,9 +1280,6 @@
   }
   h2 {
     font-size: 20px;
-  }
-  h3 {
-    font-size: 16px;
   }
   .lede {
     max-width: 620px;
@@ -1229,8 +1306,7 @@
   .error-banner span {
     flex: 1;
   }
-  .state,
-  .project-list {
+  .state {
     max-width: 1060px;
     margin: 0 auto;
     border: 1px solid var(--color-border);
@@ -1277,93 +1353,9 @@
       transform: rotate(360deg);
     }
   }
-  .list-heading {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    padding: 24px;
-    border-bottom: 1px solid var(--color-border);
-  }
-  .list-controls {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  .count,
-  .path,
-  .evidence,
   .label {
     color: var(--color-text-muted);
     font: 11px var(--font-mono);
-  }
-  .project-row {
-    display: flex;
-    gap: 16px;
-    padding: 22px 24px;
-    border-bottom: 1px solid var(--color-border);
-  }
-  .project-row:last-child {
-    border-bottom: 0;
-  }
-  .project-row.disconnected,
-  .project-row.archived {
-    background: color-mix(
-      in srgb,
-      var(--color-surface-raised) 55%,
-      var(--color-surface)
-    );
-  }
-  .project-mark {
-    color: var(--color-success);
-    padding-top: 2px;
-  }
-  .disconnected .project-mark {
-    color: var(--color-warning);
-  }
-  .project-main {
-    min-width: 0;
-    flex: 1;
-  }
-  .project-title {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-  .status {
-    padding: 3px 7px;
-    border: 1px solid var(--color-border);
-    font: 10px var(--font-mono);
-    text-transform: uppercase;
-  }
-  .status[data-status="disconnected"] {
-    color: var(--color-warning);
-  }
-  .status[data-status="archived"] {
-    color: var(--color-text-muted);
-  }
-  .path {
-    margin: 7px 0;
-    overflow-wrap: anywhere;
-  }
-  .evidence {
-    display: flex;
-    gap: 14px;
-    flex-wrap: wrap;
-    font-size: 10px;
-  }
-  .actions {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-  }
-  .issues {
-    margin: 12px 0 0;
-    padding-left: 18px;
-    color: var(--color-danger);
-    font-size: 12px;
   }
   .modal-lede {
     margin: 0 0 18px;
@@ -1425,11 +1417,6 @@
     color: var(--color-text);
     font-size: 12px;
   }
-  .no-results {
-    padding: 24px;
-    color: var(--color-text-muted);
-    font-size: 13px;
-  }
   .validation {
     margin-top: 20px;
   }
@@ -1464,85 +1451,6 @@
     gap: 10px;
     margin-top: 24px;
   }
-  .inspection {
-    max-width: 1060px;
-    margin: 22px auto 0;
-    padding: 24px;
-    border: 1px solid var(--color-border);
-    background: var(--color-surface);
-  }
-  .inspection-heading,
-  .inventory-heading {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 18px;
-  }
-  .inspection-heading { padding-bottom: 20px; border-bottom: 1px solid var(--color-border); }
-  .inspection-actions { display: flex; align-items: center; gap: 8px; }
-  .overview-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1px;
-    margin: 20px 0 26px;
-    border: 1px solid var(--color-border);
-    background: var(--color-border);
-  }
-  .overview-grid > div { display: grid; gap: 7px; min-height: 72px; padding: 13px; background: var(--color-surface); }
-  .overview-grid strong { font-size: 13px; line-height: 1.4; }
-  .validation-summary { display: grid; gap: 8px; margin: -8px 0 26px; color: var(--color-text-muted); font-size: 12px; }
-  .validation-summary > span:not(.label) { display: flex; gap: 6px; align-items: flex-start; }
-  .validation-summary .label { margin-bottom: 2px; }
-  .valid-text { color: var(--color-success); }
-  .item-warning { color: var(--color-warning); }
-  .item-error { color: var(--color-danger); }
-  .inventory-heading { align-items: center; margin-bottom: 12px; }
-  .inventory-heading h3 { margin-top: 4px; }
-  .filter-label { display: flex; align-items: center; gap: 8px; color: var(--color-text-muted); font: 11px var(--font-mono); }
-  .filter-label select { min-height: 34px; padding: 0 8px; border: 1px solid var(--color-border); color: var(--color-text); background: var(--color-bg); font: inherit; }
-  .inventory-table { border: 1px solid var(--color-border); }
-  .inventory-row { display: grid; grid-template-columns: minmax(180px, 1.7fr) repeat(3, minmax(80px, .7fr)) 82px; gap: 12px; align-items: center; padding: 12px 13px; border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 12px; }
-  .inventory-row:last-child { border-bottom: 0; }
-  .inventory-row > div { display: grid; gap: 4px; min-width: 0; }
-  .inventory-row strong { overflow-wrap: anywhere; color: var(--color-text); font-size: 12px; }
-  .inventory-row .path { margin: 0; font-size: 10px; }
-  .metadata-path { overflow-wrap: anywhere; color: var(--color-text-subtle); font: 10px var(--font-mono); }
-  .inventory-header { color: var(--color-text-muted); background: var(--color-surface-raised); font: 10px var(--font-mono); text-transform: uppercase; }
-  .unavailable { color: var(--color-text-subtle); font: 10px var(--font-mono); }
-  .inspection-state { display: grid; justify-items: center; gap: 10px; padding: 34px 12px 12px; color: var(--color-text-muted); text-align: center; }
-  .inspection-state p { margin: 0; }
-  .activity-section { margin-top: 26px; }
-  .activity-section > .eyebrow { margin-bottom: 10px; }
-  .activity-list { border-top: 1px solid var(--color-border); }
-  .activity-item { display: grid; grid-template-columns: 155px 150px 1fr; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 12px; }
-  .activity-item strong { color: var(--color-text); font: 11px var(--font-mono); text-transform: uppercase; }
-  .discovery-panel { max-width: 1060px; margin: 22px auto 0; padding: 24px; border: 1px solid var(--color-border); background: var(--color-surface); }
-  .discovery-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding-bottom: 20px; border-bottom: 1px solid var(--color-border); }
-  .discovery-progress { display: flex; align-items: center; gap: 10px; padding: 18px 0; color: var(--color-text-muted); }
-  .discovery-outcome { display: grid; gap: 5px; margin-top: 20px; padding: 14px; border-left: 3px solid var(--color-info); color: var(--color-text-muted); font-size: 13px; }
-  .discovery-outcome strong { color: var(--color-text); text-transform: capitalize; }
-  .discovery-outcome[data-outcome="normal"] { border-color: var(--color-success); }
-  .discovery-outcome[data-outcome="unsafe"], .discovery-outcome[data-outcome="indeterminate"] { border-color: var(--color-warning); }
-  .discovery-outcome[data-outcome="failed"], .discovery-outcome[data-outcome="cancelled"], .discovery-outcome[data-outcome="unsupported"] { border-color: var(--color-danger); }
-  .discovery-empty { margin: 20px 0 0; color: var(--color-text-muted); }
-  .candidate-list { display: grid; gap: 1px; margin-top: 20px; border: 1px solid var(--color-border); background: var(--color-border); }
-  .candidate { display: grid; gap: 14px; padding: 16px; background: var(--color-surface); font-size: 12px; }
-  .candidate-evidence { display: grid; grid-template-columns: minmax(180px, 1.5fr) repeat(5, minmax(90px, 1fr)); gap: 16px; align-items: start; }
-  .candidate-evidence > div { display: grid; gap: 6px; min-width: 0; }
-  .candidate-identity { min-width: 0; }
-  .candidate-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 12px; border-top: 1px solid var(--color-border); }
-  .decision-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; }
-  .current-decision { min-width: 84px; color: var(--color-text); font: 700 10px var(--font-mono); text-transform: uppercase; }
-  .version-arrow { color: var(--color-text-subtle); }
-  .candidate strong { overflow-wrap: anywhere; color: var(--color-text); }
-  .candidate .label { color: var(--color-text-subtle); font: 10px var(--font-mono); text-transform: uppercase; }
-  .discovery-evidence { margin-top: 20px; border-top: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 12px; }
-  .discovery-evidence summary { padding: 14px 0; cursor: pointer; color: var(--color-text); font-weight: 700; }
-  .evidence-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding-bottom: 4px; }
-  .evidence-grid span { display: grid; gap: 4px; }
-  .evidence-grid strong { color: var(--color-text); font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; }
-  .captured-output { display: grid; gap: 7px; margin-top: 14px; }
-  .captured-output pre { max-height: 180px; margin: 0 0 8px; padding: 10px; overflow: auto; border: 1px solid var(--color-border); color: var(--color-console-text); background: var(--color-console); font: 11px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
   @media (max-width: 700px) {
     .projects-shell {
       padding: 0 20px 28px;
@@ -1551,13 +1459,6 @@
       align-items: flex-start;
       flex-direction: column;
       margin-top: 36px;
-    }
-    .project-row {
-      align-items: flex-start;
-      flex-direction: column;
-    }
-    .actions {
-      justify-content: flex-start;
     }
     .preview-grid {
       grid-template-columns: 1fr;
@@ -1568,32 +1469,32 @@
     .wide {
       grid-column: auto;
     }
-    .list-heading {
-      align-items: flex-start;
-      gap: 14px;
-      flex-direction: column;
+  }
+  @media (max-width: 820px) {
+    .workspace {
+      display: block;
+      height: auto;
+      min-height: 0;
     }
-    .list-controls {
-      align-items: flex-start;
-      flex-direction: column;
-      gap: 6px;
+    .list-pane,
+    .detail-pane {
+      max-height: none;
     }
-    .inspection { padding: 18px; }
-    .inspection-heading, .inventory-heading { align-items: flex-start; flex-direction: column; }
-    .discovery-panel { padding: 18px; }
-    .discovery-heading { flex-direction: column; }
-    .candidate-evidence { grid-template-columns: 1fr 1fr; }
-    .candidate-identity { grid-column: 1 / -1; }
-    .candidate-actions { align-items: flex-start; flex-direction: column; gap: 8px; }
-    .evidence-grid { grid-template-columns: 1fr 1fr; }
-    .overview-grid { grid-template-columns: 1fr 1fr; }
-    .inventory-table { overflow-x: auto; }
-    .inventory-row { min-width: 650px; }
-    .activity-item { grid-template-columns: 1fr; gap: 4px; }
+    .list-pane.collapsed {
+      display: none;
+    }
+    .workspace-divider {
+      display: none;
+    }
+    .detail-tabs {
+      position: static;
+    }
   }
   @media (prefers-reduced-motion: reduce) {
+    .workspace,
     .loader {
       animation: none;
+      transition: none;
     }
   }
 </style>
