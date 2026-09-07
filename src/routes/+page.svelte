@@ -382,8 +382,9 @@
     error = "";
     try {
       discovery = await checkForUpdates(modpack.id);
-      const snapshots = await listModpackSnapshots(modpack.id);
-      discoverySnapshotId = snapshots[0]?.id ?? null;
+      const latestSnapshots = await listModpackSnapshots(modpack.id);
+      snapshots = latestSnapshots;
+      discoverySnapshotId = latestSnapshots[0]?.id ?? null;
       discoverySnapshot = discoverySnapshotId ? await getSnapshot(discoverySnapshotId) : null;
     } catch (cause) {
       discovery = null;
