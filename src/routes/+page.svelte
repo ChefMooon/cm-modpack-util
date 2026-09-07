@@ -83,11 +83,11 @@
     listChangelogArtifacts,
     listChangelogRevisions,
     listChangelogExports,
-  } from "../lib/projects";
+  } from "../lib/modpacks";
 
-  let projects = $state<ModpackRecord[]>([]);
+  let modpacks = $state<ModpackRecord[]>([]);
   type DetailTab = "summary" | "versions" | "settings";
-  let focusedProject = $state<ModpackRecord | null>(null);
+  let focusedModpack = $state<ModpackRecord | null>(null);
   let activeTab = $state<DetailTab>("summary");
   let listCollapsed = $state(false);
   let paneWidth = $state(300);
@@ -119,7 +119,7 @@
   let pinningEntry = $state<string | null>(null);
   let pinConfirmation = $state<{ entry: InventoryEntry; pin: boolean } | null>(null);
   let showPinConfirmation = $state(false);
-  let discoveryProject = $state<ModpackRecord | null>(null);
+  let discoveryModpack = $state<ModpackRecord | null>(null);
   let showReviewModal = $state(false);
   let discovery = $state<DiscoveryResult | null>(null);
   let discoveryProgress = $state<DiscoveryProgress | null>(null);
@@ -151,27 +151,27 @@
   const { toast } = useToast();
 
   onMount(() => {
-    void loadProjects();
+    void loadModpacks();
     void hydrateDiscoveryEvents();
-    const closeProjectMenus = (event: PointerEvent) => {
-      if (event.target instanceof Element && event.target.closest(".project-menu")) return;
-      document.querySelectorAll<HTMLDetailsElement>(".project-menu[open]").forEach((menu) => { menu.open = false; });
+    const closeModpackMenus = (event: PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest(".modpack-menu")) return;
+      document.querySelectorAll<HTMLDetailsElement>(".modpack-menu[open]").forEach((menu) => { menu.open = false; });
     };
-    const handleProjectMenuKeydown = (event: KeyboardEvent) => {
+    const handleModpackMenuKeydown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      document.querySelectorAll<HTMLDetailsElement>(".project-menu[open]").forEach((menu) => { menu.open = false; });
+      document.querySelectorAll<HTMLDetailsElement>(".modpack-menu[open]").forEach((menu) => { menu.open = false; });
     };
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       if (!settingsDirty()) return;
       event.preventDefault();
       event.returnValue = "";
     };
-    document.addEventListener("pointerdown", closeProjectMenus);
-    document.addEventListener("keydown", handleProjectMenuKeydown);
+    document.addEventListener("pointerdown", closeModpackMenus);
+    document.addEventListener("keydown", handleModpackMenuKeydown);
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => {
-      document.removeEventListener("pointerdown", closeProjectMenus);
-      document.removeEventListener("keydown", handleProjectMenuKeydown);
+      document.removeEventListener("pointerdown", closeModpackMenus);
+      document.removeEventListener("keydown", handleModpackMenuKeydown);
       window.removeEventListener("beforeunload", handleBeforeUnload);
       discoveryUnlisten.forEach((unlisten) => unlisten());
     };
@@ -180,7 +180,7 @@
   async function hydrateDiscoveryEvents() {
     discoveryUnlisten = await Promise.all([
       listenUpdateCheckProgress((progress) => {
-        if (!discoveryProject || progress.modpack_id === discoveryProject.id) discoveryProgress = progress;
+        if (!discoveryModpack || progress.modpack_id === discoveryModpack.id) discoveryProgress = progress;
       }),
       listenUpdateCheckProcess((process) => {
         discoveryProcess = process;
@@ -191,13 +191,16 @@
     ]);
   }
 
-  async function loadProjects() {
+  async function loadModpacks() {
     loading = true;
     error = "";
     try {
-      projects = await listModpacks();
+      modpacks = await listModpacks();
       const snapshotId = new URLSearchParams(window.location.search).get("snapshot");
-      if (snapshotId) await openSnapshot(snapshotId);
+      if (snapshotId) {
+        const snapshot = await getSnapshot(snapshotId);
+        openSnapshot(snapshot);
+      }
     } catch (cause) {
       error = commandErrorMessage(cause);
     } finally {
@@ -205,28 +208,43 @@
     }
   }
 
-  async function openSnapshot(snapshotId: string) {
-    const snapshot = await getSnapshot(snapshotId);
-    const project = projects.find((candidate) => candidate.id === snapshot.modpack_id);
-    if (!project) return;
-    focusedProject = project;
+  function openSnapshot(snapshot: SnapshotRecord) {
+    const modpack = focusedModpack?.id === snapshot.modpack_id
+      ? focusedModpack
+      : modpacks.find((candidate) => candidate.id === snapshot.modpack_id);
+    if (!modpack) {
+      error = "The modpack for this snapshot is no longer registered.";
+      return;
+    }
+    focusedModpack = modpack;
     activeTab = "versions";
-    void loadSnapshots(project);
-    discoveryProject = project;
+    discoveryModpack = modpack;
     discoverySnapshot = snapshot;
     discoverySnapshotId = snapshot.id;
     discovery = snapshot.result;
+    changelog = null;
+    changelogRevision = null;
+    changelogRevisions = [];
+    changelogExports = [];
+    changelogDraft = "";
     showReviewModal = true;
-    const artifacts = await listChangelogArtifacts(project.id);
-    changelog = artifacts.find((artifact) => artifact.snapshot_id === snapshot.id) ?? null;
-    changelogRevisions = changelog ? await listChangelogRevisions(changelog.id) : [];
-    changelogExports = changelog ? await listChangelogExports(changelog.id) : [];
-    changelogRevision = changelogRevisions.find((revision) => revision.is_current) ?? null;
-    changelogDraft = changelog?.content ?? "";
-    if (changelogRevision) changelogDraft = changelogRevision.content;
+    void loadSnapshotChangelog(modpack, snapshot.id);
   }
 
-  async function selectProject() {
+  async function loadSnapshotChangelog(modpack: ModpackRecord, snapshotId: string) {
+    try {
+      const artifacts = await listChangelogArtifacts(modpack.id);
+      changelog = artifacts.find((artifact) => artifact.snapshot_id === snapshotId) ?? null;
+      changelogRevisions = changelog ? await listChangelogRevisions(changelog.id) : [];
+      changelogExports = changelog ? await listChangelogExports(changelog.id) : [];
+      changelogRevision = changelogRevisions.find((revision) => revision.is_current) ?? null;
+      changelogDraft = changelogRevision?.content ?? changelog?.content ?? "";
+    } catch (cause) {
+      error = commandErrorMessage(cause);
+    }
+  }
+
+  async function selectModpack() {
     error = "";
     const path = await chooseModpackDirectory();
     if (!path) return;
@@ -250,7 +268,7 @@
       await registerModpack(previewPath, selected.application_defaults);
       showPreview = false;
       selected = null;
-      await loadProjects();
+      await loadModpacks();
       toast({
         title: "Modpack registered",
         description: "The external Packwiz directory was not modified.",
@@ -263,11 +281,11 @@
     }
   }
 
-  async function refresh(project: ModpackRecord) {
+  async function refresh(modpack: ModpackRecord) {
     busy = true;
     try {
-      replace(await refreshModpack(project.id));
-      if (inspected?.id === project.id) await inspectProject(project);
+      replace(await refreshModpack(modpack.id));
+      if (inspected?.id === modpack.id) await inspectModpack(modpack);
       toast({ title: "Modpack refreshed", severity: "success" });
     } catch (cause) {
       error = commandErrorMessage(cause);
@@ -276,17 +294,17 @@
     }
   }
 
-  async function inspectProject(project: ModpackRecord) {
+  async function inspectModpack(modpack: ModpackRecord) {
     const requestId = ++summaryRequest;
-    focusedProject = project;
-    inspected = project;
+    focusedModpack = modpack;
+    inspected = modpack;
     inspecting = true;
     error = "";
     overviewLoading = true;
     inventoryLoading = true;
     overviewError = "";
     inventoryError = "";
-    void getModpackOverview(project.id).then((result) => {
+    void getModpackOverview(modpack.id).then((result) => {
       if (requestId !== summaryRequest) return;
       overview = result;
     }).catch((cause) => {
@@ -296,7 +314,7 @@
     }).finally(() => {
       if (requestId === summaryRequest) overviewLoading = false;
     });
-    void getModpackInventory(project.id).then((result) => {
+    void getModpackInventory(modpack.id).then((result) => {
       if (requestId !== summaryRequest) return;
       inventory = result;
     }).catch((cause) => {
@@ -311,19 +329,19 @@
     });
   }
 
-  function focusProject(project: ModpackRecord) {
-    if (focusedProject?.id !== project.id && !canLeaveSettings()) return;
-    focusedProject = project;
+  function focusModpack(modpack: ModpackRecord) {
+    if (focusedModpack?.id !== modpack.id && !canLeaveSettings()) return;
+    focusedModpack = modpack;
     activeTab = "summary";
-    void inspectProject(project);
-    void loadSnapshots(project);
+    void inspectModpack(modpack);
+    void loadSnapshots(modpack);
   }
 
-  async function loadSnapshots(project: ModpackRecord) {
+  async function loadSnapshots(modpack: ModpackRecord) {
     snapshotsLoading = true;
     snapshotsError = "";
     try {
-      snapshots = await listModpackSnapshots(project.id);
+      snapshots = await listModpackSnapshots(modpack.id);
     } catch (cause) {
       snapshots = [];
       snapshotsError = commandErrorMessage(cause);
@@ -352,9 +370,9 @@
   }
 
 
-  async function checkProjectForUpdates(project: ModpackRecord) {
+  async function checkModpackForUpdates(modpack: ModpackRecord) {
     if (discoveryBusy) return;
-    discoveryProject = project;
+    discoveryModpack = modpack;
     showReviewModal = true;
     discovery = null;
     discoverySnapshot = null;
@@ -363,8 +381,8 @@
     discoveryBusy = true;
     error = "";
     try {
-      discovery = await checkForUpdates(project.id);
-      const snapshots = await listModpackSnapshots(project.id);
+      discovery = await checkForUpdates(modpack.id);
+      const snapshots = await listModpackSnapshots(modpack.id);
       discoverySnapshotId = snapshots[0]?.id ?? null;
       discoverySnapshot = discoverySnapshotId ? await getSnapshot(discoverySnapshotId) : null;
     } catch (cause) {
@@ -375,7 +393,7 @@
     }
   }
 
-  async function cancelUpdateCheckForProject() {
+  async function cancelUpdateCheckForModpack() {
     try {
       await cancelUpdateCheck();
     } catch (cause) {
@@ -396,11 +414,12 @@
 
   async function finishSnapshot(cancelled: boolean) {
     if (!discoverySnapshotId) return;
+    showReviewModal = false;
     try {
       discoverySnapshot = await closeSnapshot(discoverySnapshotId, cancelled);
       discovery = discoverySnapshot.result;
-      const project = discoveryProject;
-      if (project) await loadSnapshots(project);
+      const modpack = discoveryModpack;
+      if (modpack) await loadSnapshots(modpack);
       discoveryProcess = null;
       discoveryProgress = null;
       toast({ title: cancelled ? "Review cancelled" : "Review closed", severity: "success" });
@@ -410,9 +429,9 @@
   }
 
   async function saveReviewNote() {
-    if (!discoveryProject || !discoverySnapshotId || !snapshotNoteDraft.trim()) return;
+    if (!discoveryModpack || !discoverySnapshotId || !snapshotNoteDraft.trim()) return;
     try {
-      await saveModpackSnapshotNote(discoveryProject.id, "snapshot", snapshotNoteDraft, discoverySnapshotId);
+      await saveModpackSnapshotNote(discoveryModpack.id, "snapshot", snapshotNoteDraft, discoverySnapshotId);
       discoverySnapshot = await getSnapshot(discoverySnapshotId);
       snapshotNoteDraft = "";
       showSnapshotNote = false;
@@ -434,9 +453,9 @@
   }
 
   async function retryReview() {
-    if (!discoveryProject || !discoverySnapshotId || discoveryBusy) return;
+    if (!discoveryModpack || !discoverySnapshotId || discoveryBusy) return;
     const predecessorId = discoverySnapshotId;
-    await checkProjectForUpdates(discoveryProject);
+    await checkModpackForUpdates(discoveryModpack);
     if (!discoverySnapshotId || discoverySnapshotId === predecessorId) return;
     try {
       discoverySnapshot = await linkSnapshotRetry(predecessorId, discoverySnapshotId);
@@ -448,13 +467,13 @@
   }
 
   async function generateSnapshotChangelog() {
-    if (!discoveryProject || !discoverySnapshot || !["reviewable", "closed"].includes(discoverySnapshot.lifecycle) || changelogBusy) return;
+    if (!discoveryModpack || !discoverySnapshot || !["reviewable", "closed"].includes(discoverySnapshot.lifecycle) || changelogBusy) return;
     changelogBusy = true;
     changelogProgress = { attempt_id: "", completed: 0, total: discoverySnapshot.candidates.length, message: "Preparing changelog lookups", cancellable: false };
     error = "";
     try {
       changelog = await generateChangelog({
-        modpack_id: discoveryProject.id,
+        modpack_id: discoveryModpack.id,
         snapshot_id: discoverySnapshot.id,
         introduction: changelogIntroduction.trim() || null,
         offline: changelogOffline,
@@ -609,19 +628,19 @@
     }
   }
 
-  function beginEdit(project: ModpackRecord) {
-    editing = project;
+  function beginEdit(modpack: ModpackRecord) {
+    editing = modpack;
     metadataDraft = {
-      ...project.application,
-      tags: [...project.application.tags],
+      ...modpack.application,
+      tags: [...modpack.application.tags],
     };
-    tagsText = project.application.tags.join(", ");
+    tagsText = modpack.application.tags.join(", ");
   }
 
-  function openSettings(project: ModpackRecord) {
+  function openSettings(modpack: ModpackRecord) {
     if (!canLeaveSettings()) return;
-    focusProject(project);
-    beginEdit(project);
+    focusModpack(modpack);
+    beginEdit(modpack);
     activeTab = "settings";
   }
 
@@ -634,7 +653,7 @@
         tags: tagsText.split(",").map((tag) => tag.trim()).filter(Boolean),
       });
       replace(updated);
-      focusedProject = updated;
+      focusedModpack = updated;
       inspected = updated;
       editing = updated;
       metadataDraft = { ...updated.application, tags: [...updated.application.tags] };
@@ -648,17 +667,17 @@
   }
 
   async function changeLifecycle(
-    project: ModpackRecord,
+    modpack: ModpackRecord,
     action: "archive" | "restore" | "disconnect",
   ) {
     busy = true;
     try {
       const result =
         action === "archive"
-          ? await archiveModpack(project.id)
+          ? await archiveModpack(modpack.id)
           : action === "restore"
-            ? await restoreModpack(project.id)
-            : await disconnectModpack(project.id);
+            ? await restoreModpack(modpack.id)
+            : await disconnectModpack(modpack.id);
       replace(result);
     } catch (cause) {
       error = commandErrorMessage(cause);
@@ -667,8 +686,8 @@
     }
   }
 
-  async function beginReconnect(project: ModpackRecord) {
-    reconnecting = project;
+  async function beginReconnect(modpack: ModpackRecord) {
+    reconnecting = modpack;
     showReconnect = true;
   }
 
@@ -689,9 +708,9 @@
     }
   }
 
-  function replace(project: ModpackRecord) {
-    projects = projects.map((candidate) =>
-      candidate.id === project.id ? project : candidate,
+  function replace(modpack: ModpackRecord) {
+    modpacks = modpacks.map((candidate) =>
+      candidate.id === modpack.id ? modpack : candidate,
     );
   }
 
@@ -762,11 +781,11 @@
   function outcomeMessage(outcome: DiscoveryOutcomeKind) {
     return {
       unsupported: "The installed Packwiz executable is outside the tested compatibility profile.",
-      unsafe: "The project changed or cancellation safety could not be proven; candidates are withheld.",
+      unsafe: "The modpack changed or cancellation safety could not be proven; candidates are withheld.",
       indeterminate: "The evidence was incomplete or ambiguous; candidates are withheld.",
       cancelled: "The update check was cancelled before a safe result was available.",
       failed: "The update check failed before a safe result was available.",
-      normal: "The project was unchanged after the cancellation probe.",
+      normal: "The modpack was unchanged after the cancellation probe.",
     }[outcome];
   }
 
@@ -777,19 +796,19 @@
 </script>
 
 <svelte:head>
-  <title>Projects · CM Modpack Util</title>
+  <title>Modpacks · CM Modpack Util</title>
   <meta
     name="description"
-    content="Register and manage local Packwiz projects."
+    content="Register and manage local Packwiz modpacks."
   />
 </svelte:head>
 
-<main class="projects-shell">
+<main class="modpacks-shell">
   <Header />
-  <section class="hero" aria-labelledby="projects-title">
+  <section class="hero" aria-labelledby="modpacks-title">
     <div>
-      <p class="eyebrow">Projects</p>
-      <h1 id="projects-title">Your local modpack workspace</h1>
+      <p class="eyebrow">Modpacks</p>
+      <h1 id="modpacks-title">Your local modpack workspace</h1>
       <p class="lede">
         Register a Packwiz directory to review its local evidence and manage it
         without changing the external files.
@@ -799,7 +818,7 @@
       variant="primary"
       type="button"
       loading={busy}
-      onclick={selectProject}
+      onclick={selectModpack}
       ><PlusIcon size={17} weight="bold" /> Register modpack</Button
     >
   </section>
@@ -817,7 +836,7 @@
       <div class="loader" aria-hidden="true"></div>
       <p>Loading registered modpacks...</p>
     </section>
-  {:else if projects.length === 0}<section
+  {:else if modpacks.length === 0}<section
       class="state"
       aria-labelledby="empty-title"
     >
@@ -827,40 +846,40 @@
       <p class="eyebrow">No registered modpacks</p>
       <h2 id="empty-title">Start with a local Packwiz directory</h2>
       <p>
-        Choose a project folder to preview its Packwiz evidence before anything
+        Choose a modpack folder to preview its Packwiz evidence before anything
         is registered.
       </p>
-      <Button variant="secondary" type="button" onclick={selectProject}
+      <Button variant="secondary" type="button" onclick={selectModpack}
         ><PlusIcon size={16} /> Choose directory</Button
       >
     </section>
   {:else}<section class="workspace" class:collapsed={listCollapsed} style={`--list-width: ${paneWidth}px`}>
-      <aside class="list-pane" class:collapsed={listCollapsed} aria-label="Project list">
+      <aside class="list-pane" class:collapsed={listCollapsed} aria-label="Modpack list">
         <div class="workspace-tools">
-          <Tooltip text={listCollapsed ? "Expand projects" : "Collapse projects"} position="bottom">
+          <Tooltip text={listCollapsed ? "Expand modpacks" : "Collapse modpacks"} position="bottom">
             <Button
               variant="ghost"
               size="icon"
               type="button"
-              aria-label={listCollapsed ? "Expand projects" : "Collapse projects"}
+              aria-label={listCollapsed ? "Expand modpacks" : "Collapse modpacks"}
               aria-expanded={!listCollapsed}
-              aria-controls="project-list"
+              aria-controls="modpack-list"
               onpointerdown={(event) => event.preventDefault()}
               onclick={() => { if (canLeaveSettings()) listCollapsed = !listCollapsed; }}
             >{#if listCollapsed}<CaretDoubleRightIcon size={17} weight="bold" />{:else}<CaretDoubleLeftIcon size={17} weight="bold" />{/if}</Button>
           </Tooltip>
         </div>
         <ModpackList
-          projects={projects}
+          modpacks={modpacks}
           bind:showArchived
           collapsed={listCollapsed}
-          focusedModpackId={focusedProject?.id ?? null}
+          focusedModpackId={focusedModpack?.id ?? null}
           busy={busy}
           inspecting={inspecting}
           discoveryBusy={discoveryBusy}
-          discoveryModpackId={discoveryProject?.id ?? null}
-          onfocus={focusProject}
-          oncheck={checkProjectForUpdates}
+          discoveryModpackId={discoveryModpack?.id ?? null}
+          onfocus={focusModpack}
+          oncheck={checkModpackForUpdates}
           onreconnect={beginReconnect}
           onrefresh={refresh}
           onedit={openSettings}
@@ -891,9 +910,9 @@
         <div class="detail-tabs" role="tablist" aria-label="Modpack details">
           <button class:active={activeTab === "summary"} id="summary-tab" role="tab" aria-selected={activeTab === "summary"} aria-controls="summary-panel" tabindex={activeTab === "summary" ? 0 : -1} onclick={() => { if (activeTab !== "summary" && canLeaveSettings()) activeTab = "summary"; }}>Summary</button>
           <button class:active={activeTab === "versions"} id="versions-tab" role="tab" aria-selected={activeTab === "versions"} aria-controls="versions-panel" tabindex={activeTab === "versions" ? 0 : -1} onclick={() => { if (activeTab !== "versions" && canLeaveSettings()) activeTab = "versions"; }}>Versions</button>
-          <button class:active={activeTab === "settings"} id="settings-tab" role="tab" aria-selected={activeTab === "settings"} aria-controls="settings-panel" tabindex={activeTab === "settings" ? 0 : -1} onclick={() => { if (activeTab !== "settings" && canLeaveSettings()) { if (focusedProject && (!metadataDraft || editing?.id !== focusedProject.id)) beginEdit(focusedProject); activeTab = "settings"; } }}>Settings</button>
+          <button class:active={activeTab === "settings"} id="settings-tab" role="tab" aria-selected={activeTab === "settings"} aria-controls="settings-panel" tabindex={activeTab === "settings" ? 0 : -1} onclick={() => { if (activeTab !== "settings" && canLeaveSettings()) { if (focusedModpack && (!metadataDraft || editing?.id !== focusedModpack.id)) beginEdit(focusedModpack); activeTab = "settings"; } }}>Settings</button>
         </div>
-        {#if !focusedProject}
+        {#if !focusedModpack}
           <section class="detail-empty" role="status"><p class="eyebrow">No focused modpack</p><h2>Select a modpack to begin</h2><p>Choose a modpack card to load its local evidence and modpack tools.</p></section>
         {:else if activeTab === "summary"}
           <ModpackSummary
@@ -910,11 +929,11 @@
             evidenceLabel={evidenceLabel}
             freshnessLabel={freshnessLabel}
             freshnessTitle={freshnessTitle}
-            onclose={() => { inspected = null; focusedProject = null; }}
-            onreread={inspectProject}
+            onclose={() => { inspected = null; focusedModpack = null; }}
+            onreread={inspectModpack}
             onopenPage={openPage}
             onpin={(entry, pin) => { pinConfirmation = { entry, pin }; showPinConfirmation = true; }}
-            onretry={inspectProject}
+            onretry={inspectModpack}
           />
         {:else if activeTab === "versions"}
           <SnapshotHistory
@@ -922,8 +941,8 @@
             snapshots={snapshots}
             loading={snapshotsLoading}
             error={snapshotsError}
-            onretry={() => { if (focusedProject) void loadSnapshots(focusedProject); }}
-            onopen={(snapshotId) => { if (canLeaveSettings()) { activeTab = "versions"; void openSnapshot(snapshotId); } }}
+            onretry={() => { if (focusedModpack) void loadSnapshots(focusedModpack); }}
+            onopen={openSnapshot}
             snapshotStatus={snapshotStatus}
           />
         {:else}
@@ -940,8 +959,9 @@
 </main>
 
 <SnapshotReviewModal
-  bind:open={showReviewModal}
-  project={discoveryProject}
+  open={showReviewModal}
+  onclose={() => (showReviewModal = false)}
+  modpack={discoveryModpack}
   discovery={discovery}
   discoveryProgress={discoveryProgress}
   discoveryProcess={discoveryProcess}
@@ -964,7 +984,7 @@
   selectedCandidateIds={selectedCandidateIds}
   latestDecision={latestDecision}
   evidenceLabel={evidenceLabel}
-  oncancelDiscovery={cancelUpdateCheckForProject}
+  oncancelDiscovery={cancelUpdateCheckForModpack}
   oncloseReview={finishSnapshot}
   ondecideCandidate={decideCandidate}
   onsaveNote={saveReviewNote}
@@ -1063,7 +1083,7 @@
         ><input
           type="checkbox"
           bind:checked={selected.application_defaults.favorite}
-        /> Favorite project</label
+        /> Favorite modpack</label
       >
     </div>
     <div class="validation" aria-live="polite">
@@ -1115,7 +1135,7 @@
 >
 
 <style>
-  .projects-shell {
+  .modpacks-shell {
     min-height: 100vh;
     padding: 0 42px 42px;
     background: var(--color-bg);
@@ -1452,7 +1472,7 @@
     margin-top: 24px;
   }
   @media (max-width: 700px) {
-    .projects-shell {
+    .modpacks-shell {
       padding: 0 20px 28px;
     }
     .hero {

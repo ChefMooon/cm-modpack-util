@@ -72,7 +72,7 @@ pub fn check_for_updates(
     let _ = app.emit(
         "discovery-progress",
         crate::domain::DiscoveryProgress {
-            project_id: modpack_id.clone(),
+            modpack_id: modpack_id.clone(),
             kind: crate::domain::DiscoveryProgressKind::Starting,
             message: "Starting safe Packwiz discovery".to_string(),
             output_bytes: 0,
@@ -95,7 +95,7 @@ pub fn check_for_updates(
     let _ = app.emit(
         "discovery-progress",
         crate::domain::DiscoveryProgress {
-            project_id: modpack_id.clone(),
+            modpack_id: modpack_id.clone(),
             kind: crate::domain::DiscoveryProgressKind::Cancelling,
             message: if matches!(evidence.prompt, crate::domain::PromptState::NoUpdates) {
                 "Packwiz reported that all files are up to date".to_string()
@@ -177,7 +177,7 @@ pub fn check_for_updates(
     let _ = app.emit(
         "discovery-progress",
         crate::domain::DiscoveryProgress {
-            project_id: modpack_id.clone(),
+            modpack_id: modpack_id.clone(),
             kind: crate::domain::DiscoveryProgressKind::Finished,
             message: "Discovery finished with recorded safety evidence".to_string(),
             output_bytes,

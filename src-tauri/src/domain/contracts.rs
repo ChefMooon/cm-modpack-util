@@ -419,7 +419,7 @@ pub struct OperationAttempt {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PinOperationRequest {
-    pub project_id: String,
+    pub modpack_id: String,
     pub entry_id: String,
 }
 
@@ -484,7 +484,7 @@ pub struct SnapshotDecisionRecord {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SnapshotNoteRecord {
     pub id: i64,
-    pub project_id: String,
+    pub modpack_id: String,
     pub snapshot_id: Option<String>,
     pub candidate_id: Option<String>,
     pub scope: SnapshotNoteScope,
@@ -505,7 +505,7 @@ pub struct SnapshotRecheckRecord {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SnapshotRecord {
     pub id: String,
-    pub project_id: String,
+    pub modpack_id: String,
     pub predecessor_id: Option<String>,
     pub lifecycle: SnapshotLifecycle,
     pub outcome: DiscoveryOutcomeKind,
@@ -532,7 +532,7 @@ pub enum DiscoveryProgressKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DiscoveryProgress {
-    pub project_id: String,
+    pub modpack_id: String,
     pub kind: DiscoveryProgressKind,
     pub message: String,
     pub output_bytes: u64,

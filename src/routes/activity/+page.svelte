@@ -2,12 +2,12 @@
   import ClockCounterClockwiseIcon from "phosphor-svelte/lib/ClockCounterClockwiseIcon";
   import Header from "../../components/header/Header.svelte";
   import { onMount } from "svelte";
-  import { getModpackOperationHistory, listModpacks, listModpackSnapshots } from "../../lib/projects";
+  import { getModpackOperationHistory, listModpacks, listModpackSnapshots } from "../../lib/modpacks";
   import type { OperationAttempt, ModpackRecord, SnapshotRecord } from "../../lib/domain";
 
   let snapshots = $state<SnapshotRecord[]>([]);
   let operations = $state<OperationAttempt[]>([]);
-  let projects = $state<ModpackRecord[]>([]);
+  let modpacks = $state<ModpackRecord[]>([]);
   let loading = $state(true);
   let error = $state("");
 
@@ -15,10 +15,10 @@
     loading = true;
     error = "";
     try {
-      projects = await listModpacks();
-      const results = await Promise.all(projects.map((project) => listModpackSnapshots(project.id)));
+      modpacks = await listModpacks();
+      const results = await Promise.all(modpacks.map((modpack) => listModpackSnapshots(modpack.id)));
       snapshots = results.flat().sort((left, right) => right.created_at.localeCompare(left.created_at));
-      const operationResults = await Promise.all(projects.map((project) => getModpackOperationHistory(project.id)));
+      const operationResults = await Promise.all(modpacks.map((modpack) => getModpackOperationHistory(modpack.id)));
       operations = operationResults.flat().sort((left, right) => right.created_at.localeCompare(left.created_at));
     } catch (cause) {
       error = cause instanceof Error ? cause.message : "Snapshot history could not be loaded.";
@@ -30,7 +30,7 @@
   onMount(() => void loadHistory());
 
   function modpackName(modpackId: string) {
-    return projects.find((project) => project.id === modpackId)?.application.display_name ?? modpackId;
+    return modpacks.find((modpack) => modpack.id === modpackId)?.application.display_name ?? modpackId;
   }
 </script>
 

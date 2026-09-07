@@ -131,7 +131,7 @@ fn emit_progress(
     let _ = app.emit(
         "discovery-progress",
         DiscoveryProgress {
-            project_id: project_id.to_string(),
+            modpack_id: project_id.to_string(),
             kind,
             message: message.to_string(),
             output_bytes,

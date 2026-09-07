@@ -49,7 +49,7 @@ fn run_pin_operation(
     request: PinOperationRequest,
     pin: bool,
 ) -> Result<OperationAttempt, CommandError> {
-    let root = db::registered_modpack_path(database, &request.project_id)?;
+    let root = db::registered_modpack_path(database, &request.modpack_id)?;
     let root = Path::new(&root).canonicalize().map_err(|error| {
         CommandError::new(
             "project_unavailable",
@@ -57,7 +57,7 @@ fn run_pin_operation(
         )
         .with_details(error.to_string())
     })?;
-    let _lease = runtime.mutation_coordinator.acquire(&request.project_id)?;
+    let _lease = runtime.mutation_coordinator.acquire(&request.modpack_id)?;
     let inventory = crate::domain::inventory::read_inventory(&root)?;
     let entry = inventory
         .iter()
@@ -83,7 +83,7 @@ fn run_pin_operation(
         }));
     }
     let arguments = compatibility::pin_command(&slug, pin)?;
-    let id = format!("operation-{}-{}", request.project_id, timestamp());
+    let id = format!("operation-{}-{}", request.modpack_id, timestamp());
     let cancel = runtime.begin_operation_cancellation(&id)?;
     let before = fingerprint::collect(&root).ok();
     let recovery = recovery_observation(&root);
@@ -134,7 +134,7 @@ fn run_pin_operation(
     };
     let attempt = OperationAttempt {
         id,
-        modpack_id: request.project_id,
+        modpack_id: request.modpack_id,
         snapshot_id: None,
         predecessor_id: None,
         kind: if pin {
@@ -211,7 +211,7 @@ fn run_apply_operation(
     }
     let project_root = Path::new(&db::registered_modpack_path(
         database,
-        &snapshot.project_id,
+        &snapshot.modpack_id,
     )?)
     .canonicalize()
     .map_err(|error| {
@@ -255,7 +255,7 @@ fn run_apply_operation(
             "Packwiz executable is outside the tested mutation profile",
         ));
     }
-    let _lease = runtime.mutation_coordinator.acquire(&snapshot.project_id)?;
+    let _lease = runtime.mutation_coordinator.acquire(&snapshot.modpack_id)?;
     let cancel = runtime.begin_operation_cancellation(&request.operation_id)?;
     let mut attempts = Vec::new();
     let mut succeeded = 0usize;
@@ -409,7 +409,7 @@ fn run_apply_operation(
         };
         let attempt = OperationAttempt {
             id: format!("{}-{}", request.operation_id, index),
-            modpack_id: snapshot.project_id.clone(),
+            modpack_id: snapshot.modpack_id.clone(),
             snapshot_id: Some(snapshot.id.clone()),
             predecessor_id: None,
             kind: OperationKind::Apply,

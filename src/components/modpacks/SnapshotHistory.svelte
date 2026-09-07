@@ -17,7 +17,7 @@
     error: string;
     filter?: "all" | "releases" | "snapshots";
     onretry: () => void | Promise<void>;
-    onopen: (snapshotId: string) => void | Promise<void>;
+    onopen: (snapshot: SnapshotRecord) => void;
     snapshotStatus: (snapshot: SnapshotRecord) => string;
   } = $props();
 
@@ -42,7 +42,7 @@
   {:else}
     <div class="snapshot-list" aria-label="Snapshot history">
       {#each visibleSnapshots as snapshot (snapshot.id)}
-        <button class="snapshot-row" type="button" onclick={() => onopen(snapshot.id)}>
+        <button class="snapshot-row" type="button" onclick={() => onopen(snapshot)}>
           <span><strong>{snapshot.label ?? "Snapshot review"}</strong><small>{snapshot.id}</small></span>
           <span><b>Lifecycle</b>{snapshot.lifecycle}</span>
           <span><b>Status</b>{snapshotStatus(snapshot)}</span>
@@ -65,7 +65,7 @@
   .version-filters button.active { color:var(--color-text); background:var(--color-surface-raised); box-shadow:inset 0 -3px 0 var(--color-accent); }
   .version-filters button:disabled { cursor:not-allowed; opacity:.6; }
   .snapshot-list { display:grid; gap:1px; margin:16px 24px 24px; border:1px solid var(--color-border); background:var(--color-border); }
-  .snapshot-row { display:grid; grid-template-columns:minmax(0,1.5fr) repeat(4,minmax(0,1fr)) minmax(82px,auto); gap:14px; align-items:center; box-sizing:border-box; width:100%; padding:14px; border:0; border-bottom:1px solid var(--color-border); color:var(--color-text-muted); background:var(--color-surface); text-align:left; cursor:pointer; }
+  .snapshot-row { display:grid; grid-template-columns:minmax(0,1.5fr) repeat(4,minmax(0,1fr)) minmax(82px,auto); gap:14px; align-items:center; box-sizing:border-box; width:100%; padding:14px; border:0; border-bottom:1px solid var(--color-border); color:var(--color-text-muted); background:var(--color-surface); text-align:left; text-decoration:none; cursor:pointer; }
   .snapshot-row:last-child { border-bottom:0; }
   .snapshot-row > span { display:grid; gap:5px; min-width:0; font-size:11px; }
   .snapshot-row strong { overflow-wrap:anywhere; color:var(--color-text); }

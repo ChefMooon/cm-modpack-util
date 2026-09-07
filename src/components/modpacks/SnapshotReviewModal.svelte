@@ -20,8 +20,9 @@
   type Decision = "selected" | "skipped" | "blocked" | "deferred";
 
   let {
-    open = $bindable(false),
-    project,
+    open = false,
+    onclose,
+    modpack,
     discovery,
     discoveryProgress,
     discoveryProcess,
@@ -61,7 +62,8 @@
     onexport,
   }: {
     open?: boolean;
-    project: ModpackRecord | null;
+    onclose?: () => void;
+    modpack: ModpackRecord | null;
     discovery: DiscoveryResult | null;
     discoveryProgress: DiscoveryProgress | null;
     discoveryProcess: ProcessEvidence | null;
@@ -110,7 +112,7 @@
   }
 </script>
 
-<Modal bind:open size="wide" title={project ? `Update review · ${project.application.display_name}` : "Update review"}>
+<Modal open={open} onclose={onclose} size="wide" title={modpack ? `Update review · ${modpack.application.display_name}` : "Update review"}>
   {#if discoveryBusy}
     <div class="progress" role="status"><div class="loader" aria-hidden="true"></div><span>{discoveryProgress?.message ?? "Preparing the Packwiz safety probe..."}</span><Button variant="danger" size="sm" type="button" onclick={oncancelDiscovery}><XIcon size={15} /> Cancel</Button></div>
   {/if}

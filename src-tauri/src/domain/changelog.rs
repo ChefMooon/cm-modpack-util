@@ -121,7 +121,7 @@ pub struct ChangelogCacheRecord {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ChangelogGenerationRequest {
-    pub project_id: String,
+    pub modpack_id: String,
     pub snapshot_id: String,
     pub introduction: Option<String>,
     pub offline: bool,
@@ -132,7 +132,7 @@ pub struct ChangelogGenerationRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ChangelogArtifact {
     pub id: String,
-    pub project_id: String,
+    pub modpack_id: String,
     pub snapshot_id: String,
     pub attempt_id: String,
     pub status: ChangelogGenerationStatus,

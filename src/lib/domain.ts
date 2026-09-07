@@ -8,11 +8,6 @@ export type OperationStatus =
 
 export type ValidationSeverity = "info" | "warning" | "error";
 
-export type ProjectReference = {
-  id: string;
-  name: string;
-  rootPath: string;
-};
 export type ValidationResult = {
   valid: boolean;
   severity: ValidationSeverity;
@@ -28,7 +23,7 @@ export type CommandError = {
 
 export type Observation<T> = { observed: T } | "unavailable";
 
-export type ProjectLifecycle = "active" | "maintenance" | "archived" | "disconnected";
+export type ModpackLifecycle = "active" | "maintenance" | "archived" | "disconnected";
 
 export type ApplicationModpackMetadata = {
   display_name: string;
@@ -37,7 +32,7 @@ export type ApplicationModpackMetadata = {
   tags: string[];
   favorite: boolean;
   description: string | null;
-  lifecycle: ProjectLifecycle;
+  lifecycle: ModpackLifecycle;
 };
 
 export type PackwizObservations = {

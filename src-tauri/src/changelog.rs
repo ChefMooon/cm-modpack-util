@@ -693,7 +693,7 @@ pub fn generate_changelog(
 ) -> Result<ChangelogArtifact, CommandError> {
     runtime.begin();
     let snapshot = db::load_snapshot(&database, &request.snapshot_id)?;
-    if snapshot.project_id != request.project_id || !source_allowed(&snapshot, &request.source) {
+    if snapshot.modpack_id != request.modpack_id || !source_allowed(&snapshot, &request.source) {
         return Err(CommandError::new(
             "changelog_source_unavailable",
             "The selected snapshot cannot generate a changelog",
@@ -817,7 +817,7 @@ pub fn generate_changelog(
     }
     let artifact = ChangelogArtifact {
         id: format!("artifact-{attempt_id}"),
-        project_id: request.project_id.clone(),
+        modpack_id: request.modpack_id.clone(),
         snapshot_id: request.snapshot_id.clone(),
         attempt_id: attempt_id.clone(),
         status,

@@ -435,13 +435,13 @@ pub fn persist_changelog_artifact(
     transaction
         .execute(
             "INSERT INTO changelog_attempts (id, modpack_id, snapshot_id, request_json, request_fingerprint, status, created_at, finished_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
-            params![artifact.attempt_id, request.project_id, request.snapshot_id, serialize(request, "changelog request")?, request.request_fingerprint, status, now],
+            params![artifact.attempt_id, request.modpack_id, request.snapshot_id, serialize(request, "changelog request")?, request.request_fingerprint, status, now],
         )
         .map_err(|error| CommandError::new("database_write_failed", "Changelog attempt could not be saved").with_details(error.to_string()))?;
     transaction
         .execute(
             "INSERT INTO changelog_artifacts (id, modpack_id, snapshot_id, attempt_id, status, introduction, content, entries_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
-            params![artifact.id, artifact.project_id, artifact.snapshot_id, artifact.attempt_id, status, artifact.introduction, artifact.content, serialize(&artifact.entries, "changelog entries")?, now],
+            params![artifact.id, artifact.modpack_id, artifact.snapshot_id, artifact.attempt_id, status, artifact.introduction, artifact.content, serialize(&artifact.entries, "changelog entries")?, now],
         )
         .map_err(|error| CommandError::new("database_write_failed", "Changelog artifact could not be saved").with_details(error.to_string()))?;
     transaction.commit().map_err(|error| {
@@ -619,7 +619,7 @@ pub fn load_changelog_artifact(
         let status: String = row.get(4)?;
         let entries: String = row.get(7)?;
         Ok(crate::domain::ChangelogArtifact {
-            id: row.get(0)?, project_id: row.get(1)?, snapshot_id: row.get(2)?, attempt_id: row.get(3)?,
+            id: row.get(0)?, modpack_id: row.get(1)?, snapshot_id: row.get(2)?, attempt_id: row.get(3)?,
             status: serde_json::from_value(serde_json::Value::String(status)).map_err(|_| rusqlite::Error::InvalidQuery)?,
             introduction: row.get(5)?, content: row.get(6)?,
             entries: serde_json::from_str(&entries).map_err(|_| rusqlite::Error::InvalidQuery)?,
@@ -1035,7 +1035,7 @@ fn row_to_snapshot(row: &rusqlite::Row<'_>) -> rusqlite::Result<SnapshotRecord> 
     let result_json: String = row.get(6)?;
     Ok(SnapshotRecord {
         id: row.get(0)?,
-        project_id: row.get(1)?,
+        modpack_id: row.get(1)?,
         predecessor_id: row.get(2)?,
         lifecycle: serde_json::from_value(serde_json::Value::String(lifecycle))
             .map_err(|_| rusqlite::Error::InvalidQuery)?,
@@ -1100,7 +1100,7 @@ fn enrich_snapshot(
             let scope: String = row.get(4)?;
             Ok(SnapshotNoteRecord {
                 id: row.get(0)?,
-                project_id: row.get(1)?,
+                modpack_id: row.get(1)?,
                 snapshot_id: row.get(2)?,
                 candidate_id: row.get(3)?,
                 scope: serde_json::from_value(serde_json::Value::String(scope))
