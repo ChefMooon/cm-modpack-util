@@ -6,12 +6,13 @@
   import LinkBreakIcon from "phosphor-svelte/lib/LinkBreakIcon";
   import LinkIcon from "phosphor-svelte/lib/LinkIcon";
   import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
+  import TagIcon from "phosphor-svelte/lib/TagIcon";
   import WarningCircleIcon from "phosphor-svelte/lib/WarningCircleIcon";
   import Button from "../ui/Button.svelte";
   import type { ModpackRecord } from "../../lib/domain";
 
   type LifecycleAction = "archive" | "restore" | "disconnect";
-  let { modpacks, showArchived = $bindable(false), collapsed = false, focusedModpackId, busy, inspecting, discoveryBusy, discoveryModpackId, onfocus, oncheck, onreconnect, onrefresh, onedit, onlifecycle, observed, freshnessLabel, freshnessTitle, hasErrors }: {
+  let { modpacks, showArchived = $bindable(false), collapsed = false, focusedModpackId, busy, inspecting, discoveryBusy, discoveryModpackId, onfocus, oncheck, onreconnect, onrefresh, onedit, oncreaterelease, onlifecycle, observed, freshnessLabel, freshnessTitle, hasErrors }: {
     modpacks: ModpackRecord[];
     showArchived?: boolean;
     collapsed?: boolean;
@@ -25,6 +26,7 @@
     onreconnect: (modpack: ModpackRecord) => void | Promise<void>;
     onrefresh: (modpack: ModpackRecord) => void | Promise<void>;
     onedit: (modpack: ModpackRecord) => void | Promise<void>;
+    oncreaterelease: (modpack: ModpackRecord) => void | Promise<void>;
     onlifecycle: (modpack: ModpackRecord, action: LifecycleAction) => void | Promise<void>;
     observed: (value: import("../../lib/domain").Observation<string>) => string;
     freshnessLabel: (value: string | null) => string;
@@ -46,7 +48,7 @@
         <div class="modpack-main"><div class="modpack-title"><h3>{modpack.application.display_name}</h3></div></div>
         <div class="modpack-info"><p class="path" title={modpack.canonical_path}>{modpack.canonical_path}</p><div class="evidence" aria-label="Modpack evidence summary"><span>Packwiz {observed(modpack.packwiz.version)}</span><span>{modpack.packwiz.declared_versions.length ? "Loader observed" : "Loader unavailable"}</span><span title={freshnessTitle(modpack.last_refreshed_at)}>{freshnessLabel(modpack.last_refreshed_at)}</span></div>{#if errorCount}<div class="issue-summary"><WarningCircleIcon size={14} aria-hidden="true" /><span>{errorCount} validation {errorCount === 1 ? "issue" : "issues"}</span></div>{/if}</div>
       </button>
-      <details class="modpack-menu"><summary aria-label={`More actions for ${modpack.application.display_name}`}><DotsThreeIcon size={18} weight="bold" /> More</summary><div class="modpack-menu-items"><Button variant="primary" size="sm" type="button" disabled={discoveryBusy || modpack.application.lifecycle !== "active"} loading={discoveryBusy && discoveryModpackId === modpack.id} onclick={() => oncheck(modpack)}><ArrowClockwiseIcon size={15} /> Check for updates</Button>{#if modpack.application.lifecycle === "disconnected"}<Button variant="secondary" size="sm" type="button" disabled={busy} onclick={() => onreconnect(modpack)}><LinkIcon size={15} /> Reconnect</Button>{:else}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => onrefresh(modpack)}><ArrowClockwiseIcon size={15} /> Refresh evidence</Button>{/if}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => onedit(modpack)}><PencilSimpleIcon size={15} /> Edit details</Button>{#if modpack.application.lifecycle === "archived"}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => onlifecycle(modpack, "restore")}>Restore</Button>{:else if modpack.application.lifecycle !== "disconnected"}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => onlifecycle(modpack, "archive")}><ArchiveIcon size={15} /> Archive</Button>{/if}{#if modpack.application.lifecycle !== "archived" && modpack.application.lifecycle !== "disconnected"}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => onlifecycle(modpack, "disconnect")}>Disconnect</Button>{/if}</div></details>
+      <details class="modpack-menu"><summary aria-label={`More actions for ${modpack.application.display_name}`}><DotsThreeIcon size={18} weight="bold" /> More</summary><div class="modpack-menu-items"><Button variant="primary" size="sm" type="button" disabled={discoveryBusy || modpack.application.lifecycle !== "active"} loading={discoveryBusy && discoveryModpackId === modpack.id} onclick={() => oncheck(modpack)}><ArrowClockwiseIcon size={15} /> Check for updates</Button><Button variant="secondary" size="sm" type="button" disabled={busy || modpack.application.lifecycle !== "active"} onclick={() => oncreaterelease(modpack)}><TagIcon size={15} /> Create release</Button>{#if modpack.application.lifecycle === "disconnected"}<Button variant="secondary" size="sm" type="button" disabled={busy} onclick={() => onreconnect(modpack)}><LinkIcon size={15} /> Reconnect</Button>{:else}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => onrefresh(modpack)}><ArrowClockwiseIcon size={15} /> Refresh evidence</Button>{/if}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => onedit(modpack)}><PencilSimpleIcon size={15} /> Edit details</Button>{#if modpack.application.lifecycle === "archived"}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => onlifecycle(modpack, "restore")}>Restore</Button>{:else if modpack.application.lifecycle !== "disconnected"}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => onlifecycle(modpack, "archive")}><ArchiveIcon size={15} /> Archive</Button>{/if}{#if modpack.application.lifecycle !== "archived" && modpack.application.lifecycle !== "disconnected"}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => onlifecycle(modpack, "disconnect")}>Disconnect</Button>{/if}</div></details>
     </article>
   {/each}
 </section>

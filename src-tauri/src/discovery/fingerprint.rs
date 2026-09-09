@@ -159,7 +159,13 @@ pub fn compare(before: ModpackFingerprint, after: ModpackFingerprint) -> Fingerp
 }
 
 fn diff_entries(before: &[FingerprintEntry], after: &[FingerprintEntry]) -> Vec<String> {
-    if before == after {
+    let equivalent = before.iter().zip(after).all(|(before, after)| {
+        before.relative_path == after.relative_path
+            && before.kind == after.kind
+            && before.size == after.size
+            && before.content_hash == after.content_hash
+    }) && before.len() == after.len();
+    if equivalent {
         Vec::new()
     } else {
         vec!["relevant project evidence differs".to_string()]
@@ -203,5 +209,22 @@ mod tests {
     #[test]
     fn incomplete_or_unreadable_fingerprints_never_claim_unchanged() {
         assert!(!compare(empty_fingerprint("root"), empty_fingerprint("root")).unchanged);
+    }
+
+    #[test]
+    fn timestamp_changes_do_not_make_equivalent_state_stale() {
+        let mut before = file("a");
+        before.relative_path = "mods".into();
+        before.kind = "directory".into();
+        before.size = None;
+        before.content_hash = None;
+        before.modified_ns = Some(1);
+        let mut after = before.clone();
+        after.modified_ns = Some(2);
+        let mut file_after = file("a");
+        file_after.modified_ns = Some(2);
+
+        let result = compare(complete(vec![before, file("a")]), complete(vec![after, file_after]));
+        assert!(result.unchanged);
     }
 }

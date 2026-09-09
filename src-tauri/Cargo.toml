@@ -1,6 +1,6 @@
 [package]
 name = "cm-modpack-util"
-version = "0.0.7"
+version = "0.0.8"
 description = "A local-first desktop workspace for CM modpack projects."
 authors = ["CM Modpack Util contributors"]
 edition = "2021"
@@ -27,5 +27,6 @@ toml = "0.8"
 rusqlite = { version = "0.32", features = ["bundled"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 sha2 = "0.10"
+notify = "6.1"
 tauri-plugin-autostart = "2"
 tauri-plugin-window-state = "2"

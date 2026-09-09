@@ -223,8 +223,61 @@ fn source_allowed(snapshot: &SnapshotRecord, source: &ChangelogSourceKind) -> bo
         ) | (
             SnapshotLifecycle::Closed,
             ChangelogSourceKind::AppliedOperation
+        ) | (
+            SnapshotLifecycle::Reviewable,
+            ChangelogSourceKind::ReleaseWorkspaceEvidence
+        ) | (
+            SnapshotLifecycle::Closed,
+            ChangelogSourceKind::ReleaseWorkspaceEvidence
         )
     )
+}
+
+fn external_observation_notes(
+    database: &db::Database,
+    workspace_id: &str,
+) -> Result<Vec<String>, CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let mut statement = connection
+        .prepare("SELECT observed_at, changed_scope_json, overlapped_operation FROM release_workspace_observations WHERE workspace_id = ?1 ORDER BY id")
+        .map_err(|error| CommandError::new("database_read_failed", "External observations could not be read").with_details(error.to_string()))?;
+    let result = statement
+        .query_map([workspace_id], |row| {
+            let observed_at: String = row.get(0)?;
+            let scope_json: String = row.get(1)?;
+            let overlapped: bool = row.get(2)?;
+            let scope: Vec<String> =
+                serde_json::from_str(&scope_json).map_err(|_| rusqlite::Error::InvalidQuery)?;
+            Ok(format!(
+                "{}{}: {}",
+                observed_at,
+                if overlapped {
+                    " (overlapped an app operation)"
+                } else {
+                    ""
+                },
+                scope.join(", ")
+            ))
+        })
+        .map_err(|error| {
+            CommandError::new(
+                "database_read_failed",
+                "External observations could not be read",
+            )
+            .with_details(error.to_string())
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            CommandError::new(
+                "database_record_invalid",
+                "An external observation is invalid",
+            )
+            .with_details(error.to_string())
+        });
+    result
 }
 
 fn unresolved(candidate: &crate::domain::UpdateCandidate, offline: bool) -> ChangelogEntryResult {
@@ -693,7 +746,13 @@ pub fn generate_changelog(
 ) -> Result<ChangelogArtifact, CommandError> {
     runtime.begin();
     let snapshot = db::load_snapshot(&database, &request.snapshot_id)?;
-    if snapshot.modpack_id != request.modpack_id || !source_allowed(&snapshot, &request.source) {
+    if snapshot.modpack_id != request.modpack_id
+        || !source_allowed(&snapshot, &request.source)
+        || (matches!(
+            request.source,
+            ChangelogSourceKind::ReleaseWorkspaceEvidence
+        ) && request.release_workspace_id.is_none())
+    {
         return Err(CommandError::new(
             "changelog_source_unavailable",
             "The selected snapshot cannot generate a changelog",
@@ -815,10 +874,33 @@ pub fn generate_changelog(
         );
         content.push_str("\n\n");
     }
+    if matches!(
+        request.source,
+        ChangelogSourceKind::ReleaseWorkspaceEvidence
+    ) {
+        let observations = external_observation_notes(
+            &database,
+            request
+                .release_workspace_id
+                .as_deref()
+                .expect("validated workspace id"),
+        )?;
+        if !observations.is_empty() {
+            content.push_str("## Externally observed changes\n\n");
+            content.push_str("These changes were observed in the modpack files outside CM Modpack Util and are not labeled as app-applied updates.\n\n");
+            for observation in observations {
+                content.push_str(&format!("- {observation}\n"));
+            }
+            content.push('\n');
+        }
+    }
     let artifact = ChangelogArtifact {
         id: format!("artifact-{attempt_id}"),
         modpack_id: request.modpack_id.clone(),
         snapshot_id: request.snapshot_id.clone(),
+        release_workspace_id: request.release_workspace_id.clone(),
+        stage: crate::domain::ChangelogStage::Proposed,
+        source_capture_fingerprint: None,
         attempt_id: attempt_id.clone(),
         status,
         introduction: request.introduction.clone(),

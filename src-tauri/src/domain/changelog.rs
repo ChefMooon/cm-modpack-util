@@ -7,6 +7,7 @@ use super::{CommandError, Evidence, InventoryProvider};
 pub enum ChangelogSourceKind {
     DiscoveryCandidates,
     AppliedOperation,
+    ReleaseWorkspaceEvidence,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -19,6 +20,13 @@ pub enum ChangelogGenerationStatus {
     Failed,
     Cancelled,
     Indeterminate,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangelogStage {
+    Proposed,
+    Final,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -123,6 +131,8 @@ pub struct ChangelogCacheRecord {
 pub struct ChangelogGenerationRequest {
     pub modpack_id: String,
     pub snapshot_id: String,
+    #[serde(default)]
+    pub release_workspace_id: Option<String>,
     pub introduction: Option<String>,
     pub offline: bool,
     pub source: ChangelogSourceKind,
@@ -134,6 +144,9 @@ pub struct ChangelogArtifact {
     pub id: String,
     pub modpack_id: String,
     pub snapshot_id: String,
+    pub release_workspace_id: Option<String>,
+    pub stage: ChangelogStage,
+    pub source_capture_fingerprint: Option<String>,
     pub attempt_id: String,
     pub status: ChangelogGenerationStatus,
     pub introduction: Option<String>,
@@ -152,6 +165,7 @@ pub struct ChangelogRevision {
     pub introduction: Option<String>,
     pub created_at: String,
     pub is_current: bool,
+    pub frozen: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -26,6 +26,23 @@ import type {
   ChangelogExport,
   ChangelogExportRequest,
   ChangelogProgress,
+  ReleaseComparison,
+  ReleaseComparisonRequest,
+  ReleaseCreateRequest,
+  ReleaseRecord,
+  ReleaseUpdateRequest,
+  ReleaseWorkspace,
+  StartReleaseWorkspaceRequest,
+  RebaseReleaseWorkspaceRequest,
+  ReleaseWorkspaceDecisionRequest,
+  FinalizeReleaseWorkspaceRequest,
+  SelectReleaseWorkspaceChangelogRequest,
+  CreateReleaseWorkspaceChangelogRequest,
+  PublishReleaseWorkspaceRequest,
+  WithdrawReleaseWorkspaceRequest,
+  ReleaseWorkspaceObservation,
+  ReleaseWorkspaceObservationRecord,
+  ReleaseWorkspaceEvidence,
 } from "./domain";
 
 export async function chooseModpackDirectory(): Promise<string | null> {
@@ -193,4 +210,108 @@ export function listChangelogRevisions(artifactId: string): Promise<ChangelogRev
 
 export function listChangelogExports(artifactId: string): Promise<ChangelogExport[]> {
   return invoke("list_changelog_exports", { artifactId });
+}
+
+export function createRelease(request: ReleaseCreateRequest): Promise<ReleaseRecord> {
+  return invoke("create_release", { request });
+}
+
+export function getRelease(id: string): Promise<ReleaseRecord> {
+  return invoke("get_release", { id });
+}
+
+export function listReleases(modpackId: string): Promise<ReleaseRecord[]> {
+  return invoke("list_releases_command", { modpackId });
+}
+
+export function updateRelease(request: ReleaseUpdateRequest): Promise<ReleaseRecord> {
+  return invoke("update_release", { request });
+}
+
+export function compareReleases(request: ReleaseComparisonRequest): Promise<ReleaseComparison> {
+  return invoke("compare_releases", { request });
+}
+
+export function startReleaseWorkspace(request: StartReleaseWorkspaceRequest): Promise<ReleaseWorkspace> {
+  return invoke("start_release_workspace", { request });
+}
+
+export function loadReleaseWorkspace(id: string): Promise<ReleaseWorkspace> {
+  return invoke("load_release_workspace", { id });
+}
+
+export function listReleaseWorkspaceObservations(workspaceId: string): Promise<ReleaseWorkspaceObservationRecord[]> {
+  return invoke("list_release_workspace_observations", { workspaceId });
+}
+
+export function getReleaseWorkspaceEvidence(workspaceId: string): Promise<ReleaseWorkspaceEvidence> {
+  return invoke("get_release_workspace_evidence", { workspaceId });
+}
+
+export function listReleaseWorkspaces(modpackId: string): Promise<ReleaseWorkspace[]> {
+  return invoke("list_release_workspaces", { modpackId });
+}
+
+export function abandonReleaseWorkspace(workspaceId: string): Promise<ReleaseWorkspace> {
+  return invoke("abandon_release_workspace", { workspaceId });
+}
+
+export function unlinkSnapshotFromReleaseWorkspace(workspaceId: string): Promise<ReleaseWorkspace> {
+  return invoke("unlink_snapshot_from_release_workspace", { workspaceId });
+}
+
+export function rebaseReleaseWorkspace(request: RebaseReleaseWorkspaceRequest): Promise<ReleaseWorkspace> {
+  return invoke("rebase_release_workspace", { request });
+}
+
+export function linkSnapshotToReleaseWorkspace(workspaceId: string, snapshotId: string): Promise<ReleaseWorkspace> {
+  return invoke("link_snapshot_to_release_workspace", { workspaceId, snapshotId });
+}
+
+export function setReleaseWorkspaceDecision(request: ReleaseWorkspaceDecisionRequest): Promise<ReleaseWorkspace> {
+  return invoke("set_release_workspace_decision", { request });
+}
+
+export function finalizeReleaseWorkspace(request: FinalizeReleaseWorkspaceRequest): Promise<ReleaseWorkspace> {
+  return invoke("finalize_release_workspace", { request });
+}
+
+export function selectReleaseWorkspaceChangelog(request: SelectReleaseWorkspaceChangelogRequest): Promise<ReleaseWorkspace> {
+  return invoke("select_release_workspace_changelog", { request });
+}
+
+export function createReleaseWorkspaceChangelog(request: CreateReleaseWorkspaceChangelogRequest): Promise<ChangelogArtifact> {
+  return invoke("create_release_workspace_changelog", { request });
+}
+
+export function publishReleaseWorkspace(request: PublishReleaseWorkspaceRequest): Promise<ReleaseWorkspace> {
+  return invoke("publish_release_workspace", { request });
+}
+
+export function withdrawReleaseWorkspace(request: WithdrawReleaseWorkspaceRequest): Promise<ReleaseWorkspace> {
+  return invoke("withdraw_release_workspace", { request });
+}
+
+export function startReleaseWorkspaceWatcher(workspaceId: string): Promise<void> {
+  return invoke("start_release_workspace_watcher", { workspaceId });
+}
+
+export function stopReleaseWorkspaceWatcher(workspaceId: string): Promise<void> {
+  return invoke("stop_release_workspace_watcher", { workspaceId });
+}
+
+export function reconcileReleaseWorkspaceWatchers(): Promise<number> {
+  return invoke("reconcile_release_workspace_watchers");
+}
+
+export function listenReleaseWorkspaceObservation(
+  handler: (observation: ReleaseWorkspaceObservation) => void,
+): Promise<UnlistenFn> {
+  return listen<ReleaseWorkspaceObservation>("release-workspace-observation", (event) => handler(event.payload));
+}
+
+export function listenReleaseWorkspaceWatcherError(
+  handler: (error: { workspace_id: string; message: string }) => void,
+): Promise<UnlistenFn> {
+  return listen<{ workspace_id: string; message: string }>("release-workspace-watcher-error", (event) => handler(event.payload));
 }

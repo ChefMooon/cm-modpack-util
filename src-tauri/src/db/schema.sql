@@ -1,3 +1,10 @@
+CREATE TABLE IF NOT EXISTS schema_metadata (
+    key TEXT PRIMARY KEY NOT NULL,
+    value TEXT NOT NULL
+);
+
+INSERT OR IGNORE INTO schema_metadata (key, value) VALUES ('schema_version', '2');
+
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY NOT NULL,
     value_json TEXT NOT NULL,
@@ -58,6 +65,7 @@ CREATE TABLE IF NOT EXISTS snapshots (
     outcome TEXT NOT NULL,
     label TEXT,
     result_json TEXT NOT NULL,
+    baseline_capture_json TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     closed_at TEXT,
@@ -81,7 +89,7 @@ CREATE TABLE IF NOT EXISTS snapshot_decisions (
     note TEXT,
     recorded_at TEXT NOT NULL,
     FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE RESTRICT,
-    FOREIGN KEY (candidate_id) REFERENCES snapshot_candidates(id) ON DELETE RESTRICT
+    FOREIGN KEY (candidate_id) REFERENCES release_workspace_candidate_sources(id) ON DELETE RESTRICT
 );
 
 CREATE TABLE IF NOT EXISTS snapshot_notes (
@@ -111,6 +119,7 @@ CREATE TABLE IF NOT EXISTS snapshot_rechecks (
 CREATE TABLE IF NOT EXISTS operation_attempts (
     id TEXT PRIMARY KEY NOT NULL,
     modpack_id TEXT NOT NULL,
+    workspace_id TEXT,
     snapshot_id TEXT,
     predecessor_id TEXT,
     kind TEXT NOT NULL,
@@ -125,8 +134,21 @@ CREATE TABLE IF NOT EXISTS operation_attempts (
     created_at TEXT NOT NULL,
     finished_at TEXT,
     FOREIGN KEY (modpack_id) REFERENCES modpacks(id) ON DELETE RESTRICT,
+    FOREIGN KEY (workspace_id) REFERENCES release_workspaces(id) ON DELETE RESTRICT,
     FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE RESTRICT,
     FOREIGN KEY (predecessor_id) REFERENCES operation_attempts(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS release_workspace_operations (
+    id TEXT PRIMARY KEY NOT NULL,
+    workspace_id TEXT NOT NULL,
+    snapshot_id TEXT,
+    status TEXT NOT NULL,
+    outcome TEXT,
+    created_at TEXT NOT NULL,
+    finished_at TEXT,
+    FOREIGN KEY (workspace_id) REFERENCES release_workspaces(id) ON DELETE RESTRICT,
+    FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE RESTRICT
 );
 
 CREATE TABLE IF NOT EXISTS operation_candidates (
@@ -135,6 +157,7 @@ CREATE TABLE IF NOT EXISTS operation_candidates (
     candidate_id TEXT,
     entry_id TEXT,
     decision TEXT NOT NULL,
+    outcome TEXT NOT NULL DEFAULT 'pending',
     observed_json TEXT NOT NULL,
     FOREIGN KEY (operation_id) REFERENCES operation_attempts(id) ON DELETE RESTRICT,
     FOREIGN KEY (candidate_id) REFERENCES snapshot_candidates(id) ON DELETE RESTRICT
@@ -190,6 +213,9 @@ CREATE TABLE IF NOT EXISTS changelog_artifacts (
     id TEXT PRIMARY KEY NOT NULL,
     modpack_id TEXT NOT NULL,
     snapshot_id TEXT NOT NULL,
+    release_workspace_id TEXT,
+    stage TEXT NOT NULL DEFAULT 'proposed',
+    source_capture_fingerprint TEXT,
     attempt_id TEXT NOT NULL UNIQUE,
     status TEXT NOT NULL,
     introduction TEXT,
@@ -199,6 +225,7 @@ CREATE TABLE IF NOT EXISTS changelog_artifacts (
     updated_at TEXT NOT NULL,
     FOREIGN KEY (modpack_id) REFERENCES modpacks(id) ON DELETE RESTRICT,
     FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE RESTRICT,
+    FOREIGN KEY (release_workspace_id) REFERENCES release_workspaces(id) ON DELETE RESTRICT,
     FOREIGN KEY (attempt_id) REFERENCES changelog_attempts(id) ON DELETE RESTRICT
 );
 
@@ -210,6 +237,7 @@ CREATE TABLE IF NOT EXISTS changelog_revisions (
     introduction TEXT,
     created_at TEXT NOT NULL,
     is_current INTEGER NOT NULL DEFAULT 1,
+    frozen INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (artifact_id) REFERENCES changelog_artifacts(id) ON DELETE RESTRICT,
     FOREIGN KEY (prior_revision_id) REFERENCES changelog_revisions(id) ON DELETE RESTRICT
 );
@@ -227,4 +255,100 @@ CREATE TABLE IF NOT EXISTS changelog_exports (
     diagnostic_json TEXT,
     FOREIGN KEY (artifact_id) REFERENCES changelog_artifacts(id) ON DELETE RESTRICT,
     FOREIGN KEY (revision_id) REFERENCES changelog_revisions(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS releases (
+    id TEXT PRIMARY KEY NOT NULL,
+    modpack_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    version TEXT,
+    description TEXT,
+    notes TEXT,
+    publication_status TEXT NOT NULL,
+    capture_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (modpack_id) REFERENCES modpacks(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS release_snapshots (
+    release_id TEXT PRIMARY KEY NOT NULL,
+    snapshot_id TEXT NOT NULL UNIQUE,
+    FOREIGN KEY (release_id) REFERENCES releases(id) ON DELETE RESTRICT,
+    FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS release_changelog_artifacts (
+    release_id TEXT NOT NULL,
+    artifact_id TEXT NOT NULL,
+    PRIMARY KEY (release_id, artifact_id),
+    FOREIGN KEY (release_id) REFERENCES releases(id) ON DELETE RESTRICT,
+    FOREIGN KEY (artifact_id) REFERENCES changelog_artifacts(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS release_workspaces (
+    id TEXT PRIMARY KEY NOT NULL,
+    modpack_id TEXT NOT NULL,
+    source_snapshot_id TEXT,
+    baseline_origin TEXT NOT NULL DEFAULT 'current_project',
+    baseline_release_id TEXT,
+    baseline_capture_json TEXT,
+    name TEXT NOT NULL,
+    version TEXT,
+    description TEXT,
+    notes TEXT,
+    lifecycle TEXT NOT NULL,
+    evidence_status TEXT NOT NULL,
+    publication_status TEXT NOT NULL,
+    final_capture_json TEXT,
+    final_changelog_revision_id TEXT,
+    finalization_receipt_json TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    abandoned_at TEXT,
+    FOREIGN KEY (modpack_id) REFERENCES modpacks(id) ON DELETE RESTRICT,
+    FOREIGN KEY (source_snapshot_id) REFERENCES snapshots(id) ON DELETE RESTRICT,
+    FOREIGN KEY (baseline_release_id) REFERENCES releases(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS release_workspace_candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id TEXT NOT NULL,
+    source_candidate_id TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    note TEXT,
+    recorded_at TEXT NOT NULL,
+    FOREIGN KEY (workspace_id) REFERENCES release_workspaces(id) ON DELETE RESTRICT,
+    FOREIGN KEY (source_candidate_id) REFERENCES release_workspace_candidate_sources(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS release_workspace_candidate_sources (
+    id TEXT PRIMARY KEY NOT NULL,
+    workspace_id TEXT NOT NULL,
+    source_snapshot_candidate_id TEXT,
+    candidate_json TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    FOREIGN KEY (workspace_id) REFERENCES release_workspaces(id) ON DELETE RESTRICT,
+    FOREIGN KEY (source_snapshot_candidate_id) REFERENCES snapshot_candidates(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS release_workspace_activity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    occurred_at TEXT NOT NULL,
+    message TEXT NOT NULL,
+    FOREIGN KEY (workspace_id) REFERENCES release_workspaces(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS release_workspace_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    changed_scope_json TEXT NOT NULL,
+    evidence_freshness TEXT NOT NULL,
+    blocking_reason TEXT,
+    overlapped_operation INTEGER NOT NULL DEFAULT 0,
+    fingerprint_json TEXT,
+    FOREIGN KEY (workspace_id) REFERENCES release_workspaces(id) ON DELETE RESTRICT
 );

@@ -402,6 +402,7 @@ pub struct RecoveryAcknowledgement {
 pub struct OperationAttempt {
     pub id: String,
     pub modpack_id: String,
+    pub workspace_id: Option<String>,
     pub snapshot_id: Option<String>,
     pub predecessor_id: Option<String>,
     pub kind: OperationKind,
@@ -420,19 +421,35 @@ pub struct OperationAttempt {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PinOperationRequest {
     pub modpack_id: String,
+    pub workspace_id: Option<String>,
+    pub snapshot_id: Option<String>,
     pub entry_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ApplyOperationRequest {
     pub operation_id: String,
-    pub snapshot_id: String,
+    pub workspace_id: String,
+    pub snapshot_id: Option<String>,
     pub candidate_ids: Vec<String>,
+    #[serde(default)]
+    pub predecessor_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ApplyOperationSummary {
+    pub selected: usize,
+    pub skipped: usize,
+    pub deferred: usize,
+    pub blocked: usize,
+    pub pinned: usize,
+    pub uncertain: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ApplyOperationReport {
-    pub snapshot_id: String,
+    pub snapshot_id: Option<String>,
+    pub summary: ApplyOperationSummary,
     pub attempts: Vec<OperationAttempt>,
     pub outcome: OperationOutcome,
 }
@@ -514,6 +531,7 @@ pub struct SnapshotRecord {
     pub updated_at: String,
     pub closed_at: Option<String>,
     pub result: DiscoveryResult,
+    pub baseline_capture: Option<super::ReleaseCapture>,
     pub candidates: Vec<SnapshotCandidateRecord>,
     pub decisions: Vec<SnapshotDecisionRecord>,
     pub notes: Vec<SnapshotNoteRecord>,

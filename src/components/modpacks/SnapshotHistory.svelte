@@ -1,46 +1,74 @@
 <script lang="ts">
   import WarningCircleIcon from "phosphor-svelte/lib/WarningCircleIcon";
   import Button from "../ui/Button.svelte";
-  import type { SnapshotRecord } from "../../lib/domain";
+  import type { ReleaseRecord, ReleaseWorkspace, SnapshotRecord } from "../../lib/domain";
 
   let {
     snapshots,
+    releases = [],
+    workspaces = [],
     loading,
     error,
     filter = $bindable("all"),
     onretry,
     onopen,
+    onopenrelease,
+    onopenworkspace,
     snapshotStatus,
   }: {
     snapshots: SnapshotRecord[];
+    releases?: ReleaseRecord[];
+    workspaces?: ReleaseWorkspace[];
     loading: boolean;
     error: string;
     filter?: "all" | "releases" | "snapshots";
     onretry: () => void | Promise<void>;
     onopen: (snapshot: SnapshotRecord) => void;
+    onopenrelease: (release: ReleaseRecord) => void;
+    onopenworkspace: (workspace: ReleaseWorkspace) => void;
     snapshotStatus: (snapshot: SnapshotRecord) => string;
   } = $props();
 
   const visibleSnapshots = $derived(filter === "releases" ? [] : snapshots);
+  const visibleReleases = $derived(filter === "snapshots" ? [] : releases);
+  const visibleWorkspaces = $derived(filter === "releases" ? [] : workspaces);
 </script>
 
 <div id="versions-panel" class="versions-panel" role="tabpanel" aria-labelledby="versions-tab">
-  <div class="detail-heading"><p class="eyebrow">Versions</p><h2>Snapshot history</h2><p>All currently shows supported snapshot records. Release records are not available yet.</p></div>
+  <div class="detail-heading"><p class="eyebrow">Versions</p><h2>Release and snapshot history</h2><p>Releases preserve named captured state; snapshots preserve update-review evidence.</p></div>
   <div class="version-filters" role="radiogroup" aria-label="Version record type">
     <button class:active={filter === "all"} type="button" role="radio" aria-checked={filter === "all"} onclick={() => (filter = "all")}>All</button>
-    <button type="button" role="radio" aria-checked="false" disabled title="Release support is not available">Releases <span class="unavailable">Unavailable</span></button>
+    <button class:active={filter === "releases"} type="button" role="radio" aria-checked={filter === "releases"} onclick={() => (filter = "releases")}>Releases</button>
     <button class:active={filter === "snapshots"} type="button" role="radio" aria-checked={filter === "snapshots"} onclick={() => (filter = "snapshots")}>Snapshots</button>
   </div>
   {#if loading}
     <div class="inspection-state" role="status"><div class="loader" aria-hidden="true"></div><p>Loading snapshot history...</p></div>
   {:else if error}
     <div class="inspection-state" role="alert"><WarningCircleIcon size={20} /><p>{error}</p><Button variant="secondary" size="sm" type="button" onclick={onretry}>Retry snapshots</Button></div>
-  {:else if filter === "releases"}
-    <div class="inspection-state" role="status"><p class="eyebrow">Releases unavailable</p><p>Release discovery and release records are not implemented.</p></div>
-  {:else if !visibleSnapshots.length}
-    <div class="inspection-state" role="status"><p class="eyebrow">No snapshots</p><p>No supported snapshot records have been created for this modpack.</p></div>
+  {:else if !visibleSnapshots.length && !visibleReleases.length && !visibleWorkspaces.length}
+    <div class="inspection-state" role="status"><p class="eyebrow">No version records</p><p>No release or snapshot records have been created for this modpack.</p></div>
   {:else}
-    <div class="snapshot-list" aria-label="Snapshot history">
+    <div class="snapshot-list" aria-label="Release and snapshot history">
+      {#each visibleWorkspaces as workspace (workspace.id)}
+        <button class="snapshot-row workspace-row" type="button" onclick={() => onopenworkspace(workspace)}>
+          <span><strong>{workspace.metadata.name}</strong><small>{workspace.metadata.version ?? "Unversioned"}</small></span>
+          <span><b>Record</b>Workspace</span>
+          <span><b>Phase</b>{workspace.phase}</span>
+          <span><b>Status</b>{workspace.lifecycle}</span>
+          <span><b>Evidence</b>{workspace.evidence_freshness}</span>
+          <span class="snapshot-action">Open Release</span>
+        </button>
+      {/each}
+      {#each visibleReleases as release (release.id)}
+        <button class="snapshot-row release-row" type="button" onclick={() => onopenrelease(release)}>
+          <span><strong>{release.metadata.name}</strong><small>{release.metadata.version ?? "Unversioned"}</small></span>
+          <span><b>Record</b>Release</span>
+          <span><b>Status</b>{release.metadata.publication_status}</span>
+          <span><b>Captured</b>{release.capture.captured_at}</span>
+          <span><b>Entries</b>{release.capture.state.entries.length}</span>
+          <span class="snapshot-action">Open release</span>
+        </button>
+      {/each}
       {#each visibleSnapshots as snapshot (snapshot.id)}
         <button class="snapshot-row" type="button" onclick={() => onopen(snapshot)}>
           <span><strong>{snapshot.label ?? "Snapshot review"}</strong><small>{snapshot.id}</small></span>
@@ -74,7 +102,8 @@
   .inspection-state { display:grid; justify-items:center; gap:10px; padding:34px 12px 12px; color:var(--color-text-muted); text-align:center; }
   .inspection-state p { margin:0; }
   .loader { width:22px; height:22px; border:2px solid var(--color-border); border-top-color:var(--color-accent); border-radius:50%; animation:spin .8s linear infinite; }
-  .unavailable { color:var(--color-text-subtle); font:10px var(--font-mono); }
+  .release-row { box-shadow: inset 4px 0 0 var(--color-accent); }
+  .workspace-row { box-shadow: inset 4px 0 0 var(--color-warning); }
   .snapshot-row:focus-visible,.version-filters button:focus-visible { outline:none; box-shadow:var(--focus-ring); }
   @keyframes spin { to { transform:rotate(360deg); } }
   @media (max-width:820px) { .version-filters { padding-inline:18px; flex-wrap:wrap; }.snapshot-list { margin-inline:18px; }.snapshot-row { grid-template-columns:1fr 1fr; gap:10px; }.snapshot-row > span:first-child,.snapshot-action { grid-column:1 / -1; } }

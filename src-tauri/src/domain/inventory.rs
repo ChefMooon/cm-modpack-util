@@ -167,7 +167,7 @@ fn parse_entry(root: &Path, metadata_path: &Path, metadata: &Value) -> Inventory
         local_id,
         metadata_path: metadata_path.to_string_lossy().into_owned(),
         name: string_evidence(metadata, "name"),
-        version: string_evidence(metadata, "version"),
+        version: filename_version_evidence(metadata),
         provider,
         side: side_evidence(metadata),
         pin: pin_evidence(metadata),
@@ -184,6 +184,32 @@ fn string_evidence(metadata: &Value, key: &str) -> Evidence<String> {
         },
         None => Evidence::Unavailable,
     }
+}
+
+fn filename_version_evidence(metadata: &Value) -> Evidence<String> {
+    let Some(filename) = metadata.get("filename") else {
+        return Evidence::Unavailable;
+    };
+    let Some(filename) = filename.as_str() else {
+        return Evidence::Malformed {
+            message: "metadata field 'filename' must be a non-empty string".to_string(),
+        };
+    };
+    let Some(stem) = filename.strip_suffix(".jar") else {
+        return Evidence::Unavailable;
+    };
+    let parts: Vec<&str> = stem.split('-').collect();
+    let version_start = parts.iter().rposition(|part| {
+        part.len() > 2
+            && part
+                .chars()
+                .next()
+                .is_some_and(|character| character.is_ascii_digit())
+            && part.contains('.')
+    });
+    version_start
+        .map(|index| Evidence::Observed(parts[index..].join("-")))
+        .unwrap_or(Evidence::Unavailable)
 }
 
 fn side_evidence(metadata: &Value) -> Evidence<InventorySide> {
@@ -360,12 +386,13 @@ pub fn observe_git(root: &Path) -> GitStatusObservation {
 
 #[cfg(test)]
 mod tests {
-    use super::{aggregate, observe_git, packwiz_slug, read_inventory};
+    use super::{aggregate, filename_version_evidence, observe_git, packwiz_slug, read_inventory};
     use crate::domain::{Evidence, GitWorkingTreeState, InventoryProvider, InventorySide};
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
+    use toml::Value;
 
     fn fixture(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -387,6 +414,9 @@ mod tests {
         assert_eq!(counts.pinned, 1);
         assert_eq!(counts.unpinned, 2);
         assert!(entries[0].page_link.is_some());
+        assert!(matches!(entries[0].version, Evidence::Unavailable));
+        assert!(matches!(entries[1].version, Evidence::Unavailable));
+        assert!(matches!(entries[2].version, Evidence::Unavailable));
     }
 
     #[test]
@@ -405,6 +435,22 @@ mod tests {
         assert!(!matches!(
             entries[0].provider,
             Evidence::Observed(InventoryProvider::Curseforge)
+        ));
+    }
+
+    #[test]
+    fn filename_version_extracts_human_readable_version() {
+        let metadata: Value = "filename = \"colourfulclocks-neoforge-1.21.1-0.1.4-beta.jar\""
+            .parse()
+            .unwrap();
+        assert_eq!(
+            filename_version_evidence(&metadata),
+            Evidence::Observed("0.1.4-beta".to_string())
+        );
+
+        assert!(matches!(
+            filename_version_evidence(&"filename = 42".parse().unwrap()),
+            Evidence::Malformed { .. }
         ));
     }
 

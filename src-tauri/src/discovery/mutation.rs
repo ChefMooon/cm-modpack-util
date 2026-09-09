@@ -1,9 +1,9 @@
 use super::{compatibility, fingerprint, operations::DiscoveryRuntime, process};
 use crate::db::{self, Database};
 use crate::domain::{
-    ApplyOperationReport, ApplyOperationRequest, CommandError, Evidence, OperationAttempt,
-    OperationKind, OperationOutcome, OperationStatus, OperationVerification, PinOperationRequest,
-    RecoveryObservation, SnapshotDecision, SnapshotLifecycle,
+    ApplyOperationReport, ApplyOperationRequest, ApplyOperationSummary, CancellationState,
+    CommandError, Evidence, OperationAttempt, OperationKind, OperationOutcome, OperationStatus,
+    OperationVerification, PinOperationRequest, RecoveryObservation, ReleaseCandidateOutcome,
 };
 use std::path::Path;
 use tauri::State;
@@ -49,6 +49,15 @@ fn run_pin_operation(
     request: PinOperationRequest,
     pin: bool,
 ) -> Result<OperationAttempt, CommandError> {
+    if let Some(workspace_id) = &request.workspace_id {
+        let workspace = db::load_release_workspace_inner(database, workspace_id)?;
+        if workspace.modpack_id != request.modpack_id {
+            return Err(CommandError::new(
+                "workspace_snapshot_mismatch",
+                "Pin request does not match the release workspace baseline",
+            ));
+        }
+    }
     let root = db::registered_modpack_path(database, &request.modpack_id)?;
     let root = Path::new(&root).canonicalize().map_err(|error| {
         CommandError::new(
@@ -135,6 +144,7 @@ fn run_pin_operation(
     let attempt = OperationAttempt {
         id,
         modpack_id: request.modpack_id,
+        workspace_id: None,
         snapshot_id: None,
         predecessor_id: None,
         kind: if pin {
@@ -197,40 +207,94 @@ fn run_apply_operation(
             "An apply operation requires an ID and at least one selected candidate",
         ));
     }
-    let snapshot = db::load_snapshot(database, &request.snapshot_id)?;
-    if snapshot.lifecycle != SnapshotLifecycle::Reviewable
-        || !matches!(
-            snapshot.outcome,
-            crate::domain::DiscoveryOutcomeKind::Normal
-        )
-    {
+    let workspace = db::load_release_workspace_inner(database, &request.workspace_id)?;
+    if request.snapshot_id != workspace.source_snapshot_id {
         return Err(CommandError::new(
-            "snapshot_not_reviewable",
-            "Only a current reviewable snapshot can be applied",
+            "workspace_snapshot_mismatch",
+            "Apply request does not match the release workspace baseline",
         ));
     }
+    let summary = ApplyOperationSummary {
+        selected: workspace
+            .candidates
+            .iter()
+            .filter(|candidate| {
+                matches!(
+                    candidate.decision,
+                    crate::domain::ReleaseCandidateDecision::Selected
+                )
+            })
+            .count(),
+        skipped: workspace
+            .candidates
+            .iter()
+            .filter(|candidate| {
+                matches!(
+                    candidate.decision,
+                    crate::domain::ReleaseCandidateDecision::Skipped
+                )
+            })
+            .count(),
+        deferred: workspace
+            .candidates
+            .iter()
+            .filter(|candidate| {
+                matches!(
+                    candidate.decision,
+                    crate::domain::ReleaseCandidateDecision::Deferred
+                )
+            })
+            .count(),
+        blocked: workspace
+            .candidates
+            .iter()
+            .filter(|candidate| {
+                matches!(
+                    candidate.decision,
+                    crate::domain::ReleaseCandidateDecision::Blocked
+                )
+            })
+            .count(),
+        pinned: workspace
+            .candidates
+            .iter()
+            .filter(|candidate| {
+                matches!(
+                    candidate.decision,
+                    crate::domain::ReleaseCandidateDecision::Pinned
+                )
+            })
+            .count(),
+        uncertain: workspace
+            .candidates
+            .iter()
+            .filter(|candidate| {
+                matches!(
+                    candidate.decision,
+                    crate::domain::ReleaseCandidateDecision::Uncertain
+                )
+            })
+            .count(),
+    };
     let project_root = Path::new(&db::registered_modpack_path(
         database,
-        &snapshot.modpack_id,
+        &workspace.modpack_id,
     )?)
     .canonicalize()
     .map_err(|error| {
         CommandError::new("project_unavailable", "Project root is unavailable")
             .with_details(error.to_string())
     })?;
-    let before_snapshot = snapshot
-        .result
-        .diagnostics
-        .fingerprint
+    let before_snapshot = workspace
+        .baseline_capture
         .as_ref()
+        .map(|capture| capture.state.source_fingerprint.clone())
         .ok_or_else(|| {
             CommandError::new(
-                "snapshot_fingerprint_unavailable",
-                "Snapshot has no usable before-state fingerprint",
+                "baseline_fingerprint_unavailable",
+                "Release workspace has no usable baseline fingerprint",
             )
-        })?
-        .before
-        .clone();
+        })?;
     let current = fingerprint::collect(&project_root).map_err(|error| {
         CommandError::new(
             "project_changed",
@@ -240,9 +304,15 @@ fn run_apply_operation(
     })?;
     let comparison = fingerprint::compare(before_snapshot, current);
     if !comparison.comparable || !comparison.unchanged {
+        db::update_release_workspace_lifecycle(
+            database,
+            &request.workspace_id,
+            crate::domain::ReleaseWorkspaceLifecycle::RecoveryRequired,
+            "Live project fingerprint no longer matches the immutable release baseline",
+        )?;
         return Err(CommandError::new(
-            "snapshot_stale",
-            "Project changed since the selected snapshot",
+            "baseline_stale",
+            "Project changed since the release baseline was captured",
         ));
     }
     let executable = compatibility::resolve_executable()?;
@@ -255,7 +325,21 @@ fn run_apply_operation(
             "Packwiz executable is outside the tested mutation profile",
         ));
     }
-    let _lease = runtime.mutation_coordinator.acquire(&snapshot.modpack_id)?;
+    let _lease = runtime
+        .mutation_coordinator
+        .acquire(&workspace.modpack_id)?;
+    db::update_release_workspace_lifecycle(
+        database,
+        &request.workspace_id,
+        crate::domain::ReleaseWorkspaceLifecycle::Applying,
+        "Release-owned Packwiz apply started",
+    )?;
+    db::start_release_workspace_operation(
+        database,
+        &request.operation_id,
+        &request.workspace_id,
+        request.snapshot_id.as_deref(),
+    )?;
     let cancel = runtime.begin_operation_cancellation(&request.operation_id)?;
     let mut attempts = Vec::new();
     let mut succeeded = 0usize;
@@ -265,29 +349,29 @@ fn run_apply_operation(
             cancelled = true;
             break;
         }
-        let candidate = snapshot
-            .candidates
-            .iter()
-            .find(|candidate| candidate.id == *candidate_id)
-            .ok_or_else(|| {
+        let candidate_json: String =
+            db::candidate_source_json(database, &request.workspace_id, candidate_id)?;
+        let candidate: crate::domain::UpdateCandidate = serde_json::from_str(&candidate_json)
+            .map_err(|error| {
                 CommandError::new(
                     "candidate_not_found",
-                    "Selected candidate does not belong to the snapshot",
+                    "Selected candidate evidence is invalid",
                 )
+                .with_details(error.to_string())
             })?;
-        let decision = snapshot
-            .decisions
+        let decision = workspace
+            .candidates
             .iter()
-            .filter(|decision| decision.candidate_id == *candidate_id)
+            .filter(|decision| decision.source_candidate_id == *candidate_id)
             .last()
             .map(|decision| &decision.decision);
-        if decision != Some(&SnapshotDecision::Selected) {
+        if decision != Some(&crate::domain::ReleaseCandidateDecision::Selected) {
             return Err(CommandError::new(
                 "candidate_not_selected",
                 "Every apply target must have a selected decision",
             ));
         }
-        let expected_path = match &candidate.candidate.local_path {
+        let expected_path = match &candidate.local_path {
             Evidence::Observed(path) => Path::new(path).canonicalize().map_err(|_| {
                 CommandError::new(
                     "candidate_path_unavailable",
@@ -354,11 +438,11 @@ fn run_apply_operation(
             Evidence::Observed(value) => Some(value.clone()),
             _ => None,
         });
-        let available_artifact = match &candidate.candidate.available_version {
+        let available_artifact = match &candidate.available_version {
             Evidence::Observed(value) => value.clone(),
             _ => "unknown".to_string(),
         };
-        let current_artifact = match &candidate.candidate.current_version {
+        let current_artifact = match &candidate.current_version {
             Evidence::Observed(value) => value.as_str(),
             _ => "",
         };
@@ -390,6 +474,12 @@ fn run_apply_operation(
                 && verified_state,
         };
         let verified = verification.verified;
+        let candidate_outcome = classify_candidate_outcome(
+            verified,
+            before.as_ref(),
+            after.as_ref(),
+            output.cancellation.clone(),
+        );
         if verified {
             succeeded += 1;
         }
@@ -409,9 +499,10 @@ fn run_apply_operation(
         };
         let attempt = OperationAttempt {
             id: format!("{}-{}", request.operation_id, index),
-            modpack_id: snapshot.modpack_id.clone(),
-            snapshot_id: Some(snapshot.id.clone()),
-            predecessor_id: None,
+            modpack_id: workspace.modpack_id.clone(),
+            workspace_id: Some(request.workspace_id.clone()),
+            snapshot_id: request.snapshot_id.clone(),
+            predecessor_id: request.predecessor_id.clone(),
             kind: OperationKind::Apply,
             status: if verified {
                 OperationStatus::Succeeded
@@ -455,6 +546,7 @@ fn run_apply_operation(
             candidate_id,
             &entry.local_id,
             &serde_json::to_string(&entry).unwrap_or_else(|_| "{}".to_string()),
+            candidate_outcome,
         )?;
         attempts.push(attempt);
         if cancelled {
@@ -462,17 +554,22 @@ fn run_apply_operation(
         }
     }
     runtime.clear_operation_cancellation(&request.operation_id);
-    let outcome = if cancelled {
-        OperationOutcome::Cancelled
-    } else if succeeded == request.candidate_ids.len() {
-        OperationOutcome::Complete
-    } else if succeeded > 0 {
-        OperationOutcome::Partial
+    let outcome = classify_operation_outcome(cancelled, succeeded, request.candidate_ids.len());
+    let lifecycle = if matches!(outcome, OperationOutcome::Complete) {
+        crate::domain::ReleaseWorkspaceLifecycle::ReadyToFinalize
     } else {
-        OperationOutcome::Failed
+        crate::domain::ReleaseWorkspaceLifecycle::RecoveryRequired
     };
+    db::update_release_workspace_lifecycle(
+        database,
+        &request.workspace_id,
+        lifecycle,
+        "Release-owned apply completed with recorded candidate outcomes",
+    )?;
+    db::finish_release_workspace_operation(database, &request.operation_id, &outcome)?;
     Ok(ApplyOperationReport {
         snapshot_id: request.snapshot_id,
+        summary,
         attempts,
         outcome,
     })
@@ -490,6 +587,38 @@ fn recovery_observation(root: &Path) -> RecoveryObservation {
             Some("git_unavailable".to_string())
         },
         diagnostic: None,
+    }
+}
+
+fn classify_candidate_outcome(
+    verified: bool,
+    before: Option<&crate::domain::ModpackFingerprint>,
+    after: Option<&crate::domain::ModpackFingerprint>,
+    cancellation: CancellationState,
+) -> ReleaseCandidateOutcome {
+    if verified {
+        ReleaseCandidateOutcome::Applied
+    } else if matches!(
+        cancellation,
+        CancellationState::UserCancelled | CancellationState::Terminated
+    ) {
+        ReleaseCandidateOutcome::Retryable
+    } else if matches!((before, after), (Some(before), Some(after)) if before == after) {
+        ReleaseCandidateOutcome::FailedBeforeChange
+    } else {
+        ReleaseCandidateOutcome::ChangedButUnverified
+    }
+}
+
+fn classify_operation_outcome(cancelled: bool, succeeded: usize, total: usize) -> OperationOutcome {
+    if cancelled {
+        OperationOutcome::Cancelled
+    } else if succeeded == total {
+        OperationOutcome::Complete
+    } else if succeeded > 0 {
+        OperationOutcome::Partial
+    } else {
+        OperationOutcome::Failed
     }
 }
 
@@ -523,6 +652,22 @@ fn normalize_target_version(
 #[cfg(test)]
 mod tests {
     use super::compatibility;
+    use crate::domain::{CancellationState, FingerprintEntry, ModpackFingerprint};
+
+    fn fingerprint(hash: &str) -> ModpackFingerprint {
+        ModpackFingerprint {
+            root: "/fixture".into(),
+            entries: vec![FingerprintEntry {
+                relative_path: "pack.toml".into(),
+                kind: "file".into(),
+                size: Some(12),
+                modified_ns: None,
+                content_hash: Some(hash.into()),
+            }],
+            complete: true,
+            diagnostic: None,
+        }
+    }
 
     #[test]
     fn mutation_profile_is_not_interactive() {
@@ -541,6 +686,70 @@ mod tests {
                 "0.4.13",
             ),
             Some("0.4.14".to_string())
+        );
+    }
+
+    #[test]
+    fn classifies_candidate_results_for_stable_changed_and_cancelled_fixtures() {
+        let before = fingerprint("before");
+        let unchanged = fingerprint("before");
+        let changed = fingerprint("after");
+
+        assert_eq!(
+            super::classify_candidate_outcome(
+                true,
+                Some(&before),
+                Some(&changed),
+                CancellationState::NotAttempted,
+            ),
+            crate::domain::ReleaseCandidateOutcome::Applied
+        );
+        assert_eq!(
+            super::classify_candidate_outcome(
+                false,
+                Some(&before),
+                Some(&unchanged),
+                CancellationState::NotAttempted,
+            ),
+            crate::domain::ReleaseCandidateOutcome::FailedBeforeChange
+        );
+        assert_eq!(
+            super::classify_candidate_outcome(
+                false,
+                Some(&before),
+                Some(&changed),
+                CancellationState::NotAttempted,
+            ),
+            crate::domain::ReleaseCandidateOutcome::ChangedButUnverified
+        );
+        assert_eq!(
+            super::classify_candidate_outcome(
+                false,
+                Some(&before),
+                Some(&changed),
+                CancellationState::UserCancelled,
+            ),
+            crate::domain::ReleaseCandidateOutcome::Retryable
+        );
+    }
+
+    #[test]
+    fn classifies_partial_and_cancelled_operation_results() {
+        assert_eq!(
+            super::classify_operation_outcome(false, 2, 2),
+            crate::domain::OperationOutcome::Complete
+        );
+        assert_eq!(
+            super::classify_operation_outcome(false, 1, 2),
+            crate::domain::OperationOutcome::Partial
+        );
+        assert_eq!(
+            super::classify_operation_outcome(false, 0, 2),
+            crate::domain::OperationOutcome::Failed
+        );
+        assert_eq!(
+            super::classify_operation_outcome(true, 0, 2),
+            crate::domain::OperationOutcome::Cancelled
         );
     }
 }

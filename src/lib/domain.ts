@@ -149,6 +149,8 @@ export type ModpackOverview = {
 
 export type ObservationFreshness = "current" | "stale" | "unavailable";
 
+export type ReleaseWorkspaceWatcherStatus = "stopped" | "starting" | "observing" | "stopping" | "error";
+
 export type RefreshResult = {
   status: OperationStatus;
   freshness: ObservationFreshness;
@@ -158,7 +160,251 @@ export type RefreshResult = {
   error: CommandError | null;
 };
 
-export type ChangelogSourceKind = "discovery_candidates" | "applied_operation";
+export const RELEASE_CAPTURE_SCHEMA_VERSION = 1;
+export type ReleasePublicationStatus = "draft" | "provisional" | "published" | "withdrawn";
+export type ReleaseMetadata = {
+  name: string;
+  version: string | null;
+  description: string | null;
+  notes: string | null;
+  publication_status: ReleasePublicationStatus;
+};
+export type ReleaseEligibilitySource =
+  | "validated_current_state"
+  | "reviewable_snapshot"
+  | "completed_operation"
+  | "partial_operation";
+export type ReleaseEligibility = {
+  eligible: boolean;
+  provisional: boolean;
+  source: ReleaseEligibilitySource | null;
+  validation: ValidationResult[];
+  diagnostic: string | null;
+};
+export type CapturedRuntime = {
+  minecraft_version: Evidence<string>;
+  loader: Evidence<string>;
+};
+export type CapturedEntry = {
+  local_id: string;
+  metadata_path: string;
+  name: Evidence<string>;
+  version: Evidence<string>;
+  provider: Evidence<InventoryProvider>;
+  side: Evidence<InventorySide>;
+  source_url: Evidence<string>;
+  pin: Evidence<boolean>;
+  capture_provenance: string;
+};
+export type CapturedPackwizState = {
+  schema_version: number;
+  pack_name: Evidence<string>;
+  pack_author: Evidence<string>;
+  pack_version: Evidence<string>;
+  pack_format: Evidence<string>;
+  index_file: Evidence<string>;
+  runtime: CapturedRuntime;
+  entries: CapturedEntry[];
+  source_fingerprint: ModpackFingerprint;
+};
+export type GitProvenance = {
+  repository_root: string | null;
+  branch: Evidence<string>;
+  commit: Evidence<string>;
+  tag: Evidence<string>;
+  remote: Evidence<string>;
+  working_tree: GitWorkingTreeState;
+  merge_or_rebase_in_progress: boolean;
+  history_available: boolean;
+  diagnostic: string | null;
+};
+export type ReleaseCapture = {
+  schema_version: number;
+  captured_at: string;
+  capture_fingerprint: string;
+  eligibility: ReleaseEligibility;
+  state: CapturedPackwizState;
+  provenance: GitProvenance;
+  snapshot_id: string | null;
+  changelog_artifact_ids: string[];
+};
+export type ReleaseRecord = {
+  id: string;
+  modpack_id: string;
+  metadata: ReleaseMetadata;
+  capture: ReleaseCapture;
+  created_at: string;
+  updated_at: string;
+};
+export type ReleaseWorkspaceLifecycle =
+  | "draft"
+  | "applying"
+  | "recovery_required"
+  | "provisional"
+  | "ready_to_finalize"
+  | "finalized"
+  | "published"
+  | "withdrawn"
+  | "abandoned";
+export type ReleaseWorkspaceEvidenceStatus = "baseline" | "stale" | "unavailable" | "unverified";
+export type ReleaseWorkspacePhase = "review" | "apply" | "resolve" | "verify" | "finalize" | "publish";
+export type ReleaseWorkspaceEvidenceFreshness = "current" | "stale" | "unavailable";
+export type ReleaseBaselineOrigin = "current_project" | "snapshot" | "finalized_release" | "detached_snapshot";
+export type ReleaseCandidateDecision =
+  | "undecided"
+  | "selected"
+  | "skipped"
+  | "deferred"
+  | "blocked"
+  | "pinned"
+  | "uncertain";
+export type ReleaseWorkspaceCandidate = {
+  id: number;
+  source_candidate_id: string;
+  candidate: UpdateCandidate;
+  decision: ReleaseCandidateDecision;
+  note: string | null;
+  recorded_at: string;
+};
+export type ReleaseWorkspaceActivity = {
+  id: number;
+  event_type: string;
+  occurred_at: string;
+  message: string;
+};
+export type ReleaseWorkspaceObservation = {
+  workspace_id: string;
+  changed_scope: string[];
+  evidence_freshness: ReleaseWorkspaceEvidenceFreshness;
+  blocking_reason: string | null;
+  overlapped_operation: boolean;
+  fingerprint: ModpackFingerprint | null;
+};
+export type ReleaseWorkspaceObservationRecord = ReleaseWorkspaceObservation & {
+  id: number;
+  observed_at: string;
+};
+export type ReleaseWorkspaceEvidence = {
+  workspace: ReleaseWorkspace;
+  inventory: InventoryEntry[];
+  observations: ReleaseWorkspaceObservationRecord[];
+};
+export type ReleaseWorkspace = {
+  id: string;
+  modpack_id: string;
+  source_snapshot_id: string | null;
+  baseline_origin: ReleaseBaselineOrigin;
+  baseline_release_id: string | null;
+  baseline_capture: ReleaseCapture | null;
+  metadata: ReleaseMetadata;
+  lifecycle: ReleaseWorkspaceLifecycle;
+  evidence_status: ReleaseWorkspaceEvidenceStatus;
+  publication_status: ReleasePublicationStatus;
+  final_capture: unknown | null;
+  final_changelog_revision_id: string | null;
+  finalization_receipt: unknown | null;
+  phase: ReleaseWorkspacePhase;
+  blocking_reason: string | null;
+  evidence_freshness: ReleaseWorkspaceEvidenceFreshness;
+  primary_next_action: string;
+  created_at: string;
+  updated_at: string;
+  abandoned_at: string | null;
+  candidates: ReleaseWorkspaceCandidate[];
+  activity: ReleaseWorkspaceActivity[];
+};
+export type StartReleaseWorkspaceRequest = {
+  modpack_id: string;
+  snapshot_id: string | null;
+  baseline_release_id: string | null;
+  metadata: ReleaseMetadata;
+};
+
+export type FinalizeReleaseWorkspaceRequest = {
+  workspace_id: string;
+  final_changelog_revision_id: string;
+};
+export type SelectReleaseWorkspaceChangelogRequest = {
+  workspace_id: string;
+  changelog_revision_id: string | null;
+};
+export type CreateReleaseWorkspaceChangelogRequest = {
+  workspace_id: string;
+  introduction: string | null;
+};
+export type PublishReleaseWorkspaceRequest = { workspace_id: string };
+export type WithdrawReleaseWorkspaceRequest = { workspace_id: string };
+export type RebaseReleaseWorkspaceRequest = { workspace_id: string };
+export type ReleaseWorkspaceDecisionRequest = {
+  workspace_id: string;
+  source_candidate_id: string;
+  decision: ReleaseCandidateDecision;
+  note: string | null;
+};
+export type ReleaseCreateRequest = {
+  modpack_id: string;
+  metadata: ReleaseMetadata;
+  snapshot_id: string | null;
+  changelog_artifact_ids: string[];
+  provisional: boolean;
+};
+export type ReleaseUpdateRequest = {
+  release_id: string;
+  metadata: ReleaseMetadata;
+};
+export type ReleaseComparisonRequest = {
+  before_release_id: string;
+  after_release_id: string;
+};
+export type ReleaseStateChange =
+  | "added"
+  | "removed"
+  | "version_changed"
+  | "provider_changed"
+  | "source_changed"
+  | "side_changed"
+  | "unchanged"
+  | "ambiguous";
+export type ReleaseComparisonEntry = {
+  identity: string;
+  change: ReleaseStateChange;
+  before: CapturedEntry | null;
+  after: CapturedEntry | null;
+  diagnostic: string | null;
+};
+export type ReleaseRuntimeChange = {
+  minecraft_version_before: Evidence<string>;
+  minecraft_version_after: Evidence<string>;
+  loader_before: Evidence<string>;
+  loader_after: Evidence<string>;
+};
+export type CommitDifference = {
+  before: Evidence<string>;
+  after: Evidence<string>;
+  comparable: boolean;
+  diagnostic: string | null;
+};
+export type ReleaseComparison = {
+  before_release_id: string;
+  after_release_id: string;
+  entries: ReleaseComparisonEntry[];
+  runtime: ReleaseRuntimeChange | null;
+  notes_before: string | null;
+  notes_after: string | null;
+  changelog_artifacts_before: ChangelogArtifact[];
+  changelog_artifacts_after: ChangelogArtifact[];
+  commits: CommitDifference;
+  diagnostic: string | null;
+};
+export type GitHubEnrichmentStatus = "deferred" | "not_requested" | "unavailable";
+export type GitHubEnrichment = {
+  status: GitHubEnrichmentStatus;
+  repository: string | null;
+  imported_fields: string[];
+  diagnostic: string | null;
+};
+
+export type ChangelogSourceKind = "discovery_candidates" | "applied_operation" | "release_workspace_evidence";
 export type ChangelogGenerationStatus =
   | "pending"
   | "running"
@@ -216,11 +462,13 @@ export type ChangelogEntryResult = {
 export type ChangelogGenerationRequest = {
   modpack_id: string;
   snapshot_id: string;
+  release_workspace_id?: string | null;
   introduction: string | null;
   offline: boolean;
   source: ChangelogSourceKind;
   request_fingerprint: string;
 };
+export type ChangelogStage = "proposed" | "final";
 export type ChangelogProgress = {
   attempt_id: string;
   completed: number;
@@ -232,6 +480,9 @@ export type ChangelogArtifact = {
   id: string;
   modpack_id: string;
   snapshot_id: string;
+  release_workspace_id: string | null;
+  stage: ChangelogStage;
+  source_capture_fingerprint: string | null;
   attempt_id: string;
   status: ChangelogGenerationStatus;
   introduction: string | null;
@@ -248,6 +499,7 @@ export type ChangelogRevision = {
   introduction: string | null;
   created_at: string;
   is_current: boolean;
+  frozen: boolean;
 };
 export type ChangelogRevisionRequest = {
   artifact_id: string;
@@ -396,6 +648,7 @@ export type RecoveryAcknowledgement = {
 export type OperationAttempt = {
   id: string;
   modpack_id: string;
+  workspace_id: string | null;
   snapshot_id: string | null;
   predecessor_id: string | null;
   kind: OperationKind;
@@ -412,15 +665,27 @@ export type OperationAttempt = {
 };
 export type PinOperationRequest = {
   modpack_id: string;
+  workspace_id: string | null;
   entry_id: string;
 };
 export type ApplyOperationRequest = {
   operation_id: string;
-  snapshot_id: string;
+  workspace_id: string;
+  snapshot_id: string | null;
   candidate_ids: string[];
+  predecessor_id?: string | null;
+};
+export type ApplyOperationSummary = {
+  selected: number;
+  skipped: number;
+  deferred: number;
+  blocked: number;
+  pinned: number;
+  uncertain: number;
 };
 export type ApplyOperationReport = {
-  snapshot_id: string;
+  snapshot_id: string | null;
+  summary: ApplyOperationSummary;
   attempts: OperationAttempt[];
   outcome: OperationOutcome;
 };
@@ -438,6 +703,7 @@ export type SnapshotRecord = {
   updated_at: string;
   closed_at: string | null;
   result: DiscoveryResult;
+  baseline_capture: ReleaseCapture | null;
   candidates: SnapshotCandidateRecord[];
   decisions: SnapshotDecisionRecord[];
   notes: SnapshotNoteRecord[];

@@ -2,7 +2,17 @@
 
 A local-first foundation for CM modpacks, built with **Tauri 2**, **SvelteKit**, **TypeScript**, **Vite**, and **SQLite**.
 
-The v0.0.7 alpha provides local Packwiz modpack registration, inventory inspection, durable update-check snapshots, review decisions and notes, verified positional-slug pin/unpin operations, sequential selected updates, mutation history, modpack overview facts, changelog generation, Markdown export, and the Modpacks, Activity, and Settings shell. It reads Packwiz evidence offline for discovery and uses normal Packwiz provider/network behavior for explicitly selected targeted updates. Each update is verified and recorded independently; failures are reported without stopping later selected targets.
+The v0.0.8 alpha provides local Packwiz modpack registration, inventory inspection, durable update-check snapshots, recoverable release workspaces, captured-state comparison, review decisions and notes, verified positional-slug pin/unpin operations, sequential selected updates, mutation history, modpack overview facts, changelog generation, Markdown export, and the Modpacks, Releases, Activity, and Settings shell. It reads Packwiz evidence offline for snapshot baselines and release comparison, while explicitly selected targeted updates and changelog generation may use their documented provider/network behavior. New releases begin from reviewable snapshots; direct capture-to-release creation is rejected.
+
+## v0.0.8 release boundaries
+
+- **Workspace:** A release workspace starts explicitly from a reviewable snapshot, retains release-owned decisions, and remains resumable until the user abandons or finalizes it. Snapshot evidence and workspace history are separate.
+- **Comparison:** The Releases screen compares two persisted captures. It does not reread the active Packwiz directory, check out historical Git state, or replace unavailable evidence with current files.
+- **Metadata:** Name, version, description, notes, publication status, and an optional snapshot association are application-owned fields. Capture time, fingerprints, provenance, and captured Packwiz evidence remain immutable.
+- **Git:** Git provenance is optional. No repository, commit, tag, remote, or clean working tree is required. No-Git, dirty, conflicted, missing-commit, and unavailable-history states remain explicit evidence.
+- **Provisional releases:** Partial but eligible evidence may remain visibly provisional. Promotion to published status requires a fresh validated capture; editing status alone cannot promote stale evidence.
+- **Network boundary:** GitHub enrichment is deferred. Local release creation, loading, and comparison make no GitHub request and do not require an account or public remote.
+- **Database reset:** The alpha schema has a compatibility sentinel and no migrations. If startup reports a missing or incompatible schema, stop the app and delete the database plus its WAL and SHM sidecars using the [alpha database behavior](#alpha-database-behavior) instructions.
 
 ## Changelog workflow
 
@@ -56,6 +66,7 @@ The Vite-only frontend can also be run with `npm run dev`.
 
 - `src/routes/+page.svelte` — Modpack registration, validation, metadata, and lifecycle workflow
 - `src/routes/activity/+page.svelte` — durable snapshot and operation history
+- `src/routes/releases/+page.svelte` — named release history, capture metadata, and comparison
 - `src/routes/settings/+page.svelte` — settings screen with persisted theme preference
 - `src/lib/settings.ts` — product-owned typed settings invocation helper
 - `src/lib/domain.ts` — shared modpack, validation, and operation contracts
@@ -101,12 +112,12 @@ All of these settings can be reset from the Advanced section of the Settings pag
 - **Activity:** Operation history is not yet implemented because Packwiz execution, filesystem scans beyond registration evidence, and network requests remain unavailable.
 - **Source of truth:** Packwiz files remain authoritative for external modpack state. SQLite owns application metadata, observed evidence, validation results, and lifecycle state.
 - **Safety:** Rust owns canonicalization and registered-modpack containment. Equivalent path spellings are rejected as duplicates, and relative, nonexistent, escaping, and unregistered paths are rejected. Symlinks and junctions follow canonical operating-system path resolution and remain inside the registered root.
-- **Database:** Startup applies the idempotent settings and modpack schemas with `CREATE TABLE IF NOT EXISTS`; no migration framework is present.
+- **Database:** Startup bootstraps only an empty database and checks the schema compatibility sentinel thereafter; no migration framework is present.
 - **Accessibility:** The shell preserves visible focus, keyboard navigation, accessible names, tooltips for unfamiliar controls, and color-independent status meaning.
 
 ## Alpha database behavior
 
-- The local SQLite database is initialized with the current schema at startup.
+- The local SQLite database is initialized with the current schema only when it is empty. Existing databases must contain the current schema compatibility sentinel.
 - There is no migration, backup, or in-app database rebuild workflow in alpha.
 - When a clean reset is needed during development, stop the app and delete `cm-modpack-util.sqlite`, `cm-modpack-util.sqlite-wal`, and `cm-modpack-util.sqlite-shm` from Tauri's application data directory. The app recreates the application database on the next launch. Existing alpha installations using `settings.sqlite` must be reset manually; the app does not silently migrate or rename that file.
 - Packwiz modpack files remain outside the database lifecycle and are not deleted by a database reset.
@@ -119,7 +130,13 @@ All of these settings can be reset from the Advanced section of the Settings pag
 - **History:** Decisions and notes are append-only records. Closing, cancelling, and retrying never rewrites the original snapshot. A retry receives a new snapshot ID linked to its predecessor.
 - **Pin operations:** Pin and unpin resolve one fresh native inventory entry, derive its `.pw.toml` slug, run `packwiz pin <slug>` or `packwiz unpin <slug>` without `--yes`, re-read the metadata, and report success only after verification. The Activity route preserves the immutable attempt and its evidence.
 - **Apply boundary:** Apply uses only exact local metadata slugs with one `packwiz update <slug>` process per selected candidate. The audited `update -a` path remains discovery-only and is not used for mutation. A process exit code alone is not considered success; the application re-reads inventory and records per-target verification and failures.
-- **Reset fallback:** Because alpha uses `CREATE TABLE IF NOT EXISTS` schema setup without migrations, stop the app and delete the incompatible application database and its WAL sidecars. This does not delete Packwiz files.
+- **Reset fallback:** Stop the app and delete the incompatible application database and its WAL and SHM sidecars. This does not delete Packwiz files or silently rewrite application data.
+
+## Release workspace boundaries
+
+- A modpack may have any number of editable release workspaces. Each workspace owns its lifecycle, candidate decisions, activity, and immutable baseline independently; opening or starting one workspace never resumes or replaces another.
+- Unlinking a discovery snapshot removes only its provenance link. The workspace retains the snapshot-derived immutable baseline and records the unlink in workspace activity.
+- Rebasing is explicit and in-place. It captures the current registered project files as a new immutable workspace baseline, clears snapshot/release provenance, returns the workspace to draft review, and never occurs implicitly during observation or apply.
 
 ## Common UI components
 

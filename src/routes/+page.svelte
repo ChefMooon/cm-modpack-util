@@ -19,6 +19,8 @@
   import Modal from "../components/ui/Modal.svelte";
   import Tooltip from "../components/ui/Tooltip.svelte";
   import SnapshotReviewModal from "../components/modpacks/SnapshotReviewModal.svelte";
+  import ReleaseReviewModal from "../components/modpacks/ReleaseReviewModal.svelte";
+  import ReleaseEvidenceSummary from "../components/modpacks/ReleaseEvidenceSummary.svelte";
   import SnapshotHistory from "../components/modpacks/SnapshotHistory.svelte";
   import ModpackSettings from "../components/modpacks/ModpackSettings.svelte";
   import ModpackList from "../components/modpacks/ModpackList.svelte";
@@ -44,6 +46,11 @@
     ChangelogRevision,
     ChangelogExport,
     ChangelogProgress,
+    ReleaseCreateRequest,
+    ReleaseRecord,
+    ReleaseWorkspace,
+    ReleaseWorkspaceObservation,
+    ReleaseWorkspaceWatcherStatus,
   } from "../lib/domain";
   import {
     archiveModpack,
@@ -64,12 +71,14 @@
     listenUpdateCheckProgress,
     checkForUpdates,
     listModpackSnapshots,
+    listReleases,
     getSnapshot,
     setSnapshotDecision,
     saveModpackSnapshotNote,
     closeSnapshot,
     recheckSnapshot,
     linkSnapshotRetry,
+    linkSnapshotToReleaseWorkspace,
     pinModpackEntry,
     unpinModpackEntry,
     applyModpack,
@@ -83,6 +92,24 @@
     listChangelogArtifacts,
     listChangelogRevisions,
     listChangelogExports,
+    createReleaseWorkspaceChangelog,
+    selectReleaseWorkspaceChangelog,
+    startReleaseWorkspace,
+    loadReleaseWorkspace,
+    listReleaseWorkspaces,
+    setReleaseWorkspaceDecision,
+    abandonReleaseWorkspace,
+    unlinkSnapshotFromReleaseWorkspace,
+    rebaseReleaseWorkspace,
+    finalizeReleaseWorkspace,
+    publishReleaseWorkspace,
+    startReleaseWorkspaceWatcher,
+    stopReleaseWorkspaceWatcher,
+    reconcileReleaseWorkspaceWatchers,
+    listenReleaseWorkspaceObservation,
+    listenReleaseWorkspaceWatcherError,
+    listReleaseWorkspaceObservations,
+    getReleaseWorkspaceEvidence,
   } from "../lib/modpacks";
 
   let modpacks = $state<ModpackRecord[]>([]);
@@ -118,6 +145,8 @@
   let summaryRequest = 0;
   let pinningEntry = $state<string | null>(null);
   let pinConfirmation = $state<{ entry: InventoryEntry; pin: boolean } | null>(null);
+  let pinConfirmationModpackId = $state<string | null>(null);
+  let pinConfirmationWorkspaceId = $state<string | null>(null);
   let showPinConfirmation = $state(false);
   let discoveryModpack = $state<ModpackRecord | null>(null);
   let showReviewModal = $state(false);
@@ -130,7 +159,28 @@
   let snapshots = $state<SnapshotRecord[]>([]);
   let snapshotsLoading = $state(false);
   let snapshotsError = $state("");
+  let releases = $state<ReleaseRecord[]>([]);
+  let workspaces = $state<ReleaseWorkspace[]>([]);
+  let releasesError = $state("");
+  let workspaceModalOpen = $state(false);
+  let workspaceRecord = $state<ReleaseWorkspace | null>(null);
+  let workspaceInventory = $state<InventoryEntry[]>([]);
+  let workspaceObservations = $state<ReleaseWorkspaceObservation[]>([]);
+  let releaseCreationModpack = $state<ModpackRecord | null>(null);
+  let releaseBaselineChoice = $state<string | null>(null);
+  let releaseBaselineModalOpen = $state(false);
+  let workspaceBusy = $state(false);
+  let workspaceError = $state("");
+  let workspaceWatcherStatus = $state<ReleaseWorkspaceWatcherStatus>("stopped");
+  let workspaceChangelogArtifacts = $state<ChangelogArtifact[]>([]);
+  let workspaceChangelogRevisions = $state<ChangelogRevision[]>([]);
+  let workspaceChangelogRevision = $state<ChangelogRevision | null>(null);
+  let workspaceChangelogDraft = $state("");
+  let workspaceChangelogBusy = $state(false);
+  let showWorkspaceFinalizeConfirmation = $state(false);
+  let workspaceResetAction = $state<"unlink" | "rebase" | null>(null);
   let versionFilter = $state<"all" | "releases" | "snapshots">("all");
+  let workspaceObservationUnlisten: (() => void)[] = [];
   let showSnapshotNote = $state(false);
   let showApplyConfirmation = $state(false);
   let applyBusy = $state(false);
@@ -174,6 +224,7 @@
       document.removeEventListener("keydown", handleModpackMenuKeydown);
       window.removeEventListener("beforeunload", handleBeforeUnload);
       discoveryUnlisten.forEach((unlisten) => unlisten());
+      workspaceObservationUnlisten.forEach((unlisten) => unlisten());
     };
   });
 
@@ -188,7 +239,19 @@
       listenChangelogProgress((progress) => {
         if (!changelogBusy || progress.attempt_id === changelog?.attempt_id) changelogProgress = progress;
       }),
+      listenReleaseWorkspaceObservation((observation) => {
+        if (workspaceRecord?.id !== observation.workspace_id) return;
+        void refreshWorkspace().catch((cause) => { workspaceError = commandErrorMessage(cause); });
+        toast({ title: "External change observed", description: observation.changed_scope.join(", ") });
+      }),
+      listenReleaseWorkspaceWatcherError((watcherError) => {
+        if (workspaceRecord?.id === watcherError.workspace_id) {
+          workspaceWatcherStatus = "error";
+          workspaceError = watcherError.message;
+        }
+      }),
     ]);
+    void reconcileReleaseWorkspaceWatchers();
   }
 
   async function loadModpacks() {
@@ -348,6 +411,329 @@
     } finally {
       snapshotsLoading = false;
     }
+    await loadReleases(modpack.id);
+    try {
+      workspaces = await listReleaseWorkspaces(modpack.id);
+    } catch (cause) {
+      workspaces = [];
+      releasesError = commandErrorMessage(cause);
+    }
+  }
+
+  async function loadReleases(modpackId: string) {
+    releasesError = "";
+    try {
+      releases = await listReleases(modpackId);
+    } catch (cause) {
+      releases = [];
+      releasesError = commandErrorMessage(cause);
+    }
+  }
+
+  async function startWorkspaceWatcher(workspaceId: string) {
+    if (workspaceRecord?.id === workspaceId && ["finalized", "published", "withdrawn", "abandoned"].includes(workspaceRecord.lifecycle)) {
+      workspaceWatcherStatus = "stopped";
+      return;
+    }
+    workspaceWatcherStatus = "starting";
+    try {
+      await startReleaseWorkspaceWatcher(workspaceId);
+      if (workspaceRecord?.id === workspaceId) workspaceWatcherStatus = "observing";
+    } catch (cause) {
+      if (workspaceRecord?.id === workspaceId) workspaceWatcherStatus = "error";
+      throw cause;
+    }
+  }
+
+  async function stopWorkspaceWatcher(workspaceId: string) {
+    workspaceWatcherStatus = "stopping";
+    try {
+      await stopReleaseWorkspaceWatcher(workspaceId);
+      if (workspaceRecord?.id === workspaceId) workspaceWatcherStatus = "stopped";
+    } catch (cause) {
+      if (workspaceRecord?.id === workspaceId) workspaceWatcherStatus = "error";
+      throw cause;
+    }
+  }
+
+  async function openReleaseCreation(modpack: ModpackRecord) {
+    focusedModpack = modpack;
+    await loadSnapshots(modpack);
+    await loadReleases(modpack.id);
+    releaseCreationModpack = modpack;
+    releaseBaselineChoice = null;
+    releaseBaselineModalOpen = true;
+  }
+
+  async function confirmReleaseCreation() {
+    const modpack = releaseCreationModpack;
+    if (!modpack) return;
+    releaseBaselineModalOpen = false;
+    workspaceBusy = true;
+    workspaceError = "";
+    try {
+      workspaceRecord = await startReleaseWorkspace({
+        modpack_id: modpack.id,
+        snapshot_id: null,
+        baseline_release_id: releaseBaselineChoice,
+        metadata: { name: "New release", version: null, description: null, notes: null, publication_status: "draft" },
+      });
+      discoverySnapshot = null;
+      discoverySnapshotId = null;
+      workspaceInventory = [];
+      workspaceObservations = [];
+      workspaceWatcherStatus = "stopped";
+      workspaceModalOpen = true;
+      workspaces = await listReleaseWorkspaces(modpack.id);
+      void loadWorkspaceEvidence(workspaceRecord.id).catch((cause) => { workspaceError = commandErrorMessage(cause); });
+      await startWorkspaceWatcher(workspaceRecord.id);
+    } catch (cause) {
+      workspaceError = commandErrorMessage(cause);
+    } finally {
+      workspaceBusy = false;
+    }
+  }
+
+  function openRelease(release: ReleaseRecord) {
+    toast({ title: "Historical release", description: `${release.metadata.name} is read-only evidence.` });
+  }
+
+  async function openWorkspace(workspace: ReleaseWorkspace) {
+    const modpack = modpacks.find((candidate) => candidate.id === workspace.modpack_id);
+    if (!modpack) return;
+    focusedModpack = modpack;
+    try {
+      workspaceRecord = await loadReleaseWorkspace(workspace.id);
+    } catch (cause) {
+      workspaceError = commandErrorMessage(cause);
+      return;
+    }
+    const workspaceId = workspaceRecord.id;
+    discoverySnapshotId = workspaceRecord.source_snapshot_id;
+    discoverySnapshot = null;
+    workspaceError = "";
+    workspaceWatcherStatus = "stopped";
+    workspaceInventory = [];
+    workspaceObservations = [];
+    workspaceModalOpen = true;
+    void loadWorkspaceEvidence(workspaceId).catch((cause) => { workspaceError = commandErrorMessage(cause); });
+    if (workspaceRecord.source_snapshot_id) {
+      void getSnapshot(workspaceRecord.source_snapshot_id).then((snapshot) => {
+        if (workspaceRecord?.id === workspaceId) discoverySnapshot = snapshot;
+      }).catch((cause) => { workspaceError = commandErrorMessage(cause); });
+    }
+    void loadWorkspaceChangelog().catch((cause) => { workspaceError = commandErrorMessage(cause); });
+    void startWorkspaceWatcher(workspaceId).catch((cause) => { workspaceError = commandErrorMessage(cause); });
+  }
+
+  async function openWorkspaceFromSnapshot(snapshot: SnapshotRecord) {
+    if (!focusedModpack) return;
+    workspaceBusy = true;
+    workspaceError = "";
+    try {
+      workspaceRecord = await startReleaseWorkspace({
+        modpack_id: focusedModpack.id,
+        snapshot_id: snapshot.id,
+        baseline_release_id: null,
+        metadata: { name: `Release ${snapshot.label ?? snapshot.id.slice(0, 8)}`, version: null, description: null, notes: null, publication_status: "draft" },
+      });
+      workspaceInventory = [];
+      workspaceObservations = [];
+      workspaceWatcherStatus = "stopped";
+      await loadWorkspaceChangelog();
+      workspaceModalOpen = true;
+      showReviewModal = false;
+      workspaces = await listReleaseWorkspaces(focusedModpack.id);
+      void loadWorkspaceEvidence(workspaceRecord.id).catch((cause) => { workspaceError = commandErrorMessage(cause); });
+      await startWorkspaceWatcher(workspaceRecord.id);
+    } catch (cause) {
+      workspaceError = commandErrorMessage(cause);
+    } finally {
+      workspaceBusy = false;
+    }
+  }
+
+  async function discoverUpdatesForWorkspace() {
+    if (!workspaceRecord || !focusedModpack || workspaceBusy) return;
+    workspaceBusy = true;
+    workspaceError = "";
+    try {
+      await checkForUpdates(focusedModpack.id);
+      const latestSnapshots = await listModpackSnapshots(focusedModpack.id);
+      const snapshot = latestSnapshots[0];
+      if (!snapshot) throw new Error("No discovery snapshot was created");
+      workspaceRecord = await linkSnapshotToReleaseWorkspace(workspaceRecord.id, snapshot.id);
+      discoverySnapshotId = snapshot.id;
+      discoverySnapshot = snapshot;
+      await loadWorkspaceEvidence(workspaceRecord.id);
+      snapshots = latestSnapshots;
+      workspaces = await listReleaseWorkspaces(focusedModpack.id);
+    } catch (cause) {
+      workspaceError = commandErrorMessage(cause);
+    } finally {
+      workspaceBusy = false;
+    }
+  }
+
+  async function loadWorkspaceEvidence(workspaceId: string) {
+    const evidence = await getReleaseWorkspaceEvidence(workspaceId);
+    if (workspaceRecord?.id !== workspaceId) return;
+    workspaceRecord = evidence.workspace;
+    workspaceInventory = evidence.inventory;
+    workspaceObservations = evidence.observations;
+  }
+
+  async function loadWorkspaceChangelog() {
+    if (!workspaceRecord) return;
+    const artifacts = await listChangelogArtifacts(workspaceRecord.modpack_id);
+    workspaceChangelogArtifacts = artifacts.filter((artifact) => artifact.release_workspace_id === workspaceRecord?.id && artifact.stage === "proposed");
+    const revisionGroups = await Promise.all(workspaceChangelogArtifacts.map((artifact) => listChangelogRevisions(artifact.id)));
+    workspaceChangelogRevisions = revisionGroups.flat();
+    workspaceChangelogRevision = workspaceChangelogRevisions.find((revision) => revision.id === workspaceRecord?.final_changelog_revision_id) ?? workspaceChangelogRevisions.find((revision) => revision.is_current) ?? null;
+    workspaceChangelogDraft = workspaceChangelogRevision?.content ?? workspaceChangelogArtifacts[0]?.content ?? "";
+  }
+
+  async function generateWorkspaceChangelog() {
+    if (!workspaceRecord || workspaceChangelogBusy) return;
+    if (!workspaceRecord.source_snapshot_id) { workspaceError = "A discovery snapshot is required for this changelog action until release-owned candidate evidence is available."; return; }
+    workspaceChangelogBusy = true;
+    try {
+      const artifact = await generateChangelog({
+        modpack_id: workspaceRecord.modpack_id,
+        snapshot_id: workspaceRecord.source_snapshot_id,
+        release_workspace_id: workspaceRecord.id,
+        introduction: null,
+        offline: false,
+        source: "release_workspace_evidence",
+        request_fingerprint: crypto.randomUUID(),
+      });
+      const revision = await createChangelogRevision({ artifact_id: artifact.id, prior_revision_id: null, content: artifact.content, introduction: artifact.introduction });
+      workspaceChangelogArtifacts = [artifact, ...workspaceChangelogArtifacts];
+      workspaceChangelogRevisions = [revision, ...workspaceChangelogRevisions];
+      workspaceChangelogRevision = revision;
+      workspaceChangelogDraft = revision.content;
+      workspaceRecord = await selectReleaseWorkspaceChangelog({ workspace_id: workspaceRecord.id, changelog_revision_id: revision.id });
+      toast({ title: "Proposed changelog generated", severity: "success" });
+    } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceChangelogBusy = false; }
+  }
+
+  async function createWorkspaceBlankChangelog() {
+    if (!workspaceRecord || workspaceChangelogBusy) return;
+    workspaceChangelogBusy = true;
+    try {
+      const artifact = await createReleaseWorkspaceChangelog({ workspace_id: workspaceRecord.id, introduction: null });
+      const revision = await createChangelogRevision({ artifact_id: artifact.id, prior_revision_id: null, content: "", introduction: artifact.introduction });
+      workspaceChangelogArtifacts = [artifact, ...workspaceChangelogArtifacts];
+      workspaceChangelogRevisions = [revision, ...workspaceChangelogRevisions];
+      workspaceChangelogRevision = revision;
+      workspaceChangelogDraft = "";
+      workspaceRecord = await selectReleaseWorkspaceChangelog({ workspace_id: workspaceRecord.id, changelog_revision_id: revision.id });
+      toast({ title: "Blank proposal created", severity: "success" });
+    } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceChangelogBusy = false; }
+  }
+
+  async function selectWorkspaceChangelog(revisionId: string) {
+    if (!workspaceRecord) return;
+    workspaceBusy = true;
+    try {
+      workspaceRecord = await selectReleaseWorkspaceChangelog({ workspace_id: workspaceRecord.id, changelog_revision_id: revisionId });
+      workspaceChangelogRevision = workspaceChangelogRevisions.find((revision) => revision.id === revisionId) ?? null;
+      workspaceChangelogDraft = workspaceChangelogRevision?.content ?? "";
+    } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceBusy = false; }
+  }
+
+  async function saveWorkspaceChangelogRevision() {
+    if (!workspaceChangelogRevision || workspaceChangelogDraft === workspaceChangelogRevision.content) return;
+    workspaceChangelogBusy = true;
+    try {
+      const revision = await createChangelogRevision({ artifact_id: workspaceChangelogRevision.artifact_id, prior_revision_id: workspaceChangelogRevision.id, content: workspaceChangelogDraft, introduction: workspaceChangelogRevision.introduction });
+      workspaceChangelogRevisions = [revision, ...workspaceChangelogRevisions];
+      workspaceChangelogRevision = revision;
+      workspaceChangelogDraft = revision.content;
+      if (workspaceRecord) workspaceRecord = await selectReleaseWorkspaceChangelog({ workspace_id: workspaceRecord.id, changelog_revision_id: revision.id });
+      toast({ title: "Proposed revision saved", severity: "success" });
+    } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceChangelogBusy = false; }
+  }
+
+  async function refreshWorkspace() {
+    if (!workspaceRecord) return;
+    const workspaceId = workspaceRecord.id;
+    await loadWorkspaceEvidence(workspaceId);
+    if (["ready_to_finalize", "finalized", "published", "withdrawn", "abandoned"].includes(workspaceRecord.lifecycle)) {
+      await stopWorkspaceWatcher(workspaceRecord.id);
+    }
+  }
+
+  async function decideWorkspaceCandidate(candidateId: string, decision: "selected" | "skipped" | "deferred" | "blocked" | "pinned" | "uncertain") {
+    if (!workspaceRecord) return;
+    workspaceBusy = true;
+    try {
+      workspaceRecord = await setReleaseWorkspaceDecision({ workspace_id: workspaceRecord.id, source_candidate_id: candidateId, decision, note: null });
+    } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceBusy = false; }
+  }
+
+  async function applyWorkspaceUpdates() {
+    if (!workspaceRecord) return;
+    const candidateIds = workspaceRecord.candidates.filter((candidate) => candidate.decision === "selected").map((candidate) => candidate.source_candidate_id);
+    if (!candidateIds.length) return;
+    workspaceBusy = true;
+    try {
+      await applyModpack({ operation_id: crypto.randomUUID(), workspace_id: workspaceRecord.id, snapshot_id: workspaceRecord.source_snapshot_id, candidate_ids: candidateIds });
+      workspaceRecord = await loadReleaseWorkspace(workspaceRecord.id);
+    } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceBusy = false; }
+  }
+
+  async function abandonWorkspace() {
+    if (!workspaceRecord) return;
+    workspaceBusy = true;
+    try { await stopWorkspaceWatcher(workspaceRecord.id); workspaceRecord = await abandonReleaseWorkspace(workspaceRecord.id); await refreshWorkspace(); } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceBusy = false; }
+  }
+
+  function requestUnlinkWorkspaceSnapshot() {
+    workspaceResetAction = "unlink";
+  }
+
+  function requestRebaseWorkspace() {
+    workspaceResetAction = "rebase";
+  }
+
+  async function confirmWorkspaceReset() {
+    const action = workspaceResetAction;
+    workspaceResetAction = null;
+    if (!workspaceRecord) return;
+    workspaceBusy = true;
+    try {
+      workspaceRecord = action === "unlink"
+        ? await unlinkSnapshotFromReleaseWorkspace(workspaceRecord.id)
+        : await rebaseReleaseWorkspace({ workspace_id: workspaceRecord.id });
+      discoverySnapshot = null;
+      discoverySnapshotId = null;
+      workspaceChangelogArtifacts = [];
+      workspaceChangelogRevisions = [];
+      workspaceChangelogRevision = null;
+      workspaceChangelogDraft = "";
+      await loadWorkspaceChangelog();
+      const modpack = focusedModpack ?? modpacks.find((candidate) => candidate.id === workspaceRecord?.modpack_id);
+      if (modpack) await loadSnapshots(modpack);
+    } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceBusy = false; }
+  }
+
+  async function finalizeWorkspace() {
+    if (!workspaceRecord || !workspaceRecord.final_changelog_revision_id) { workspaceError = "A final changelog revision is required before finalization."; return; }
+    showWorkspaceFinalizeConfirmation = true;
+  }
+
+  async function confirmFinalizeWorkspace() {
+    showWorkspaceFinalizeConfirmation = false;
+    if (!workspaceRecord || !workspaceRecord.final_changelog_revision_id) return;
+    workspaceBusy = true;
+    try { workspaceRecord = await finalizeReleaseWorkspace({ workspace_id: workspaceRecord.id, final_changelog_revision_id: workspaceRecord.final_changelog_revision_id }); await stopWorkspaceWatcher(workspaceRecord.id); } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceBusy = false; }
+  }
+
+  async function publishWorkspace() {
+    if (!workspaceRecord) return;
+    workspaceBusy = true;
+    try { workspaceRecord = await publishReleaseWorkspace({ workspace_id: workspaceRecord.id }); await stopWorkspaceWatcher(workspaceRecord.id); } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceBusy = false; }
   }
 
   function settingsDirty() {
@@ -557,6 +943,7 @@
     try {
       applyReport = await applyModpack({
         operation_id: applyOperationId,
+        workspace_id: "",
         snapshot_id: discoverySnapshot.id,
         candidate_ids: candidateIds,
       });
@@ -593,15 +980,17 @@
     }
   }
 
-  async function changePin(entry: InventoryEntry, pin: boolean) {
-    if (!inspected || pinningEntry) return;
+  async function changePin(entry: InventoryEntry, pin: boolean, modpackId = inspected?.id, workspaceId: string | null = null) {
+    if (!modpackId || pinningEntry) return;
     pinningEntry = entry.local_id;
     error = "";
     try {
-      const request = { modpack_id: inspected.id, entry_id: entry.local_id };
+      const request = { modpack_id: modpackId, workspace_id: workspaceId, entry_id: entry.local_id };
       const attempt = pin ? await pinModpackEntry(request) : await unpinModpackEntry(request);
       if (attempt.verification?.verified) {
-        inventory = await getModpackInventory(inspected.id);
+        const refreshedInventory = await getModpackInventory(modpackId);
+        if (inspected?.id === modpackId) inventory = refreshedInventory;
+        if (workspaceRecord?.modpack_id === modpackId) workspaceInventory = refreshedInventory;
         toast({ title: pin ? "Mod pinned" : "Mod unpinned", description: "Packwiz metadata was verified after the operation.", severity: "success" });
       } else {
         error = attempt.error?.message ?? "Packwiz pin state could not be verified.";
@@ -618,7 +1007,9 @@
     const change = pinConfirmation;
     pinConfirmation = null;
     showPinConfirmation = false;
-    await changePin(change.entry, change.pin);
+    await changePin(change.entry, change.pin, pinConfirmationModpackId ?? undefined, pinConfirmationWorkspaceId);
+    pinConfirmationModpackId = null;
+    pinConfirmationWorkspaceId = null;
   }
 
   async function openCandidatePage(url: string) {
@@ -884,6 +1275,7 @@
           onreconnect={beginReconnect}
           onrefresh={refresh}
           onedit={openSettings}
+          oncreaterelease={openReleaseCreation}
           onlifecycle={changeLifecycle}
           observed={observed}
           freshnessLabel={freshnessLabel}
@@ -933,17 +1325,21 @@
             onclose={() => { inspected = null; focusedModpack = null; }}
             onreread={inspectModpack}
             onopenPage={openPage}
-            onpin={(entry, pin) => { pinConfirmation = { entry, pin }; showPinConfirmation = true; }}
+            onpin={(entry, pin) => { pinConfirmation = { entry, pin }; pinConfirmationModpackId = focusedModpack?.id ?? null; pinConfirmationWorkspaceId = null; showPinConfirmation = true; }}
             onretry={inspectModpack}
           />
         {:else if activeTab === "versions"}
           <SnapshotHistory
             bind:filter={versionFilter}
             snapshots={snapshots}
+            releases={releases}
+            workspaces={workspaces}
             loading={snapshotsLoading}
-            error={snapshotsError}
+            error={snapshotsError || releasesError}
             onretry={() => { if (focusedModpack) void loadSnapshots(focusedModpack); }}
             onopen={openSnapshot}
+            onopenrelease={openRelease}
+            onopenworkspace={openWorkspace}
             snapshotStatus={snapshotStatus}
           />
         {:else}
@@ -1000,7 +1396,68 @@
   ondiscardPartial={discardPartialChangelog}
   onsaveRevision={saveChangelogRevision}
   onexport={exportSnapshotChangelog}
+  onstartReleaseWorkspace={() => openWorkspaceFromSnapshot(discoverySnapshot!)}
 />
+
+<Modal bind:open={releaseBaselineModalOpen} title="Choose release baseline" onclose={() => (releaseBaselineModalOpen = false)}>
+  <p class="lede">Every release captures an immutable comparison baseline when it is created.</p>
+  <label class="field"><span>Baseline source</span><select bind:value={releaseBaselineChoice}><option value={null}>Current project state</option>{#each releases as release (release.id)}<option value={release.id}>{release.metadata.name}{release.metadata.version ? ` · ${release.metadata.version}` : ""}</option>{/each}</select></label>
+  <div class="modal-actions"><Button variant="quiet" type="button" onclick={() => (releaseBaselineModalOpen = false)}>Cancel</Button><Button variant="primary" type="button" disabled={workspaceBusy} loading={workspaceBusy} onclick={confirmReleaseCreation}>Create release workspace</Button></div>
+</Modal>
+
+<ReleaseReviewModal
+  open={workspaceModalOpen}
+  modpack={focusedModpack}
+  snapshot={discoverySnapshot}
+  workspace={workspaceRecord}
+  watcherStatus={workspaceWatcherStatus}
+  inventory={workspaceInventory}
+  observations={workspaceObservations}
+  changelogArtifacts={workspaceChangelogArtifacts}
+  changelogRevisions={workspaceChangelogRevisions}
+  selectedChangelogRevision={workspaceChangelogRevision}
+  bind:changelogDraft={workspaceChangelogDraft}
+  changelogBusy={workspaceChangelogBusy}
+  busy={workspaceBusy}
+  error={workspaceError}
+  onclose={() => (workspaceModalOpen = false)}
+  ondecision={decideWorkspaceCandidate}
+  onapply={applyWorkspaceUpdates}
+  onabandon={abandonWorkspace}
+  onunlinkSnapshot={requestUnlinkWorkspaceSnapshot}
+  onrebase={requestRebaseWorkspace}
+  onfinalize={finalizeWorkspace}
+  onpublish={publishWorkspace}
+  ongenerateChangelog={generateWorkspaceChangelog}
+  oncreateBlankChangelog={createWorkspaceBlankChangelog}
+  onselectChangelog={selectWorkspaceChangelog}
+  onsaveChangelogRevision={saveWorkspaceChangelogRevision}
+  onstartWatcher={() => workspaceRecord ? startWorkspaceWatcher(workspaceRecord.id) : Promise.resolve()}
+  onstopWatcher={() => workspaceRecord ? stopWorkspaceWatcher(workspaceRecord.id) : Promise.resolve()}
+  ondiscoverUpdates={discoverUpdatesForWorkspace}
+  onopenPage={openPage}
+  onopenLink={openCandidatePage}
+  onpin={(entry, pin) => { pinConfirmation = { entry, pin }; pinConfirmationModpackId = workspaceRecord?.modpack_id ?? null; pinConfirmationWorkspaceId = workspaceRecord?.id ?? null; showPinConfirmation = true; }}
+  pinningEntry={pinningEntry}
+/>
+
+<Modal bind:open={showWorkspaceFinalizeConfirmation} title="Finalize proposed changelog" onclose={() => (showWorkspaceFinalizeConfirmation = false)}>
+  {#if workspaceChangelogRevision}
+    <p class="lede">This promotes the selected proposed revision to final and freezes it. It cannot be edited after finalization.</p>
+    <p><strong>Proposed revision</strong></p>
+    <pre class="finalize-preview">{workspaceChangelogRevision.content}</pre>
+  {/if}
+  <div class="modal-actions"><Button variant="quiet" type="button" onclick={() => (showWorkspaceFinalizeConfirmation = false)}>Cancel</Button><Button variant="primary" type="button" disabled={workspaceBusy} loading={workspaceBusy} onclick={confirmFinalizeWorkspace}>Promote and finalize</Button></div>
+</Modal>
+
+<Modal open={workspaceResetAction !== null} title={workspaceResetAction === "unlink" ? "Unlink discovery snapshot" : "Rebase release baseline"} onclose={() => (workspaceResetAction = null)}>
+  {#if workspaceResetAction === "unlink"}
+    <p class="lede">This removes the snapshot association, release candidate decisions, and proposed workspace changelog links. The immutable snapshot-derived baseline will be retained as detached evidence.</p>
+  {:else}
+    <p class="lede">This captures the current project files as the new release baseline and clears snapshot candidates, decisions, and proposed workspace changelog links.</p>
+  {/if}
+  <div class="modal-actions"><Button variant="quiet" type="button" onclick={() => (workspaceResetAction = null)}>Cancel</Button><Button variant="danger" type="button" disabled={workspaceBusy} loading={workspaceBusy} onclick={confirmWorkspaceReset}>{workspaceResetAction === "unlink" ? "Unlink snapshot" : "Rebase baseline"}</Button></div>
+</Modal>
 
 <Modal bind:open={showSnapshotNote} title="Add review note" onclose={() => (showSnapshotNote = false)}>
   <label class="field"><span>Note</span><textarea bind:value={snapshotNoteDraft} rows="5" maxlength="4000" placeholder="Explain this review or its outcome"></textarea></label>

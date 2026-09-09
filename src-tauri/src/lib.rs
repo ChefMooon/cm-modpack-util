@@ -5,6 +5,7 @@ pub mod db;
 pub mod discovery;
 pub mod domain;
 pub mod safety;
+pub mod watcher;
 
 use std::fs;
 use tauri::menu::{Menu, MenuItem};
@@ -38,6 +39,7 @@ pub fn run() {
             app.manage(database);
             app.manage(discovery::operations::DiscoveryRuntime::default());
             app.manage(changelog::ChangelogRuntime::default());
+            app.manage(watcher::ReleaseWatcherCoordinator::default());
 
             let show = MenuItem::with_id(app, "show", "Show window", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -113,6 +115,29 @@ pub fn run() {
             db::restore_modpack,
             db::disconnect_modpack,
             db::reconnect_modpack,
+            db::create_release,
+            db::get_release,
+            db::list_releases_command,
+            db::update_release,
+            db::compare_releases,
+            db::start_release_workspace,
+            db::list_release_workspaces,
+            db::load_release_workspace,
+            db::list_release_workspace_observations,
+            db::get_release_workspace_evidence,
+            db::abandon_release_workspace,
+            db::unlink_snapshot_from_release_workspace,
+            db::rebase_release_workspace,
+            db::link_snapshot_to_release_workspace,
+            db::set_release_workspace_decision,
+            db::select_release_workspace_changelog,
+            db::create_release_workspace_changelog,
+            db::finalize_release_workspace,
+            db::publish_release_workspace,
+            db::withdraw_release_workspace,
+            watcher::start_release_workspace_watcher,
+            watcher::stop_release_workspace_watcher,
+            watcher::reconcile_release_workspace_watchers,
             db::get_operation_history,
             db::record_recovery_acknowledgement,
             discovery::operations::cancel_update_check,

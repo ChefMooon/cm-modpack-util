@@ -34,21 +34,24 @@ CM Modpack Util is a local-first desktop application for reviewing modpack updat
 
 The application is successful when a user can:
 
-- Register and switch between multiple local modpack projects.
-- Inspect available updates using the local Packwiz TOML files as evidence.
-- Review update severity, pins, notes, and compatibility concerns before making changes.
-- Apply an explicitly approved set of updates through Packwiz.
-- Preserve a useful history of each update session.
-- Generate a readable changelog for an update session with minimal external API usage.
-- Understand what happened when an update succeeds, partially succeeds, or fails.
+- Register and switch between multiple local modpacks.
+- Inspect available updates using local Packwiz TOML files and a safe Packwiz discovery probe.
+- Preserve an immutable snapshot of each discovery result and its stable before-state evidence.
+- Assemble an update into an explicit release workspace with review, apply, recovery, verification, and finalization phases.
+- Preserve candidate decisions, operation attempts, recovery evidence, and release history when an update succeeds, partially succeeds, is cancelled, or fails.
+- Generate proposed and final changelog revisions with minimal targeted provider API usage.
+- Compare finalized releases from captured evidence without rereading the current working tree.
+- Understand what happened when a workspace or operation is stale, externally changed, unavailable, partial, or failed.
 
-The broad initial release includes the core update and changelog loop, named
-releases and captured release-state comparison, Git status and provenance,
-public GitHub metadata enrichment, archive and restore workflows, and
-application-owned cleanup. These capabilities remain subject to the explicit
-compatibility and safety boundaries in this specification. CurseForge API
-integration, private GitHub authentication, unattended updates, and export
-formats other than Markdown remain outside the initial release.
+The current alpha includes modpack registration and inventory inspection,
+durable update snapshots, recoverable release workspaces, captured-state
+comparison, optional Git provenance, release-scoped Packwiz observation,
+changelog generation, and Markdown export. GitHub enrichment, archive and
+restore workflows, permanent cleanup, CurseForge API integration, private
+GitHub authentication, unattended updates, and export formats other than
+Markdown remain outside the current release boundary. These capabilities
+remain subject to the explicit compatibility and safety boundaries in this
+specification.
 
 ## Users, Roles, and Permissions
 
@@ -56,39 +59,39 @@ The initial product has one local user role: the owner of the desktop installati
 
 The owner can:
 
-- Add, edit, remove, and open local modpack projects.
-- Read and modify files within a registered project directory through supported Packwiz operations.
-- Configure project metadata, tags, themes, pins, notes, and snapshots.
+- Add, edit, remove, and open local modpacks.
+- Read and modify files within a registered modpack directory through supported Packwiz operations.
+- Configure modpack metadata, tags, themes, pins, notes, snapshots, and release workspaces.
 - Request Modrinth lookups and generate changelogs.
 
 There is no collaboration, account system, cloud synchronization, or multi-user permission model in the initial scope.
 
 ## Core Capabilities and Workflows
 
-### Project Management
+### Modpack Management
 
-A project represents one local Packwiz-managed modpack directory. Project metadata includes:
+A modpack represents one registered local Packwiz directory and its application-owned metadata and history. Modpack metadata includes:
 
 - Display name.
 - Directory path.
 - Optional icon.
-- Project color or theme selection.
+- Modpack color or theme selection.
 - User-defined tags.
 - Favorite state for quick access and filtering.
 - Optional description.
 - Lifecycle status, such as active, maintenance, or archived.
 - Creation, modification, and last-opened timestamps.
-- Last project scan timestamp.
+- Last refresh timestamp.
 
 When a directory is chosen for registration, the application should parse its
-`pack.toml` and show a confirmation preview before creating the project. The
-preview may populate the application project display name from `name`, while
+`pack.toml` and show a confirmation preview before creating the modpack. The
+preview may populate the application display name from `name`, while
 also showing the Packwiz-declared author, pack version, and pack format. The
 application may retain those values as observed Packwiz metadata, but they are
-not silently written back to `pack.toml`. The application-owned display name
+not silently written back to `pack.toml`. The application-owned modpack name
 remains editable after registration and may differ from the Packwiz name.
 
-The application also maintains derived project state based on the selected directory and its contents:
+The application also maintains derived modpack state based on the selected directory and its contents:
 
 - Validation status.
 - Packwiz pack format and index validation status.
@@ -102,41 +105,41 @@ The application also maintains derived project state based on the selected direc
 - Last successful update timestamp.
 - Download-provider counts and client/server-side counts for the current mod inventory.
 
-The application must validate a directory before treating it as a usable project. Initial validation requires a readable `pack.toml` and the relevant readable mod metadata files needed by the supported Packwiz workflow. Registration should read, when present, the top-level `name`, `author`, `version`, and `pack-format` values; the `[index]` file reference, hash format, and hash; and the `[versions]` entries such as `minecraft`, `neoforge`, or other declared loader/tool versions. These values provide registration defaults and validation evidence, while the directory path and Packwiz files remain the external project's source of truth. A missing optional field should be shown as unavailable; a malformed required field or unreadable referenced index must produce a clear validation result rather than a partially trusted project.
+The application must validate a directory before treating it as a usable modpack. Initial validation requires a readable `pack.toml` and the relevant readable mod metadata files needed by the supported Packwiz workflow. Registration should read, when present, the top-level `name`, `author`, `version`, and `pack-format` values; the `[index]` file reference, hash format, and hash; and the `[versions]` entries such as `minecraft`, `neoforge`, or other declared loader/tool versions. These values provide registration defaults and validation evidence, while the directory path and Packwiz files remain the external modpack's source of truth. A missing optional field should be shown as unavailable; a malformed required field or unreadable referenced index must produce a clear validation result rather than a partially trusted modpack.
 
-The registration preview must distinguish values read from `pack.toml` from application-owned fields such as theme, tags, favorite state, description, and lifecycle status. Choosing a directory must not run an update, modify Packwiz files, or require a network request.
+The registration preview must distinguish values read from `pack.toml` from application-owned fields such as theme, tags, favorite state, description, and lifecycle status. Choosing a directory must not run an update, modify Packwiz files, or require a network request. Duplicate canonical paths are rejected; a moved or inaccessible modpack is retained as disconnected until the user explicitly reconnects it.
 
-### Mod Inventory Metadata
+### Modpack Inventory Metadata
 
-The project inventory must make each mod's download source and execution side easy to scan. The application reads this information from the local Packwiz metadata file:
+The modpack inventory must make each mod's download source and execution side easy to scan. The application reads this information from the local Packwiz metadata file:
 
 - A `[update.modrinth]` table identifies Modrinth as the download provider.
 - A `[update.curseforge]` table identifies CurseForge as the download provider.
 - The `side` field identifies whether the mod is `client`, `server`, or `both`.
 - The optional `pin` field identifies the Packwiz pin state: `pin = true` is pinned, while an absent `pin` field is unpinned (`false`).
 
-The inventory should show provider, side, and pin state as text, badges, icons, or equivalent accessible labels that do not rely on color alone. It should support seeing provider, side, and pin state alongside the mod name and version in both the normal inventory and update review. A valid boolean `pin` value is current local evidence, and an absent `pin` field is current evidence of the default unpinned state (`false`). A present but malformed or unsupported `pin` value must remain explicitly unknown or unavailable rather than being coerced. Provider counts, side counts, and pinned counts may be used in the project overview and inventory filtering, but they must be derived from the current Packwiz files.
+The inventory should show provider, side, and pin state as text, badges, icons, or equivalent accessible labels that do not rely on color alone. It should support seeing provider, side, and pin state alongside the mod name and version in both the normal inventory and update review. A valid boolean `pin` value is current local evidence, and an absent `pin` field is current evidence of the default unpinned state (`false`). A present but malformed or unsupported `pin` value must remain explicitly unknown or unavailable rather than being coerced. Provider counts, side counts, and pinned counts may be used in the modpack overview and inventory filtering, but they must be derived from the current Packwiz files.
 
 Each mod may expose an **Open mod page** action. The action opens the system browser only when a trustworthy page URL is available, such as an explicit source URL or a safely derived Modrinth project page from a known Modrinth project identity. A CurseForge project ID alone is not sufficient to guess a stable page slug; the action must be unavailable or request resolution when no trustworthy URL is known. Opening a page must never trigger a provider API request merely to render the inventory.
 
-### Project Overview
+### Modpack Overview
 
-The overview should show the active project, favorite state, lifecycle status, current validation state, Minecraft version, mod loader, mod count, download-provider counts, client/server-side counts, Git status when available, available updates, pinned mods, deferred decisions, recent snapshots, and the latest operation result. Opening a project must not modify its files or silently run an update.
+The overview should show the active modpack, favorite state, lifecycle status, current validation state, Minecraft version, mod loader, mod count, download-provider counts, client/server-side counts, Git status when available, available updates, pinned mods, recent snapshots, release workspaces, finalized releases, and the latest operation result. Opening or refreshing a modpack must not modify its files or silently run an update. Opening a finalized or published release is historical review and must not start file observation.
 
 ### Update Discovery and Review
 
 Update discovery uses the Packwiz command `packwiz update -a` to obtain the fastest available list of update candidates. Because this command can proceed into an update operation, the application must run it as a controlled interactive process:
 
-1. Run `packwiz update -a` in the registered project directory.
+1. Run `packwiz update -a` in the registered modpack directory.
 2. Capture the proposed update list and command output.
 3. Detect the update confirmation prompt.
 4. Send `n` to cancel before any update is applied.
-5. Confirm that the command completed as a cancellation and that the project state did not change.
+5. Confirm that the command completed as a cancellation and that the modpack state did not change.
 6. Parse and return the captured candidates for user review.
 
-The application must never send `y` during update discovery. Discovery is only valid when the confirmation prompt was handled, cancellation completed, and post-cancellation validation indicates that no files were modified. If the prompt cannot be detected, cancellation is ambiguous, or the project state changed, the result must be reported as unsafe or indeterminate rather than as a normal update list.
+The application must never send `y` during update discovery. Discovery is only valid when the confirmation prompt was handled, cancellation completed, and post-cancellation validation indicates that no files were modified. If the prompt cannot be detected, cancellation is ambiguous, or the modpack state changed, the result must be reported as unsafe or indeterminate rather than as a normal update list.
 
-Packwiz output is authoritative for which mods are currently presented as update candidates. The application may enrich those candidates with local metadata, Packwiz pin state, notes, and provider identity information. A pinned mod may not appear in Packwiz's automatic update candidates because Packwiz is instructed not to update it automatically; the application should still show the mod and its pinned state when displaying the project inventory.
+Packwiz output is authoritative for which mods are currently presented as update candidates. The application may enrich those candidates with local metadata, Packwiz pin state, notes, and provider identity information. A pinned mod may not appear in Packwiz's automatic update candidates because Packwiz is instructed not to update it automatically; the application should still show the mod and its pinned state when displaying the modpack inventory.
 
 Candidate information may include:
 
@@ -152,7 +155,7 @@ Candidate information may include:
 
 Version classification is a visual aid rather than a universal semantic-version guarantee. Mod versions that cannot be reliably classified must be shown as unknown instead of being forced into a major, minor, or bugfix category.
 
-Discovery does not apply changes. The user reviews candidates and explicitly confirms which updates should be applied. The application should use a separate explicitly confirmed Packwiz operation for applying selected updates rather than reusing the discovery process as an implicit approval mechanism.
+Discovery does not apply changes. A normal discovery result creates an immutable snapshot containing the candidates and a stable before-state capture. The snapshot is historical evidence, not an editable update workspace. The user starts a separate release workspace from the snapshot, where candidate selections and Packwiz operations are explicitly confirmed. Snapshot evidence remains visible and is not rewritten by workspace decisions.
 
 Discovery is supported only for a tested Packwiz compatibility profile. The
 profile records the executable version, expected prompt and output patterns,
@@ -162,16 +165,27 @@ post-cancellation verification is inconclusive, the application must report
 discovery as unsupported, unsafe, or indeterminate rather than presenting the
 candidate list as authoritative.
 
-### Applying Updates
+### Release Workspace and Applying Updates
 
-The application uses Packwiz commands to apply the selected updates. The operation must:
+The release workspace is the editable assembly area for a proposed modpack release. It may begin from a reviewable snapshot, an explicitly selected current-modpack baseline, a finalized release baseline, or a detached snapshot baseline. Starting a workspace captures and persists its baseline evidence; it does not modify Packwiz files. A modpack may have multiple independent editable workspaces, and opening or starting one must not replace another.
 
-- Run against the registered project directory.
+The workspace exposes a small user-facing phase model:
+
+- **Review:** inspect the immutable baseline and choose selected, skipped, deferred, blocked, pinned, or uncertain candidates.
+- **Apply:** confirm the candidate summary and apply selected changes through the Rust Packwiz boundary.
+- **Resolve:** address partial results, failed or changed-but-unverified candidates, stale evidence, recovery requirements, or external edits.
+- **Verify:** inspect a fresh stable post-operation capture and the observed before/after result.
+- **Finalize:** select a final changelog revision and explicitly freeze the validated release evidence.
+- **Publish:** optionally publish the finalized record or withdraw it; publication is separate from finalization.
+
+The application uses Packwiz commands to apply selected updates from the release workspace. The operation must:
+
+- Run against the registered modpack directory.
 - Capture command results, output, errors, and exit status.
 - Report progress for work that takes noticeable time.
 - Support cancellation where Packwiz and the operating system make that practical.
 - Re-read the relevant TOML files after the operation.
-- Record a successful, partially successful, or failed result in the update snapshot.
+- Record an aggregate operation and immutable candidate-level outcomes under the release workspace.
 
 The application may apply a selected subset only when the supported Packwiz
 compatibility profile proves that each operation targets the exact intended
@@ -180,16 +194,30 @@ application must not emulate Packwiz by editing download metadata itself; it
 must either require the complete Packwiz update set or refuse the operation and
 explain why selective application is unavailable.
 
-The application must not report success merely because a Packwiz process started or returned without an immediately visible error. Post-operation file validation is part of determining the result.
+The application must not report success merely because a Packwiz process started or returned without an immediately visible error. Post-operation file validation and a stable capture are part of determining the result. Candidate outcomes distinguish at least `applied`, `failed_before_change`, `changed_but_unverified`, `skipped`, `blocked`, `retryable`, `pinned`, `deferred`, and `uncertain`. Retries create linked attempts and preserve the prior result.
 
-When Git or another recovery path is unavailable, the application must show a prominent warning before applying updates and require explicit user acknowledgement that automatic rollback is unavailable. The snapshot records whether Git or another recovery path was detected and whether the warning was acknowledged.
+When Git or another recovery path is unavailable, the application must show a prominent warning before applying updates and require explicit user acknowledgement that automatic rollback is unavailable. The workspace operation records the recovery observation and acknowledgement; Git remains optional and is not an automatic rollback guarantee.
 
 Updates are blocked when the application cannot establish exclusive operation
-access, cannot read and validate the project, detects an active Git conflict,
+access, cannot read and validate the modpack, detects an active Git conflict,
 merge, or rebase state, or cannot capture a usable before-state. No-Git and
-dirty-Git projects may proceed after acknowledgement. A clean Git tree is
+dirty-Git modpacks may proceed after acknowledgement. A clean Git tree is
 reported as stronger recovery evidence, not as a guarantee that rollback is
 automatic or complete.
+
+The live modpack fingerprint must still match the persisted workspace baseline
+before an apply begins. A mismatch blocks the operation and requires an
+explicit rebase or a new snapshot; it must not silently refresh the baseline.
+
+While an editable workspace is open, Rust may observe only the Packwiz-relevant
+fingerprint boundary: `pack.toml`, the referenced index, indexed `*.pw.toml`
+metadata, and relevant covered content roots. Events are debounced and followed
+by a stable reread. An external change preserves decisions and snapshot
+provenance but records changed scope, evidence freshness, and a blocking reason
+when appropriate. An external edit overlapping an app-owned operation requires
+recovery rather than being merged silently. Observation stops when the
+workspace is closed, abandoned, ready to finalize, finalized, withdrawn, or
+published, and never starts for a historical published release.
 
 ### Pins, Skips, and Notes
 
@@ -204,55 +232,91 @@ then re-reads and validates the metadata and records the resulting Packwiz
 state. SQLite may retain the observation and operation history, but it is not a
 second authority for the current pin state.
 
-Snapshot-specific skips, blocks, and notes remain application-owned decisions. A pinned mod may be absent from Packwiz's automatic update candidate list, but it remains visible in the project inventory and can be unpinned before a future update check.
+Snapshot-specific historical notes remain application-owned records, but
+editable release decisions belong to the release workspace. A pinned mod may be
+absent from Packwiz's automatic update candidate list, but it remains visible
+in the modpack inventory and can be unpinned before a future update check.
 
 The product distinguishes between:
 
 - **Pinned:** an ongoing Packwiz-owned policy that prevents the file from receiving automatic updates.
-- **Skipped:** a decision made for one update snapshot.
+- **Skipped:** a decision made for one release workspace.
 - **Blocked:** an update that cannot currently be applied because validation or compatibility rules reject it.
+- **Deferred:** a candidate intentionally held for later resolution.
+- **Uncertain:** a candidate whose identity or evidence is not sufficient for a safe decision.
 
-Notes may explain a project-level policy or a decision in a particular snapshot. Typical examples include a crash, a dependency concern, or a decision to wait for another mod.
+Notes may explain a modpack policy, a historical snapshot, a workspace decision,
+or a release. Typical examples include a crash, a dependency concern, an
+external edit, or a decision to wait for another mod.
 
 ### Update Snapshots
 
-A snapshot represents one update session, not necessarily a public modpack release version. Creating a new snapshot begins the review and update workflow.
+A snapshot represents one safe update discovery result and its evidence, not a
+public modpack release and not an editable release workspace. Creating a new
+snapshot records the discovery attempt and begins the review workflow.
 
-Snapshots are useful even when no release is created. They preserve the decisions and results of an update attempt, including updates that were skipped, blocked, cancelled, or only partially completed. The normal update flow begins with a snapshot, and a completed snapshot may then be used as the basis for creating a release.
+Snapshots remain useful when no release is created. They preserve the Packwiz
+output, candidate evidence, safety diagnostics, stable before-state capture,
+rechecks, notes, and discovery outcome. A snapshot can be draft, reviewable,
+closed, cancelled, or stale. Only a reviewable snapshot can directly seed a
+release workspace; unsafe, unsupported, indeterminate, failed, cancelled, or
+stale evidence must remain visible without being presented as an authoritative
+candidate list.
 
 A snapshot records:
 
-- Project identity.
-- Creation and completion times.
+- Modpack identity.
+- Creation, update, and optional close times.
 - Optional user-facing label.
-- State before the update.
-- Selected, applied, skipped, pinned, and blocked mod decisions.
-- Notes associated with decisions.
-- Packwiz operation results.
-- State observed after the operation.
-- Generated changelog content and its retrieval status, when applicable.
+- The discovery result, process evidence, compatibility evidence, and relevant fingerprint comparison.
+- A full stable Packwiz baseline capture when the snapshot is reviewable.
+- Immutable candidate records and rechecks.
+- Historical decisions and notes, when present.
+- Retry linkage to a predecessor snapshot, when applicable.
 
-An optional release version can be associated with a snapshot later, but release numbering is not required for the initial workflow. A snapshot does not automatically become a release: the user creates a release when the resulting local repository state is ready to be named and recorded.
+A snapshot does not own update application, recovery, final changelog
+selection, finalization, or publication. Starting a release workspace preserves
+the snapshot and layers release-owned candidate decisions over its immutable
+candidate evidence. Unlinking a snapshot from an editable workspace removes
+only the provenance link; the detached baseline remains visible and immutable.
+Rebasing from current files is explicit, clears the prior snapshot/release
+provenance, and returns the workspace to draft review.
 
 ### Release Tracking and Version Comparison
 
-The application tracks public modpack releases separately from update snapshots. A release represents a named version of a project and records the local modpack state observed at the time the release is created.
+The application tracks release workspaces and finalized modpack releases
+separately from update snapshots. A release workspace is an editable,
+recoverable assembly of a proposed release. A finalized release is a named
+version backed by an immutable capture of the validated local modpack state.
+The workspace and release records must not be presented as interchangeable.
 
-A release may reference:
+A release workspace may contain:
 
-- User-facing release version, such as `1.4.0`.
-- Optional release name or description.
-- Optional release notes written by the user.
-- Git repository path and remote information.
-- Optional exact Git commit SHA.
-- Optional Git tag or GitHub release.
-- Repository branch at the time the release was recorded.
-- Whether the repository was clean when the release was recorded.
-- Release creation date and publication date, when known.
-- The associated update snapshot, when the release was produced by this application.
-- Captured Packwiz project state, including the mod list, versions, download-provider declarations, mod-side declarations, source URLs when available, Minecraft version, mod loader, and other relevant release evidence.
+- User-facing release name, optional version, description, and notes.
+- A baseline origin: current modpack, source snapshot, finalized release, or detached snapshot.
+- An optional source snapshot link and optional baseline release link.
+- Release-owned candidate decisions, notes, operation attempts, recovery evidence, and activity.
+- Baseline and final capture evidence, evidence freshness, blocking reason, and the current user-facing phase.
+- Proposed changelog artifacts and editable revisions.
+- A final changelog revision selected for finalization.
+- Lifecycle, evidence, and publication status as separate fields.
 
-The captured release state is the authoritative record for a release created by the application. A release can exist without a Git repository or commit. When a commit is available, it provides optional provenance and an additional way to reconstruct or verify the release state. The application should capture the local state directly rather than requiring the user to commit changes before creating a release.
+Finalization requires a fresh stable validated final capture that differs from
+the workspace baseline, has no unresolved candidate or recovery outcomes, and
+has a selected final changelog revision associated with that capture. A no-op,
+stale, unstable, unavailable, malformed, unverified, or proposal-only result
+cannot be finalized. Finalized evidence and the selected final changelog
+revision are immutable. Publication is an explicit separate transition; a
+finalized unpublished release remains historical and reviewable, while a
+published release is read-only. Withdrawal is distinct from publication and
+does not rewrite the captured evidence.
+
+A finalized release can exist without a Git repository or commit. When Git
+evidence is available, the release retains the repository root, branch, exact
+commit, tag, remote, working-tree state, and conflict/rebase observation as
+optional provenance. Unavailable provenance is explicit and non-fatal when the
+capture itself is valid. The captured state, not the current working tree, is
+the authority for release history and comparison.
 
 Release comparison should allow the user to select two releases and see:
 
@@ -262,28 +326,45 @@ Release comparison should allow the user to select two releases and see:
 - Changes in Minecraft version or mod loader when present.
 - The associated update notes and generated changelog information.
 - Release notes written for the selected release.
-- The commits between the two release commits, when both releases belong to the same repository history.
+- Commit evidence when both releases provide comparable evidence from the same repository.
 
-For releases that include a commit, the application may read historical files directly from Git objects to verify or enrich the captured state. It must not silently checkout an old commit into the user's active working tree. A temporary isolated worktree or equivalent read-only reconstruction may be used only when a Packwiz operation requires a filesystem directory rather than individual historical files.
+Comparison is computed from persisted captures and must not read current Packwiz
+files or silently reconstruct historical files. Historical Git reads, worktrees,
+and inferred commit ranges are not required by the current release boundary.
 
-GitHub integration can enrich release records with remote repository links, tags, GitHub release metadata, commit links, and release notes. It is optional for the local-first workflow: a local Git commit remains sufficient to track and compare a release. Public repositories may be readable without authentication; private repository access will require explicit user authorization or a configured credential and must not be assumed.
+GitHub enrichment is deferred. No GitHub request, imported remote release
+metadata, public repository dependency, or private authentication is required
+for local release creation, finalization, publication state, or comparison.
 
 ### Changelog Generation
 
-Changelog generation is an explicit action for a selected snapshot. It is not part of every update check.
+Changelog generation is an explicit action and is not part of every update
+check. Existing snapshot artifacts remain durable history, while release
+workspaces add a distinct proposed/final workflow.
 
 The user may provide an optional introduction message during changelog generation. When provided, the message appears at the beginning of the generated changelog before the mod-by-mod changes. The introduction is useful for release context, compatibility warnings, migration guidance, or other information that does not belong to an individual mod entry.
 
-When generating a changelog, the application:
+When generating a snapshot or workspace changelog, the application:
 
-1. Identifies the mods changed in the selected snapshot.
+1. Identifies the required changed or selected mods from the relevant snapshot or workspace evidence.
 2. Resolves each mod to a Modrinth project and relevant version where possible.
 3. Requests changelog information only for the required mods and versions.
 4. Places the optional introduction message at the beginning, when provided.
 5. Formats the results into a reviewable changelog.
-6. Stores the generated result, introduction message, generation settings, and retrieval status with the snapshot so it can be revisited without repeating the same request.
+6. Stores the generated result, introduction message, request context, retrieval status, and source evidence with the snapshot or workspace artifact so it can be revisited without repeating the same request.
 
-Generated changelogs are durable application records and can be referenced from the snapshot or an associated release at a later date. The user may export a generated changelog to a selected file format and location. An export records the format, destination, export time, and exported content or content hash, while the application retains the generated changelog independently of the exported file.
+Proposed workspace changelog content is derived from selected candidates and is
+editable, but it must be labeled as proposed and must never be presented as
+proof that changes were applied. The final changelog is selected only after a
+validated observed result and is frozen with the final release capture. The
+final artifact must identify the capture and revision it represents.
+
+Generated changelogs are durable application records and can be referenced from
+the snapshot, workspace, or finalized release. The user may export a generated
+changelog to a selected file format and location. An export records the format,
+destination, export time, exported content or content hash, and status, while
+the application retains the generated changelog independently of the exported
+file.
 
 The user may create an editable revision of a generated changelog before export. The original generated result must remain preserved, and the revision must identify the user edits and the source artifact from which it was created. The initial export format is Markdown; other formats are deferred.
 
@@ -293,25 +374,33 @@ A missing or ambiguous Modrinth match must be visible to the user and must not b
 
 ### Data Management and Cleanup
 
-All application-owned data must have a clear management path. The user should be able to view, edit, archive, restore, and delete supported records without directly editing the SQLite database.
+The current alpha provides visible management for supported modpack metadata,
+snapshot history, release workspaces, releases, changelog revisions, exports,
+and connection state. It does not yet provide the full destructive cleanup
+workflow; that remains a later capability and must not be implied by the core
+update or release flow.
 
-Data management must support:
+The supported current-alpha management paths include:
 
-- Editing project metadata, tags, pins, notes, release details, and changelog introductions.
-- Archiving projects, snapshots, releases, and changelog artifacts without immediately destroying their history.
-- Restoring archived records when their referenced project data is still available.
-- Permanently deleting selected application records after an explicit confirmation.
-- Removing stale or unresolved provider metadata and refreshing it when needed.
-- Removing obsolete changelog exports from the application’s export history without deleting the underlying generated artifact.
-- Cleaning cached external metadata according to user-selected scope or retention rules.
-- Identifying orphaned records, such as exports whose artifact was deleted or snapshots whose project was removed.
-- Showing the records and external files affected before a destructive cleanup is confirmed.
+- Editing modpack metadata, tags, pins, notes, workspace metadata, release fields, and changelog revisions.
+- Archiving, restoring, disconnecting, and reconnecting modpacks without deleting their external directories.
+- Resuming or explicitly abandoning release workspaces while preserving snapshot and workspace history.
+- Exporting and revisiting changelog artifacts without replacing the stored generated result.
+- Retaining unavailable export destinations and provider failures as visible history.
 
-Cleanup operations must preserve referential integrity. Deleting a project from the application must not delete its external modpack directory, Git repository, Git history, or user-created export files. Cleanup archives records by default. Permanent deletion of a release or snapshot must show dependent changelog artifacts, exports, notes, and decisions in an impact preview and allow only the fixed supported choices for archiving or detaching records whose historical meaning remains intact. The application must not silently cascade destructive deletion.
+Future cleanup operations must preserve referential integrity. Removing a
+modpack from the application must not delete its external directory, Git
+repository, Git history, or user-created export files. Permanent deletion of a
+release, workspace, snapshot, or changelog artifact must require an impact
+preview and typed confirmation, must identify dependent records, and must never
+silently cascade destructive deletion.
 
-Permanent deletion of projects, releases, or changelog artifacts requires an impact preview and typed confirmation. Archived records are hidden from normal search and comparison results by default, with an explicit option to include them.
+Archived records should be hidden from normal search and comparison results by
+default when archive/restore is expanded.
 
-Application data management should include a way to inspect storage usage and identify records or cached data that can be removed. Database cleanup must not remove the only stored copy of a generated changelog or captured release state without an explicit destructive action.
+Any later storage cleanup must show affected records and external references and
+must not remove the only stored copy of a generated changelog or captured
+release state without an explicit destructive action.
 
 ## Provider and Mod Identity Rules
 
@@ -340,8 +429,8 @@ CurseForge API integration is a future enhancement. It may require an API key, a
 
 The core concepts are:
 
-- **Project:** application metadata associated with one local Packwiz directory, including its favorite state, description, lifecycle status, tags, and timestamps.
-- **Mod record:** an observation of a mod entry read from project files.
+- **Modpack:** application metadata associated with one registered local Packwiz directory, including its favorite state, description, lifecycle status, tags, observations, and timestamps.
+- **Mod record:** an observation of a mod entry read from modpack files.
 - **Local entry identity:** the stable application identity for a Packwiz metadata entry, including its observed path and local evidence.
 - **Download provider:** the provider declared by the local Packwiz update table, such as Modrinth or CurseForge.
 - **Provider identity:** the known or unresolved identity of a mod on an external provider.
@@ -349,14 +438,21 @@ The core concepts are:
 - **Mod side:** the Packwiz `side` value describing whether a mod runs on the client, server, both, or has an unknown value.
 - **Mod page link:** a trustworthy external project-page URL associated with a local mod entry; it may be unavailable even when a provider or project ID is known.
 - **Pin:** a durable Packwiz-owned update policy managed by the application through `packwiz pin` and `packwiz unpin`.
-- **Snapshot:** one review-and-update session for a project.
-- **Release:** a named modpack version backed by a captured Packwiz state, with optional Git repository provenance.
-- **Release status:** the publication state of a release or snapshot, separate from whether its update operation succeeded.
-- **Snapshot decision:** the selected, skipped, applied, pinned, or blocked outcome for a mod in a snapshot.
-- **Note:** user context attached to a project, mod policy, snapshot decision, or release.
+- **Snapshot:** immutable discovery history containing candidate evidence, safety diagnostics, and a stable before-state capture.
+- **Release workspace:** an editable, recoverable assembly of one proposed release, including candidate decisions, operations, recovery, changelog revisions, and workspace activity.
+- **Release baseline:** the immutable capture from which a workspace starts; it may originate from the current modpack, a snapshot, a finalized release, or a detached snapshot.
+- **Release capture:** a versioned, stable observation of Packwiz manifest, runtime, inventory, fingerprints, and optional Git provenance.
+- **Release:** a named modpack version backed by an immutable final capture and optional Git provenance.
+- **Workspace lifecycle:** the operational state of a workspace: `draft`, `applying`, `recovery_required`, `provisional`, `ready_to_finalize`, `finalized`, `published`, `withdrawn`, or `abandoned`.
+- **Evidence status:** the workspace baseline/final evidence state, distinct from lifecycle and publication status.
+- **Publication status:** whether a release is `draft`, `provisional`, `published`, or `withdrawn`, distinct from update outcome and workspace lifecycle.
+- **Snapshot decision:** an immutable historical decision record; release-workspace decisions are separate and must not rewrite snapshot history.
+- **Candidate outcome:** the observed result for a workspace candidate, including `applied`, `failed_before_change`, `changed_but_unverified`, `skipped`, `blocked`, `retryable`, `pinned`, `deferred`, or `uncertain`.
+- **Note:** user context attached to a modpack, mod policy, snapshot, workspace decision, or release.
 - **Release notes:** user-authored context describing a named release, separate from generated changelog content and individual mod decision notes.
 - **Changelog introduction:** optional user-authored text placed at the beginning of one generated changelog.
-- **Changelog artifact:** durable generated changelog content associated with a snapshot or release.
+- **Changelog artifact:** durable generated changelog content associated with a snapshot, workspace, or release, labeled as proposed or final.
+- **Changelog revision:** an editable derivative of an artifact; the selected final revision is frozen during finalization.
 - **Changelog export:** a file produced from a changelog artifact, with its format, destination, timestamp, and export history recorded.
 - **Archive state:** whether an application record is active, archived, or pending permanent deletion.
 - **External metadata cache:** stored provider responses used to avoid unnecessary repeated requests.
@@ -367,62 +463,135 @@ Important rules:
 - The current download provider and mod side are read from Packwiz metadata and are displayed as observations, not application-owned overrides.
 - Provider statistics and side statistics are derived from the current inventory and may become unknown when the corresponding Packwiz values are missing or malformed.
 - Application metadata must not silently overwrite Packwiz state.
-- Historical snapshots must remain understandable after the current project files change.
+- Historical snapshots, workspaces, and finalized releases must remain understandable after the current modpack files change.
 - Packwiz owns persistent pin state, and the application reflects `pin = true` or an absent `pin` field found in the local mod metadata as current evidence of pinned or unpinned state. Present malformed or unsupported pin values remain unknown or unavailable.
 - SQLite may retain pin observations and operation history, but it is not authoritative for current pin state.
 - Pinning and unpinning must target one exact Packwiz metadata file.
 - The application must not use Packwiz's `--yes` option when doing so could select an unintended file.
 - Unknown version changes remain unknown rather than being misclassified.
 - External changelog data is not confirmed until its provider identity and version association are known.
-- A failed or partial operation is recorded as such and is never represented as a successful snapshot.
-- A release created without Git remains valid because its captured modpack state is stored with the release.
-- A release with a Git commit may be reproducible or verifiable from that commit, subject to the commit remaining available.
-- Comparing releases uses their captured release states and never whichever files happen to be in the current working tree.
+- A failed, partial, cancelled, unsafe, or indeterminate operation remains visible and is never represented as a successful final release.
+- A release without Git remains valid because its captured modpack state is stored with the release.
+- A release with Git provenance retains the observation without making a commit, clean tree, remote, or historical reconstruction mandatory.
+- Comparing releases uses their persisted captured states and never whichever files happen to be in the current working tree.
+- Finalization requires a changed, stable, validated final capture, no unresolved candidate or recovery outcome, and a selected final changelog revision.
+- Finalized and published evidence is immutable; publication and withdrawal are guarded status transitions rather than recaptures.
+- External observation is evidence only. It never silently authorizes an update, changes a decision, or rewrites snapshot provenance.
 - A provider match must retain its confidence and evidence; an unresolved or ambiguous match is never treated as confirmed changelog data.
 - Opening a mod page uses only a trustworthy known URL; the application must not construct a guessed CurseForge URL from a project ID alone.
 
 ## Data and Lifecycle Expectations
 
-The application database stores projects, tags, pin observations, notes, snapshots, releases, release-to-snapshot associations, decisions, generated changelog artifacts, changelog exports, cached provider metadata, and application settings. The selected project directory stores the actual Packwiz configuration and mod metadata, while Git stores versioned repository history when available. Packwiz remains authoritative for current persistent pin state, current mod configuration, download-provider declarations, mod-side declarations, and source URLs present in the files. Historical observations and captured release states retain these values so comparisons do not depend on the current working tree.
+The application database stores modpack metadata, application settings,
+current inventory observations, activity, discovery attempts and candidates,
+snapshots and stable baselines, snapshot notes and rechecks, operation attempts,
+workspace operations and candidate outcomes, recovery acknowledgements, pin
+observations, changelog cache and attempts, changelog artifacts/revisions/
+exports, release metadata and immutable captures, release-workspace metadata,
+workspace candidate sources and decisions, workspace activity and external
+observations. The selected modpack directory stores the actual Packwiz
+configuration and mod metadata, while Git stores repository history when
+available. Packwiz remains authoritative for current persistent pin state,
+current mod configuration, provider declarations, side declarations, and
+source URLs present in the files.
 
-Projects can be registered, validated, opened, edited, marked as favorite, assigned a lifecycle status, archived, restored, removed from the application, and reconnected to a directory if it moves. Registration uses a canonical directory path and rejects duplicate registrations of the same directory. A missing or inaccessible path is marked disconnected; reconnecting requires an explicit user-selected directory that passes validation and preserves the application project identity. Removing a project from the application must not delete the external modpack directory unless a future explicit destructive workflow is designed and confirmed. Removing or archiving a project must clearly explain what happens to its snapshots, releases, notes, changelog artifacts, exports, pins, and cached metadata.
+Modpacks can be registered, validated, opened, refreshed, edited, favorited,
+archived, restored, disconnected, and reconnected. Registration uses a
+canonical directory path and rejects duplicate registrations of the same
+directory. A missing or inaccessible path is retained as disconnected;
+reconnection requires an explicitly selected directory that passes validation
+and preserves the modpack's application identity. Removing a modpack from the
+application must not delete its external directory, Git repository, Git
+history, or user-created exports.
 
-Snapshots progress through operational states that distinguish at least review, applying, completed, partially completed, failed, and cancelled outcomes. A retry after a partial, failed, or cancelled operation creates a new linked snapshot or operation; the original outcome remains immutable. Applying a snapshot is invalidated when the relevant project state changes externally after discovery, and a fresh discovery/review is required. A completed or otherwise validated snapshot may be associated with a release after the desired local repository state has been captured. Creating a release does not require a Git commit. Releases may have a publication status such as draft, provisional, in review, ready, released, or superseded. A provisional release may capture a validated state from a partial or failed operation, but its status must remain visible and it must not be represented as a normal publishable release. Operational status answers whether the update operation worked; release status answers where the resulting version is in the publishing workflow. A release may contain user-authored release notes in addition to generated changelog content and snapshot or mod decision notes. A snapshot should preserve enough pre-operation and post-operation evidence to explain the result.
+Snapshots progress through `draft`, `reviewable`, `closed`, `cancelled`, and
+`stale` lifecycles. A normal reviewable snapshot retains a stable baseline
+capture and immutable candidate evidence. Abnormal discovery outcomes remain
+visible but cannot be treated as authoritative candidates. A retry creates a
+new linked snapshot and does not rewrite the predecessor.
 
-Release records should retain the captured modpack state even if the repository is later moved, renamed, or disconnected. When a commit is recorded, the release should also retain the commit SHA and relevant remote or tag information. If that commit cannot be found locally or through the configured remote, the release remains fully comparable using its captured state but is marked unavailable for commit-based reconstruction or verification.
+Release workspaces retain their source snapshot link, baseline origin, baseline
+capture, release-owned candidate decisions, operation attempts, activity,
+evidence status, publication status, and finalization fields. A workspace may
+be resumed after navigation or application restart. Explicit abandonment
+preserves history and does not revert Packwiz files. Unlinking a snapshot
+removes only the source link; explicit rebasing captures the current files as a
+new baseline, clears prior snapshot/release provenance, and returns to draft
+review. Multiple independent workspaces may remain visible for a modpack.
 
-Generated changelog artifacts remain referenceable from their snapshot or release after export. Export records preserve the relationship between the artifact and each file produced from it. If an exported file is moved, renamed, deleted, or becomes inaccessible, the stored artifact and export history remain available in the application, while the affected export is marked unavailable at its recorded destination.
+Workspace lifecycle, evidence status, and publication status are separate. The
+user-facing phases are review, apply, resolve, verify, finalize, and publish.
+The backend may retain more detailed diagnostics, but the frontend must expose
+the current phase, blocking reason, evidence freshness, and primary next
+action. Applying requires a live fingerprint match to the immutable baseline.
+Partial, failed, cancelled, stale, external-change, and recovery states remain
+visible and retryable where safe.
 
-Snapshots, releases, and changelog artifacts should be independently archivable where possible. A cleanup operation may remove cached provider responses or unavailable export references without removing the captured release state or generated changelog content. Permanent deletion must be explicit and must describe whether dependent records will be detached, archived, or deleted.
+A workspace can finalize only from a changed, stable, validated final capture
+with no unresolved candidate or recovery outcome and a selected final changelog
+revision. Finalization freezes the final capture and revision. Publication and
+withdrawal are separate guarded transitions; published records are read-only
+historical evidence and do not observe later modpack changes.
 
-Cached Modrinth data should include retrieval context and timestamps. Cache expiration and refresh rules can be refined when the first provider integration is implemented, but changelog generation must remain usable when the network is unavailable if the required data was previously cached.
+Release records retain captured Packwiz state even if the modpack is later
+moved, renamed, disconnected, or changed. Git provenance retains repository,
+branch, commit, tag, remote, clean/dirty/conflicted state, and availability
+observations when possible, but unavailable provenance is non-fatal to a valid
+local capture. Release comparison uses persisted captures and never current
+files.
+
+Generated changelog artifacts remain referenceable from their snapshot,
+workspace, or release after export. Proposed revisions remain editable; the
+selected final revision is frozen during finalization. Export records retain the
+destination, format, content or hash, status, and timestamp. Moving or deleting
+an exported file does not remove the stored artifact or export history.
+
+Cached provider responses retain retrieval context, request/response metadata,
+association, and timestamps. Exact cached Modrinth data may support offline
+generation only when its project and version association is known. Cache
+expiration and scoped cleanup remain later data-management work.
+
+The alpha schema has a compatibility sentinel and no migration system. When an
+existing database is missing or incompatible with the current schema, the app
+must fail clearly; the user must stop the app and manually delete the database
+and its WAL/SHM sidecars before relaunch. The app must not silently migrate,
+rewrite, or discard application data. Packwiz files remain outside this reset
+boundary.
 
 ## Non-Functional Requirements
 
-- **Local-first:** Core project browsing, stored history, pins, notes, and previously cached changelogs work without network access.
-- **Data safety:** Operations are limited to the registered project directory and provide clear results for failures and partial completion.
-- **Minimal API use:** Modrinth is queried for changelog generation and related identity resolution only when required, not on every project open or routine local inspection.
+- **Local-first:** Core modpack browsing, stored snapshot/workspace/release history, pins, notes, and previously cached changelogs work without network access.
+- **Data safety:** Operations are limited to the registered modpack directory and provide clear results for failures, partial completion, stale evidence, and external changes.
+- **Minimal API use:** Modrinth is queried for changelog generation and related identity resolution only when required, not on every modpack open or routine local inspection.
 - **Explainability:** The user can see why a mod is listed, skipped, pinned, blocked, or missing changelog information.
 - **Responsiveness:** Long-running Packwiz and network work does not freeze the interface and exposes progress or a clear busy state.
 - **Recoverability:** Git status or another backup/recovery mechanism may be detected and reported, but Git is not required for the initial product unless a later safety decision makes it mandatory.
-- **Data manageability:** Application-owned records can be edited, archived, restored, cleaned up, and permanently deleted through visible workflows with clear dependency and impact information.
-- **Data safety:** Cleanup never silently deletes external project directories, Git history, or user-created export files.
+- **Data manageability:** Supported application-owned records can be edited, archived, restored, or disconnected through visible workflows; full cleanup and permanent deletion remain deferred and must eventually include clear dependency and impact information.
+- **Data safety:** Application cleanup never silently deletes external modpack directories, Git history, or user-created export files.
 - **Accessibility:** Desktop workflows support keyboard navigation, readable status communication, visible focus, and color-independent meaning for update severity.
 
 ## Integrations and External Dependencies
 
 ### Packwiz
 
-Packwiz is an external command-line dependency used to inspect and modify a local project. Rust owns process execution, path validation, output capture, cancellation behavior, and post-operation verification. The initial wrapper targets one tested Packwiz compatibility profile. That profile defines the executable version, supported command forms, prompt and output patterns, selective-targeting capability, and known limitations. Unsupported or compatibility-unknown versions must be reported clearly and must not silently receive best-effort parsing.
+Packwiz is an external command-line dependency used to inspect and modify a
+registered local modpack. Rust owns process execution, path validation, output
+capture, cancellation behavior, and post-operation verification. The initial
+wrapper targets one tested Packwiz compatibility profile. That profile defines
+the executable version, supported command forms, prompt and output patterns,
+selective-targeting capability, and known limitations. Unsupported or
+compatibility-unknown versions must be reported clearly and must not silently
+receive best-effort parsing.
 
 Update discovery uses the tested cancel-after-prompt probe because the documented
 command surface does not provide a non-mutating update-list command. The wrapper
 must never send `y` during discovery. Discovery is normal only when the expected
 prompt is detected, `n` is accepted, the process exits in the expected
-cancellation state, and the relevant project fingerprint is unchanged. Any
+cancellation state, and the relevant modpack fingerprint is unchanged. Any
 uncertainty is unsafe or indeterminate. Pin and unpin use interactive exact
 selection and post-operation verification; `--yes` is prohibited when it could
-select an unintended file.
+select an unintended file. New update application is owned by a release
+workspace and must use its baseline and candidate decisions.
 
 ### Modrinth
 
@@ -434,11 +603,20 @@ CurseForge-origin mods are supported as local inputs. Initial changelog lookup m
 
 ### Git
 
-The application is managed by Git, and managed modpack directories may also use Git. Git provides repository state, commit history, optional release provenance, and historical Packwiz evidence. The initial product does not depend on every project being a Git repository; projects without Git can still use current-state management, update snapshots, and captured releases, but cannot provide commit-based reconstruction of older states.
+The application is managed by Git, and managed modpack directories may also use
+Git. Git provides optional working-tree status and release provenance. The
+initial product does not depend on every modpack being a Git repository;
+modpacks without Git can still use current-state management, snapshots, release
+workspaces, finalized captures, and captured-state comparison. Historical Git
+reconstruction and inferred commit ranges are not required.
 
 ### GitHub
 
-GitHub is an optional remote integration for repositories that are hosted there. The initial integration supports public repository metadata and may import a release tag, title, body, URL, and creation or publication dates. Imported data remains distinguishable from local edits. Private repository authentication is deferred. GitHub must not replace local Git as the authority for repository content, and the application must continue to work when GitHub is unavailable.
+GitHub enrichment is deferred. The current release boundary makes no GitHub
+request, does not import public release metadata, and does not require a public
+remote or authentication. A later integration must not replace local Git or
+captured Packwiz evidence as the authority for repository content and release
+history.
 
 ## Architecture Guidelines
 
@@ -450,19 +628,33 @@ Svelte owns view state, filtering, selection, forms, review controls, progress p
 
 ### Rust Boundary
 
-Rust owns filesystem access, Packwiz process execution, path safety, Modrinth network access, SQLite access, operation coordination, progress, cancellation, and error translation. Tauri commands and events should expose domain-oriented contracts such as project validation, update discovery, update application, and changelog generation.
+Rust owns filesystem access, Packwiz process execution, path safety, Modrinth
+network access, SQLite access, operation coordination, progress, cancellation,
+release-workspace observation, and error translation. Tauri commands and events
+should expose domain-oriented contracts such as modpack validation, update
+discovery, workspace operations, release finalization, and changelog generation.
 
 ### Persistence Boundary
 
-SQLite owns application state and historical records. Packwiz files own the current external modpack configuration. Git commits own versioned repository content when available. Database records should retain stable identifiers, release commit references, before/after project fingerprints, exact local metadata paths, and snapshots of relevant observed values so history is not dependent on the current contents of a mutable TOML file or on the current working-tree checkout.
+SQLite owns application state and historical records. Packwiz files own the
+current external modpack configuration. Git commits own versioned repository
+content when available. Database records should retain stable identifiers,
+snapshot/workspace/release relationships, capture fingerprints, exact local
+metadata paths, candidate outcomes, changelog provenance, and snapshots of
+relevant observed values so history is not dependent on the current contents of
+a mutable TOML file or on the current working-tree checkout.
 
 ### Security and Privacy
 
-The application should use least-privilege Tauri capabilities. A modpack must be explicitly registered and canonicalized before operations are allowed. Filesystem operations must remain within the registered modpack boundary, reject ambiguous or escaping paths, and define behavior for links and junctions. Packwiz resolution and execution must be observable and must not allow modpack metadata to inject unintended command arguments. Network access should be limited to expected provider endpoints and should avoid sending unnecessary local modpack data. API keys, when CurseForge support is added, must not be stored in plain modpack metadata or exposed to the Svelte layer unnecessarily.
+The application should use least-privilege Tauri capabilities. A modpack must be explicitly registered and canonicalized before operations are allowed. Filesystem operations must remain within the registered modpack boundary, reject ambiguous or escaping paths, and define behavior for links and junctions. Packwiz resolution and execution must be observable and must not allow modpack metadata to inject unintended command arguments. The Rust watcher must observe only the release-workspace fingerprint boundary and must not become a second filesystem authority in Svelte. Network access should be limited to expected provider endpoints and should avoid sending unnecessary local modpack data. API keys, when CurseForge support is added, must not be stored in plain modpack metadata or exposed to the Svelte layer unnecessarily.
 
 ### Long-Running Work and Errors
 
-Packwiz operations and external requests must be represented as observable operations with progress, completion, cancellation, and structured failure states. Errors should preserve enough context for the user to diagnose the project, command, provider, or network problem without exposing raw implementation details as the only explanation.
+Packwiz operations, release-workspace observation, and external requests must be
+represented as observable operations with progress, completion, cancellation,
+freshness, and structured failure states. Errors should preserve enough context
+for the user to diagnose the modpack, workspace, command, provider, or network
+problem without exposing raw implementation details as the only explanation.
 
 ## Technology Decisions and Rationale
 
@@ -470,22 +662,23 @@ Packwiz operations and external requests must be represented as observable opera
 |----------|-----------|
 | Local-first desktop application | Modpack files are local, and the primary workflow should remain useful without a service or account. |
 | Tauri, Rust, and Svelte | Native filesystem and process access belong in Rust while Svelte provides the review-oriented desktop UI. |
-| SQLite for application data | Project metadata, snapshots, decisions, notes, and caches need durable local relationships and history. |
+| SQLite for application data | Modpack metadata, snapshots, release workspaces, decisions, notes, captures, and caches need durable local relationships and history. |
 | Packwiz remains authoritative for modpack files | The application augments Packwiz instead of duplicating its configuration model. |
-| Snapshots represent update sessions | This gives the workflow a stable history without prematurely imposing a release-numbering system. |
-| Favorites are first-class project metadata | A favorite is a quick-access preference, not an open-ended category, so it should not depend on a removable or renamed tag. |
-| Project lifecycle and snapshot release status are separate | A project can be active while a snapshot is in review, or archived while its last snapshot remains released. |
-| Releases capture local state at creation time | A release remains valid without Git by storing the modpack evidence observed at the time it was created. |
+| Snapshots preserve discovery evidence | Immutable candidates and a stable baseline let a review remain explainable without turning the snapshot into a mutable release workspace. |
+| Favorites are first-class modpack metadata | A favorite is a quick-access preference, not an open-ended category, so it should not depend on a removable or renamed tag. |
+| Modpack, workspace, evidence, and publication status are separate | A modpack can be active while a workspace is recovering, or a release can be finalized while remaining unpublished. |
+| Release captures are immutable | A finalized release remains valid without Git by storing the modpack evidence observed in its immutable final capture. |
 | Git commits are optional release provenance | A commit can populate or verify historical data, but committing changes is not required to create a release. |
 | Packwiz owns persistent pin state | The application manages pin and unpin actions through Packwiz and reflects the resulting metadata instead of maintaining a conflicting pin state. |
-| GitHub is optional enrichment | Local Git is sufficient for release reconstruction; GitHub adds remote links and release metadata without becoming a service dependency. |
+| GitHub enrichment is deferred | Local Git and captured evidence are sufficient for release history and comparison without a service dependency. |
 | Initial Packwiz compatibility targets the installed version | A narrow tested compatibility target reduces command and output differences while allowing unsupported versions to be reported clearly. |
 | Markdown is the initial changelog export format | Markdown is portable, editable, Git-friendly, and suitable for GitHub release content or modpack documentation. |
-| Generated changelogs retain editable revisions | Users can correct or contextualize generated text without losing the original provider-derived result. |
+| Proposed and final changelogs are distinct | Users can correct or contextualize proposed text without presenting it as applied evidence; the selected final revision is frozen with the final capture. |
 | Cached provider data is retained until user cleanup | Historical changelogs remain useful without surprise expiration, while scoped cleanup controls address storage concerns. |
-| Explicit review before applying updates | Pins, compatibility notes, and skipped updates require a deliberate user decision. |
+| Explicit workspace review before applying updates | Pins, compatibility notes, skipped updates, recovery, and stale evidence require deliberate user decisions. |
 | Modrinth as the initial changelog provider | It supports the first changelog workflow while avoiding a required CurseForge API key. |
 | Provider identity separate from download provider | A CurseForge-origin mod may still have usable Modrinth changelog data. |
+| Alpha schema sentinel without migrations | Breaking schema changes fail clearly and require a manual database/WAL/SHM reset rather than silently rewriting data. |
 
 ## Assumptions, Open Questions, and Non-Goals
 
@@ -493,32 +686,36 @@ Packwiz operations and external requests must be represented as observable opera
 
 - The application is local-first and desktop-based.
 - Users manage one or more local Packwiz modpacks.
-- Projects have first-class favorite, description, lifecycle status, and timestamp metadata; these are not represented as tags.
-- Project facts derived from Packwiz files or Git are refreshed from the external project rather than treated as manually maintained metadata.
+- Modpacks have first-class favorite, description, lifecycle status, and timestamp metadata; these are not represented as tags.
+- Modpack facts derived from Packwiz files or Git are refreshed from the external directory rather than treated as manually maintained metadata.
 - The initial Packwiz wrapper targets the currently installed and tested Packwiz version.
 - Changelog exports initially use Markdown only; other formats are deferred.
-- Generated changelogs may have editable revisions while preserving the original generated artifact.
+- Snapshot and workspace changelogs may have editable revisions while preserving the original generated artifact; the selected final revision is frozen during finalization.
 - Cached provider data remains until the user performs scoped cleanup.
-- Archived records are hidden from normal search and comparison by default.
-- Destructive deletion requires an impact preview and typed confirmation.
-- Releases capture the local modpack state at creation time; an exact Git commit may be recorded as optional provenance.
-- Git commits can populate or verify past release data, but a release does not require a commit.
-- GitHub metadata is optional and must not be required for local release tracking or comparison.
-- Initial GitHub integration supports public repositories and imports tag, title, body, URL, and dates; private authentication is deferred.
-- Releases may be created from dirty working trees with a warning and captured local state.
+- Destructive deletion is deferred; when implemented it requires an impact preview and typed confirmation.
+- A reviewable snapshot retains a full stable Packwiz baseline capture and immutable candidate evidence.
+- A release workspace may start from a snapshot, the current modpack, a finalized release, or a detached snapshot baseline; explicit unlink and rebase actions are distinct.
+- Multiple independent editable release workspaces may remain visible for one modpack.
+- Release workspace lifecycle, evidence status, and publication status remain separate.
+- Finalization requires a changed, stable, validated final capture, no unresolved candidate or recovery outcomes, and a selected final changelog revision.
+- Finalized and published captures remain immutable; publication and withdrawal are explicit separate transitions.
+- Releases may be created or finalized without Git; an exact commit and other Git provenance are optional observations.
+- GitHub enrichment is deferred and must not be required for local release tracking or comparison.
+- Dirty, conflicted, no-Git, missing-commit, and unavailable-history states remain explicit evidence.
 - Updates may be applied without Git or another backup path only after explicit acknowledgement that automatic rollback is unavailable.
-- Updates are blocked for inaccessible or invalid projects, concurrent application operations, active Git conflict/merge/rebase states, or an unavailable before-state.
-- External changes after discovery invalidate the review and require fresh discovery before applying updates.
-- A retry after a partial, failed, or cancelled operation creates a new linked snapshot or operation rather than mutating the original outcome.
-- A release may capture a validated partial or failed state only as a visibly provisional release record.
-- Project registration rejects duplicate canonical paths and moved projects require explicit reconnect.
+- Updates are blocked for inaccessible or invalid modpacks, concurrent application operations, active Git conflict/merge/rebase states, stale baselines, or unavailable evidence.
+- External changes preserve workspace decisions and snapshot provenance but can block apply, verification, or finalization until explicitly resolved.
+- A retry after a partial, failed, cancelled, or recovery-required operation creates a linked attempt or snapshot rather than mutating the original outcome.
+- Partial eligible evidence may remain visibly provisional, but provisional evidence cannot be finalized without a fresh validated capture.
+- Modpack registration rejects duplicate canonical paths, and moved modpacks require explicit reconnect.
 - Packwiz pin and unpin selection is interactive and exact; the application refuses ambiguous selections.
 - Provider cache responses may be used offline only when the provider project and version association is exact, with retrieval and freshness information visible.
-- Filesystem operations are confined to an explicitly registered canonical project boundary.
+- Filesystem operations and workspace observation are confined to an explicitly registered canonical modpack boundary and the relevant Packwiz fingerprint scope.
 - Packwiz is used to inspect and apply updates.
 - Modrinth is queried only when changelog generation or required identity resolution needs it.
 - CurseForge-origin mods must be considered, but direct CurseForge API access is deferred.
 - Git may be useful for status and recovery but is not a required dependency initially.
+- The alpha schema has a compatibility sentinel and no migration system; incompatible databases require a manual database/WAL/SHM reset.
 
 ### Open Questions
 
@@ -530,9 +727,9 @@ workflow contract:
 - CurseForge API integration and private GitHub repository authentication.
 - Changelog export formats beyond Markdown.
 - Automatic expiration policies for cached provider data.
-- Additional GitHub release synchronization behavior beyond importing public release metadata.
 - Detailed behavior for filesystem symlinks and Windows junctions, pending the first path-safety implementation and test fixtures.
 - Whether application-created backups should supplement Git in a later release.
+- Native Tauri/manual validation of watcher timing, restart/resume, abandonment, overlapping external edits, and publication teardown.
 
 ### Non-Goals for the Initial Product
 
@@ -543,35 +740,46 @@ workflow contract:
 - Fully automatic unattended updates.
 - Universal dependency conflict resolution.
 - Multiplayer server deployment or runtime management.
-- Requiring GitHub hosting for projects or releases.
+- Requiring GitHub hosting for modpacks or releases.
+- Automatic release publication or unattended release-workspace execution.
 
 ### Workflow Acceptance Criteria
 
 The following conditions make the critical behavior observable and testable:
 
-- **Project registration:** the application accepts a readable validated Packwiz directory, previews the `pack.toml` name, author, declared pack version, pack format, index reference, and declared game/loader versions, stores its canonical path, rejects duplicate canonical paths, and marks missing or inaccessible paths as disconnected without deleting history. Registration must not modify the selected directory or require network access; malformed manifest data or an unreadable referenced index must be visible in the validation result.
-- **Discovery safety:** a supported Packwiz profile detects the expected update prompt, sends only cancellation, observes the expected cancelled result, and verifies an unchanged relevant project fingerprint before presenting candidates as normal results. Any missing evidence is unsafe or indeterminate.
+- **Modpack registration:** the application accepts a readable validated Packwiz directory, previews the `pack.toml` name, author, declared pack version, pack format, index reference, and declared game/loader versions, stores its canonical path, rejects duplicate canonical paths, and marks missing or inaccessible paths as disconnected without deleting history. Registration must not modify the selected directory or require network access; malformed manifest data or an unreadable referenced index must be visible in the validation result.
+- **Discovery safety:** a supported Packwiz profile detects the expected update prompt, sends only cancellation, observes the expected cancelled result, and verifies an unchanged relevant modpack fingerprint before presenting candidates as normal results. Any missing evidence is unsafe or indeterminate.
 - **Pin safety:** pin and unpin target one exact metadata path, never use ambiguous `--yes` selection, and verify the resulting Packwiz metadata before reporting success.
-- **Apply safety:** the application captures a before-state, blocks the explicit unsafe states, invalidates stale reviews after external changes, records output and exit status, and verifies the after-state before classifying the operation.
-- **Partial outcomes:** a partial, failed, or cancelled operation remains visible and immutable; retry creates a linked new operation or snapshot.
+- **Snapshot baseline:** a reviewable snapshot retains a full stable Packwiz capture and immutable candidate evidence; unsafe, unsupported, indeterminate, failed, cancelled, or stale discovery cannot seed an authoritative workspace.
+- **Workspace safety:** a workspace owns candidate decisions and operations, verifies the live fingerprint against its immutable baseline before apply, preserves decision and provenance history, and exposes phase, blocker, freshness, and next action.
+- **Apply safety:** the application captures before/after evidence, blocks stale or unsafe states, records output and exit status, and verifies the result before classifying each candidate.
+- **Partial outcomes:** a partial, failed, cancelled, or recovery-required operation remains visible and immutable; retry creates a linked new attempt or snapshot.
+- **Workspace recovery:** candidate outcomes distinguish applied, failed-before-change, changed-but-unverified, skipped, blocked, retryable, pinned, deferred, and uncertain states without representing unresolved work as successful final evidence.
+- **Observation safety:** Rust observes only the Packwiz fingerprint boundary while an editable workspace is active, debounces and stably rereads changes, preserves decisions/provenance, and records overlap with app-owned operations as recovery rather than silently merging it.
 - **Identity:** each historical observation retains local Packwiz evidence and provider identity evidence separately, including unresolved and ambiguous states.
 - **Inventory metadata:** a readable mod entry exposes its declared download provider and `side` value, preserves unknown values explicitly, and offers an external-page action only when a trustworthy URL is available.
-- **Changelog fallback:** generation uses only required provider requests, can use an exact cached response offline, and visibly labels stale, missing, ambiguous, or unresolved data.
-- **Release capture:** a release retains a captured validated Packwiz state independent of current files or Git availability. Partial or failed source operations produce only visibly provisional release records.
-- **Cleanup:** destructive actions show affected application records and external references, use archive-first behavior, require typed confirmation for permanent deletion, and never delete external project directories or user export files.
+- **Changelog stages:** generation uses only required provider requests, can use an exact cached response offline, visibly labels stale, missing, ambiguous, or unresolved data, distinguishes proposed from final content, and freezes the selected final revision only with the final capture.
+- **Release finalization:** a release workspace can finalize only with changed, stable, validated final evidence, no unresolved candidates or recovery outcomes, and a selected final changelog revision. No-op, stale, unstable, unverified, or proposal-only evidence is rejected.
+- **Release comparison:** finalized release comparisons use persisted captures and optional Git provenance only; current working-tree files and historical checkout are never silent fallbacks.
+- **Cleanup boundary:** current alpha workflows never delete external modpack directories, Git history, or user exports. Future destructive cleanup must show impact, require typed confirmation, and preserve referential integrity.
 
 ## Coherence Review
 
 The specification is coherent around a local-first review workflow:
 
 - Packwiz files own current modpack state.
-- SQLite owns application metadata and historical decisions.
-- Snapshots connect review decisions, Packwiz operations, and changelog generation.
+- SQLite owns modpack metadata, immutable snapshot evidence, release-workspace activity and decisions, captured releases, changelog artifacts, and operation history.
+- Snapshots preserve safe discovery evidence and stable baselines; release workspaces own mutable decisions, Packwiz operations, recovery, and changelog assembly.
+- Finalized releases own immutable captured state; publication is separate and historical records never fall back to current files.
 - Modrinth is queried only for targeted changelog and identity needs.
 - CurseForge-origin mods are not excluded, but unresolved provider identity remains visible rather than being guessed silently.
+- Rust owns filesystem, Packwiz, capture, persistence, comparison, and workspace-observation authority; Svelte presents typed state and user actions.
+- Git provenance is optional, GitHub enrichment is deferred, and destructive cleanup remains outside the current alpha workflow.
 
-The main remaining implementation risks are Packwiz command/version compatibility,
+The main remaining validation risks are Packwiz command/version compatibility,
 reliable provider identity matching, filesystem path behavior on Windows, and
-recovery after partial file changes. The specification now makes those risks
+native watcher timing and teardown. The specification makes those risks
 visible through compatibility profiles, explicit unsafe states, dual identity
-records, before/after fingerprints, and workflow acceptance criteria.
+records, stable capture fingerprints, workspace phases, candidate-level
+outcomes, and workflow acceptance criteria. Native Tauri/manual lifecycle
+evidence remains a validation task rather than an assumed result.

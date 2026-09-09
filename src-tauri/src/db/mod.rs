@@ -1,9 +1,9 @@
 use crate::domain::{
     inventory, validation, ActivityRecord, ApplicationModpackMetadata, CommandError,
     DiscoveryResult, InventoryEntry, ModpackLifecycle, ModpackOverview, ModpackRecord,
-    RegistrationPreview, SnapshotCandidateRecord, SnapshotDecision, SnapshotDecisionRecord,
-    SnapshotLifecycle, SnapshotNoteRecord, SnapshotNoteScope, SnapshotRecheckRecord,
-    SnapshotRecord, UpdateCandidate,
+    RegistrationPreview, ReleaseRecord, ReleaseWorkspaceObservationRecord, SnapshotCandidateRecord,
+    SnapshotDecision, SnapshotDecisionRecord, SnapshotLifecycle, SnapshotNoteRecord,
+    SnapshotNoteScope, SnapshotRecheckRecord, SnapshotRecord, UpdateCandidate,
 };
 use rusqlite::{params, Connection};
 use std::collections::HashMap;
@@ -28,6 +28,36 @@ pub fn persist_discovery_result(
         .lock()
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
     let result_json = serialize(result, "discovery result")?;
+    let baseline_capture_json =
+        if matches!(result.outcome, crate::domain::DiscoveryOutcomeKind::Normal) {
+            let path: String = connection
+                .query_row(
+                    "SELECT canonical_path FROM modpacks WHERE id = ?1",
+                    [project_id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| {
+                    CommandError::new("project_not_found", "Project is not registered")
+                        .with_details(error.to_string())
+                })?;
+            crate::domain::capture::capture(
+                std::path::Path::new(&path),
+                crate::domain::ReleaseEligibility {
+                    eligible: true,
+                    provisional: false,
+                    source: Some(crate::domain::ReleaseEligibilitySource::ReviewableSnapshot),
+                    validation: Vec::new(),
+                    diagnostic: None,
+                },
+                None,
+                Vec::new(),
+            )
+            .ok()
+            .map(|capture| serialize(&capture, "snapshot baseline capture"))
+            .transpose()?
+        } else {
+            None
+        };
     let outcome =
         serde_json::to_string(&result.outcome).unwrap_or_else(|_| "indeterminate".to_string());
     let transaction = connection.unchecked_transaction().map_err(|error| {
@@ -55,7 +85,9 @@ pub fn persist_discovery_result(
             })?;
     }
     let snapshot_id = format!("snapshot-{project_id}-{attempt_id}");
-    let lifecycle = if matches!(result.outcome, crate::domain::DiscoveryOutcomeKind::Normal) {
+    let lifecycle = if baseline_capture_json.is_some()
+        && matches!(result.outcome, crate::domain::DiscoveryOutcomeKind::Normal)
+    {
         SnapshotLifecycle::Reviewable
     } else if matches!(
         result.outcome,
@@ -66,7 +98,7 @@ pub fn persist_discovery_result(
         SnapshotLifecycle::Draft
     };
     let lifecycle_json = serde_json::to_string(&lifecycle).unwrap_or_else(|_| "draft".to_string());
-    transaction.execute("INSERT INTO snapshots (id, modpack_id, lifecycle, outcome, result_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)", params![snapshot_id, project_id, lifecycle_json.trim_matches('"'), outcome.trim_matches('"'), result_json, observed_at]).map_err(|error| CommandError::new("database_write_failed", "Snapshot could not be saved").with_details(error.to_string()))?;
+    transaction.execute("INSERT INTO snapshots (id, modpack_id, lifecycle, outcome, result_json, baseline_capture_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)", params![snapshot_id, project_id, lifecycle_json.trim_matches('"'), outcome.trim_matches('"'), result_json, baseline_capture_json, observed_at]).map_err(|error| CommandError::new("database_write_failed", "Snapshot could not be saved").with_details(error.to_string()))?;
     for (index, candidate) in result.candidates.iter().enumerate() {
         let candidate_id = format!("{snapshot_id}-candidate-{index}");
         transaction.execute("INSERT INTO snapshot_candidates (id, snapshot_id, candidate_json, observed_at) VALUES (?1, ?2, ?3, ?4)", params![candidate_id, snapshot_id, serialize(candidate, "snapshot candidate")?, observed_at]).map_err(|error| CommandError::new("database_write_failed", "Snapshot candidate could not be saved").with_details(error.to_string()))?;
@@ -114,7 +146,7 @@ pub fn load_snapshot(database: &Database, id: &str) -> Result<SnapshotRecord, Co
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
     let snapshot = connection
         .query_row(
-            "SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1",
+            "SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, baseline_capture_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1",
             [id],
             row_to_snapshot,
         )
@@ -142,10 +174,11 @@ pub fn persist_operation_attempt(
     })?;
     transaction
         .execute(
-            "INSERT INTO operation_attempts (id, modpack_id, snapshot_id, predecessor_id, kind, status, outcome, recovery_json, process_json, before_fingerprint_json, after_fingerprint_json, verification_json, error_json, created_at, finished_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            "INSERT INTO operation_attempts (id, modpack_id, workspace_id, snapshot_id, predecessor_id, kind, status, outcome, recovery_json, process_json, before_fingerprint_json, after_fingerprint_json, verification_json, error_json, created_at, finished_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 attempt.id,
                 attempt.modpack_id,
+                attempt.workspace_id,
                 attempt.snapshot_id,
                 attempt.predecessor_id,
                 serialize(&attempt.kind, "operation kind")?.trim_matches('"'),
@@ -192,6 +225,7 @@ pub fn persist_apply_attempt(
     candidate_id: &str,
     entry_id: &str,
     observed_json: &str,
+    candidate_outcome: crate::domain::ReleaseCandidateOutcome,
 ) -> Result<(), CommandError> {
     let connection = database
         .0
@@ -206,10 +240,11 @@ pub fn persist_apply_attempt(
     })?;
     transaction
         .execute(
-            "INSERT INTO operation_attempts (id, modpack_id, snapshot_id, predecessor_id, kind, status, outcome, recovery_json, process_json, before_fingerprint_json, after_fingerprint_json, verification_json, error_json, created_at, finished_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            "INSERT INTO operation_attempts (id, modpack_id, workspace_id, snapshot_id, predecessor_id, kind, status, outcome, recovery_json, process_json, before_fingerprint_json, after_fingerprint_json, verification_json, error_json, created_at, finished_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 attempt.id,
                 attempt.modpack_id,
+                attempt.workspace_id,
                 attempt.snapshot_id,
                 attempt.predecessor_id,
                 serialize(&attempt.kind, "operation kind")?.trim_matches('"'),
@@ -228,8 +263,8 @@ pub fn persist_apply_attempt(
         .map_err(|error| CommandError::new("database_write_failed", "Apply operation could not be saved").with_details(error.to_string()))?;
     transaction
         .execute(
-            "INSERT INTO operation_candidates (operation_id, candidate_id, entry_id, decision, observed_json) VALUES (?1, ?2, ?3, 'selected', ?4)",
-            params![attempt.id, candidate_id, entry_id, observed_json],
+            "INSERT INTO operation_candidates (operation_id, candidate_id, entry_id, decision, outcome, observed_json) VALUES (?1, ?2, ?3, 'selected', ?5, ?4)",
+            params![attempt.id, candidate_id, entry_id, observed_json, serialize(&candidate_outcome, "candidate outcome")?.trim_matches('"').to_string()],
         )
         .map_err(|error| CommandError::new("database_write_failed", "Apply target could not be saved").with_details(error.to_string()))?;
     transaction.commit().map_err(|error| {
@@ -250,13 +285,13 @@ pub fn list_operation_attempts(
         .lock()
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
     let mut statement = connection
-        .prepare("SELECT id, modpack_id, snapshot_id, predecessor_id, kind, status, outcome, recovery_json, process_json, before_fingerprint_json, after_fingerprint_json, verification_json, error_json, created_at, finished_at FROM operation_attempts WHERE modpack_id = ?1 ORDER BY created_at DESC")
+        .prepare("SELECT id, modpack_id, workspace_id, snapshot_id, predecessor_id, kind, status, outcome, recovery_json, process_json, before_fingerprint_json, after_fingerprint_json, verification_json, error_json, created_at, finished_at FROM operation_attempts WHERE modpack_id = ?1 ORDER BY created_at DESC")
         .map_err(|error| CommandError::new("database_read_failed", "Operations could not be read").with_details(error.to_string()))?;
     let result = statement
         .query_map([project_id], |row| {
-            let kind: String = row.get(4)?;
-            let status: String = row.get(5)?;
-            let outcome: Option<String> = row.get(6)?;
+            let kind: String = row.get(5)?;
+            let status: String = row.get(6)?;
+            let outcome: Option<String> = row.get(7)?;
             let parse = |index: usize| -> rusqlite::Result<Option<serde_json::Value>> {
                 let value: Option<String> = row.get(index)?;
                 value
@@ -268,8 +303,9 @@ pub fn list_operation_attempts(
             Ok(crate::domain::OperationAttempt {
                 id: row.get(0)?,
                 modpack_id: row.get(1)?,
-                snapshot_id: row.get(2)?,
-                predecessor_id: row.get(3)?,
+                workspace_id: row.get(2)?,
+                snapshot_id: row.get(3)?,
+                predecessor_id: row.get(4)?,
                 kind: serde_json::from_value(serde_json::Value::String(kind))
                     .map_err(|_| rusqlite::Error::InvalidQuery)?,
                 status: serde_json::from_value(serde_json::Value::String(status))
@@ -280,35 +316,35 @@ pub fn list_operation_attempts(
                             .map_err(|_| rusqlite::Error::InvalidQuery)
                     })
                     .transpose()?,
-                recovery: serde_json::from_value(parse(7)?.ok_or(rusqlite::Error::InvalidQuery)?)
+                recovery: serde_json::from_value(parse(8)?.ok_or(rusqlite::Error::InvalidQuery)?)
                     .map_err(|_| rusqlite::Error::InvalidQuery)?,
-                process: parse(8)?
+                process: parse(9)?
                     .map(|value| {
                         serde_json::from_value(value).map_err(|_| rusqlite::Error::InvalidQuery)
                     })
                     .transpose()?,
-                before_fingerprint: parse(9)?
+                before_fingerprint: parse(10)?
                     .map(|value| {
                         serde_json::from_value(value).map_err(|_| rusqlite::Error::InvalidQuery)
                     })
                     .transpose()?,
-                after_fingerprint: parse(10)?
+                after_fingerprint: parse(11)?
                     .map(|value| {
                         serde_json::from_value(value).map_err(|_| rusqlite::Error::InvalidQuery)
                     })
                     .transpose()?,
-                verification: parse(11)?
+                verification: parse(12)?
                     .map(|value| {
                         serde_json::from_value(value).map_err(|_| rusqlite::Error::InvalidQuery)
                     })
                     .transpose()?,
-                error: parse(12)?
+                error: parse(13)?
                     .map(|value| {
                         serde_json::from_value(value).map_err(|_| rusqlite::Error::InvalidQuery)
                     })
                     .transpose()?,
-                created_at: row.get(13)?,
-                finished_at: row.get(14)?,
+                created_at: row.get(14)?,
+                finished_at: row.get(15)?,
             })
         })
         .map_err(|error| {
@@ -400,9 +436,1645 @@ pub fn bool_setting(database: &Database, key: &str, default: bool) -> bool {
 pub fn initialize(path: &std::path::Path) -> Result<Database, rusqlite::Error> {
     let connection = Connection::open(path)?;
     connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")?;
-    connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")?;
-    connection.execute_batch(include_str!("schema.sql"))?;
+    let schema_metadata_exists: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_metadata')",
+        [],
+        |row| row.get(0),
+    )?;
+    if schema_metadata_exists {
+        let version: String = connection.query_row(
+            "SELECT value FROM schema_metadata WHERE key = 'schema_version'",
+            [],
+            |row| row.get(0),
+        )?;
+        if version != "2" {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+    } else {
+        let has_existing_tables: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%')",
+            [],
+            |row| row.get(0),
+        )?;
+        if has_existing_tables {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        connection.execute_batch(include_str!("schema.sql"))?;
+    }
     Ok(Database(Mutex::new(connection)))
+}
+
+pub fn persist_release(database: &Database, release: &ReleaseRecord) -> Result<(), CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let transaction = connection.unchecked_transaction().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Release transaction could not be started",
+        )
+        .with_details(error.to_string())
+    })?;
+    let modpack_exists: bool = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM modpacks WHERE id = ?1)",
+            [&release.modpack_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| {
+            CommandError::new("project_not_found", "Project is not registered")
+                .with_details(error.to_string())
+        })?;
+    if !modpack_exists {
+        return Err(CommandError::new(
+            "project_not_found",
+            "Project is not registered",
+        ));
+    }
+    if let Some(snapshot_id) = &release.capture.snapshot_id {
+        let same_modpack: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM snapshots WHERE id = ?1 AND modpack_id = ?2)",
+                params![snapshot_id, release.modpack_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| {
+                CommandError::new("snapshot_not_found", "Snapshot is not available")
+                    .with_details(error.to_string())
+            })?;
+        if !same_modpack {
+            return Err(CommandError::new(
+                "snapshot_project_mismatch",
+                "Snapshot does not belong to the release project",
+            ));
+        }
+    }
+    let status = serialize(&release.metadata.publication_status, "release status")?
+        .trim_matches('"')
+        .to_string();
+    transaction
+        .execute(
+            "INSERT INTO releases (id, modpack_id, name, version, description, notes, publication_status, capture_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                release.id,
+                release.modpack_id,
+                release.metadata.name,
+                release.metadata.version,
+                release.metadata.description,
+                release.metadata.notes,
+                status,
+                serialize(&release.capture, "release capture")?,
+                release.created_at,
+                release.updated_at,
+            ],
+        )
+        .map_err(|error| CommandError::new("database_write_failed", "Release could not be saved").with_details(error.to_string()))?;
+    if let Some(snapshot_id) = &release.capture.snapshot_id {
+        transaction
+            .execute(
+                "INSERT INTO release_snapshots (release_id, snapshot_id) VALUES (?1, ?2)",
+                params![release.id, snapshot_id],
+            )
+            .map_err(|error| {
+                CommandError::new(
+                    "database_write_failed",
+                    "Release snapshot link could not be saved",
+                )
+                .with_details(error.to_string())
+            })?;
+    }
+    for artifact_id in &release.capture.changelog_artifact_ids {
+        let same_modpack: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM changelog_artifacts WHERE id = ?1 AND modpack_id = ?2)",
+                params![artifact_id, release.modpack_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| CommandError::new("changelog_artifact_not_found", "Changelog artifact is not available").with_details(error.to_string()))?;
+        if !same_modpack {
+            return Err(CommandError::new(
+                "changelog_project_mismatch",
+                "Changelog artifact does not belong to the release project",
+            ));
+        }
+        transaction
+            .execute(
+                "INSERT INTO release_changelog_artifacts (release_id, artifact_id) VALUES (?1, ?2)",
+                params![release.id, artifact_id],
+            )
+            .map_err(|error| {
+                CommandError::new(
+                    "database_write_failed",
+                    "Release changelog link could not be saved",
+                )
+                .with_details(error.to_string())
+            })?;
+    }
+    transaction.commit().map_err(|error| {
+        CommandError::new("database_write_failed", "Release could not be committed")
+            .with_details(error.to_string())
+    })
+}
+
+pub fn load_release(database: &Database, id: &str) -> Result<ReleaseRecord, CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    connection
+        .query_row(
+            "SELECT id, modpack_id, name, version, description, notes, publication_status, capture_json, created_at, updated_at FROM releases WHERE id = ?1",
+            [id],
+            row_to_release,
+        )
+        .map_err(|error| CommandError::new("release_not_found", "Release is not available").with_details(error.to_string()))
+}
+
+pub fn list_releases(
+    database: &Database,
+    modpack_id: &str,
+) -> Result<Vec<ReleaseRecord>, CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let mut statement = connection
+        .prepare("SELECT id, modpack_id, name, version, description, notes, publication_status, capture_json, created_at, updated_at FROM releases WHERE modpack_id = ?1 ORDER BY created_at DESC")
+        .map_err(|error| CommandError::new("database_read_failed", "Releases could not be read").with_details(error.to_string()))?;
+    let result = statement
+        .query_map([modpack_id], row_to_release)
+        .map_err(|error| {
+            CommandError::new("database_read_failed", "Releases could not be read")
+                .with_details(error.to_string())
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            CommandError::new("release_record_invalid", "A stored release is invalid")
+                .with_details(error.to_string())
+        });
+    result
+}
+
+fn workspace_from_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<crate::domain::ReleaseWorkspace> {
+    let baseline_origin: String = row.get(3)?;
+    let lifecycle: String = row.get(10)?;
+    let evidence_status: String = row.get(11)?;
+    let publication_status: String = row.get(12)?;
+    Ok(crate::domain::ReleaseWorkspace {
+        id: row.get(0)?,
+        modpack_id: row.get(1)?,
+        source_snapshot_id: row.get(2)?,
+        baseline_origin: serde_json::from_value(serde_json::Value::String(baseline_origin))
+            .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        baseline_release_id: row.get(4)?,
+        baseline_capture: row
+            .get::<_, Option<String>>(5)?
+            .map(|value| serde_json::from_str(&value).map_err(|_| rusqlite::Error::InvalidQuery))
+            .transpose()?,
+        metadata: crate::domain::ReleaseMetadata {
+            name: row.get(6)?,
+            version: row.get(7)?,
+            description: row.get(8)?,
+            notes: row.get(9)?,
+            publication_status: serde_json::from_value(serde_json::Value::String(
+                publication_status.clone(),
+            ))
+            .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        },
+        lifecycle: serde_json::from_value(serde_json::Value::String(lifecycle))
+            .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        evidence_status: serde_json::from_value(serde_json::Value::String(evidence_status))
+            .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        publication_status: serde_json::from_value(serde_json::Value::String(
+            row.get::<_, String>(12)?,
+        ))
+        .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        final_capture: row
+            .get::<_, Option<String>>(13)?
+            .map(|value| serde_json::from_str(&value).map_err(|_| rusqlite::Error::InvalidQuery))
+            .transpose()?,
+        final_changelog_revision_id: row.get(14)?,
+        finalization_receipt: row
+            .get::<_, Option<String>>(15)?
+            .map(|value| serde_json::from_str(&value).map_err(|_| rusqlite::Error::InvalidQuery))
+            .transpose()?,
+        phase: crate::domain::ReleaseWorkspacePhase::Review,
+        blocking_reason: None,
+        evidence_freshness: crate::domain::ReleaseWorkspaceEvidenceFreshness::Current,
+        primary_next_action: "review_candidates".to_string(),
+        created_at: row.get(16)?,
+        updated_at: row.get(17)?,
+        abandoned_at: row.get(18)?,
+        candidates: Vec::new(),
+        activity: Vec::new(),
+    })
+}
+
+fn enrich_workspace(
+    connection: &Connection,
+    mut workspace: crate::domain::ReleaseWorkspace,
+) -> Result<crate::domain::ReleaseWorkspace, CommandError> {
+    workspace.candidates = connection
+        .prepare("SELECT candidates.id, candidates.source_candidate_id, sources.candidate_json, candidates.decision, candidates.note, candidates.recorded_at FROM release_workspace_candidates candidates JOIN release_workspace_candidate_sources sources ON sources.id = candidates.source_candidate_id WHERE candidates.workspace_id = ?1 ORDER BY candidates.id")
+        .map_err(|error| CommandError::new("database_read_failed", "Workspace candidates could not be read").with_details(error.to_string()))?
+        .query_map([&workspace.id], |row| {
+            let decision: String = row.get(3)?;
+            Ok(crate::domain::ReleaseWorkspaceCandidate {
+                id: row.get(0)?,
+                source_candidate_id: row.get(1)?,
+                candidate: serde_json::from_str(&row.get::<_, String>(2)?).map_err(|_| rusqlite::Error::InvalidQuery)?,
+                decision: serde_json::from_value(serde_json::Value::String(decision)).map_err(|_| rusqlite::Error::InvalidQuery)?,
+                note: row.get(4)?,
+                recorded_at: row.get(5)?,
+            })
+        })
+        .map_err(|error| CommandError::new("database_read_failed", "Workspace candidates could not be read").with_details(error.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| CommandError::new("database_record_invalid", "A stored workspace candidate is invalid").with_details(error.to_string()))?;
+    workspace.activity = connection
+        .prepare("SELECT id, event_type, occurred_at, message FROM release_workspace_activity WHERE workspace_id = ?1 ORDER BY id")
+        .map_err(|error| CommandError::new("database_read_failed", "Workspace activity could not be read").with_details(error.to_string()))?
+        .query_map([&workspace.id], |row| {
+            Ok(crate::domain::ReleaseWorkspaceActivity {
+                id: row.get(0)?,
+                event_type: row.get(1)?,
+                occurred_at: row.get(2)?,
+                message: row.get(3)?,
+            })
+        })
+        .map_err(|error| CommandError::new("database_read_failed", "Workspace activity could not be read").with_details(error.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| CommandError::new("database_record_invalid", "A stored workspace activity record is invalid").with_details(error.to_string()))?;
+    let (phase, blocking_reason, evidence_freshness, primary_next_action) =
+        crate::domain::project_workspace_state(
+            &workspace.lifecycle,
+            &workspace.evidence_status,
+            &workspace.candidates,
+        );
+    workspace.phase = phase;
+    workspace.blocking_reason = blocking_reason;
+    workspace.evidence_freshness = evidence_freshness;
+    workspace.primary_next_action = primary_next_action;
+    Ok(workspace)
+}
+
+pub(crate) fn load_release_workspace_inner(
+    database: &Database,
+    id: &str,
+) -> Result<crate::domain::ReleaseWorkspace, CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let workspace = connection
+        .query_row(
+            "SELECT id, modpack_id, source_snapshot_id, baseline_origin, baseline_release_id, baseline_capture_json, name, version, description, notes, lifecycle, evidence_status, publication_status, final_capture_json, final_changelog_revision_id, finalization_receipt_json, created_at, updated_at, abandoned_at FROM release_workspaces WHERE id = ?1",
+            [id],
+            workspace_from_row,
+        )
+        .map_err(|error| CommandError::new("workspace_not_found", "Release workspace is not available").with_details(error.to_string()))?;
+    enrich_workspace(&connection, workspace)
+}
+
+pub(crate) fn list_release_workspaces_for_watch(
+    database: &Database,
+) -> Result<Vec<(String, String)>, CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let mut statement = connection
+        .prepare("SELECT id, modpack_id FROM release_workspaces WHERE lifecycle IN ('draft', 'applying', 'recovery_required', 'provisional', 'ready_to_finalize')")
+        .map_err(|error| CommandError::new("database_read_failed", "Active release workspaces could not be read").with_details(error.to_string()))?;
+    let result = statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(|error| {
+            CommandError::new(
+                "database_read_failed",
+                "Active release workspaces could not be read",
+            )
+            .with_details(error.to_string())
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            CommandError::new(
+                "database_record_invalid",
+                "An active release workspace is invalid",
+            )
+            .with_details(error.to_string())
+        });
+    result
+}
+
+pub(crate) fn record_workspace_observation(
+    database: &Database,
+    observation: &crate::domain::ReleaseWorkspaceObservation,
+) -> Result<(), CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let transaction = connection.unchecked_transaction().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Workspace observation could not start",
+        )
+        .with_details(error.to_string())
+    })?;
+    let now = timestamp();
+    let changed_scope_json = serialize(&observation.changed_scope, "workspace observation scope")?;
+    let fingerprint_json = observation
+        .fingerprint
+        .as_ref()
+        .map(|fingerprint| serialize(fingerprint, "workspace observation fingerprint"))
+        .transpose()?;
+    transaction
+        .execute(
+            "INSERT INTO release_workspace_observations (workspace_id, observed_at, changed_scope_json, evidence_freshness, blocking_reason, overlapped_operation, fingerprint_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                observation.workspace_id,
+                now,
+                changed_scope_json,
+                serde_json::to_string(&observation.evidence_freshness).unwrap_or_else(|_| "\"unavailable\"".to_string()),
+                observation.blocking_reason,
+                observation.overlapped_operation,
+                fingerprint_json,
+            ],
+        )
+        .map_err(|error| CommandError::new("database_write_failed", "Workspace observation could not be saved").with_details(error.to_string()))?;
+    let overlap = if observation.overlapped_operation {
+        " during an application attempt"
+    } else {
+        ""
+    };
+    let message = format!(
+        "External Packwiz change observed in {}{}",
+        observation.changed_scope.join(", "),
+        overlap
+    );
+    transaction
+        .execute(
+            "INSERT INTO release_workspace_activity (workspace_id, event_type, occurred_at, message) VALUES (?1, 'external_change_observed', ?2, ?3)",
+            params![observation.workspace_id, now, message],
+        )
+        .map_err(|error| CommandError::new("database_write_failed", "Workspace observation activity could not be saved").with_details(error.to_string()))?;
+    transaction.commit().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Workspace observation could not be committed",
+        )
+        .with_details(error.to_string())
+    })
+}
+
+#[tauri::command]
+pub fn list_release_workspace_observations(
+    state: State<'_, Database>,
+    workspace_id: String,
+) -> Result<Vec<ReleaseWorkspaceObservationRecord>, CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let mut statement = connection
+        .prepare(
+            "SELECT id, observed_at, changed_scope_json, evidence_freshness, blocking_reason, overlapped_operation, fingerprint_json FROM release_workspace_observations WHERE workspace_id = ?1 ORDER BY id ASC",
+        )
+        .map_err(|error| CommandError::new("database_read_failed", "Workspace observations could not be read").with_details(error.to_string()))?;
+    let rows = statement
+        .query_map([workspace_id], |row| {
+            let changed_scope_json: String = row.get(2)?;
+            let freshness_json: String = row.get(3)?;
+            let fingerprint_json: Option<String> = row.get(6)?;
+            Ok(ReleaseWorkspaceObservationRecord {
+                id: row.get(0)?,
+                observed_at: row.get(1)?,
+                changed_scope: serde_json::from_str(&changed_scope_json).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        changed_scope_json.len(),
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })?,
+                evidence_freshness: serde_json::from_str(&freshness_json).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        freshness_json.len(),
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })?,
+                blocking_reason: row.get(4)?,
+                overlapped_operation: row.get(5)?,
+                fingerprint: fingerprint_json
+                    .map(|value| serde_json::from_str(&value))
+                    .transpose()
+                    .map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            0,
+                            rusqlite::types::Type::Text,
+                            Box::new(error),
+                        )
+                    })?,
+            })
+        })
+        .map_err(|error| {
+            CommandError::new(
+                "database_read_failed",
+                "Workspace observations could not be read",
+            )
+            .with_details(error.to_string())
+        })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|error| {
+        CommandError::new(
+            "database_record_invalid",
+            "A workspace observation is invalid",
+        )
+        .with_details(error.to_string())
+    })
+}
+
+#[tauri::command]
+pub fn get_release_workspace_evidence(
+    state: State<'_, Database>,
+    workspace_id: String,
+) -> Result<crate::domain::ReleaseWorkspaceEvidence, CommandError> {
+    let workspace = load_release_workspace_inner(&state, &workspace_id)?;
+    let project_path = {
+        let connection = state
+            .0
+            .lock()
+            .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+        connection
+            .query_row(
+                "SELECT canonical_path FROM modpacks WHERE id = ?1",
+                [&workspace.modpack_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|error| {
+                CommandError::new(
+                    "project_not_found",
+                    "The workspace project is not registered",
+                )
+                .with_details(error.to_string())
+            })?
+    };
+    let inventory = crate::domain::inventory::read_inventory(std::path::Path::new(&project_path))?;
+    let observations = list_release_workspace_observations(state, workspace_id)?;
+    Ok(crate::domain::ReleaseWorkspaceEvidence {
+        workspace,
+        inventory,
+        observations,
+    })
+}
+
+pub(crate) fn persist_finalized_release_workspace(
+    database: &Database,
+    workspace_id: &str,
+    capture: &crate::domain::ReleaseCapture,
+    receipt: &crate::domain::ReleaseReceipt,
+) -> Result<(), CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let capture_json = serialize(capture, "final release capture")?;
+    let receipt_json = serialize(receipt, "release receipt")?;
+    let now = timestamp();
+    let transaction = connection.unchecked_transaction().map_err(|error| {
+        CommandError::new("database_write_failed", "Finalization could not be started")
+            .with_details(error.to_string())
+    })?;
+    let revision_context: (String, String, String, String, String, i64) = transaction
+        .query_row(
+            "SELECT a.id, a.release_workspace_id, a.snapshot_id, a.status, a.stage, r.frozen FROM changelog_revisions r JOIN changelog_artifacts a ON a.id = r.artifact_id WHERE r.id = ?1",
+            [&receipt.final_changelog_revision_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        )
+        .map_err(|error| {
+            CommandError::new("final_changelog_required", "The final changelog revision is not available")
+                .with_details(error.to_string())
+        })?;
+    if revision_context.1 != receipt.workspace_id
+        || revision_context.3 != "complete"
+        || revision_context.4 != "proposed"
+        || revision_context.5 != 0
+    {
+        return Err(CommandError::new(
+            "final_changelog_invalid",
+            "The selected changelog revision is not an editable proposed revision for this workspace",
+        ));
+    }
+    transaction
+        .execute(
+            "UPDATE changelog_artifacts SET stage = 'final', source_capture_fingerprint = ?1, updated_at = ?2 WHERE id = ?3",
+            params![capture.capture_fingerprint, now, revision_context.0],
+        )
+        .map_err(|error| {
+            CommandError::new("database_write_failed", "Final changelog artifact could not be frozen")
+                .with_details(error.to_string())
+        })?;
+    transaction
+        .execute(
+            "UPDATE changelog_revisions SET frozen = 1 WHERE id = ?1",
+            [&receipt.final_changelog_revision_id],
+        )
+        .map_err(|error| {
+            CommandError::new(
+                "database_write_failed",
+                "Final changelog revision could not be frozen",
+            )
+            .with_details(error.to_string())
+        })?;
+    let changed = transaction
+        .execute(
+            "UPDATE release_workspaces SET lifecycle = 'finalized', evidence_status = 'baseline', final_capture_json = ?1, final_changelog_revision_id = ?2, finalization_receipt_json = ?3, updated_at = ?4 WHERE id = ?5 AND lifecycle IN ('ready_to_finalize', 'provisional') AND final_capture_json IS NULL",
+            params![capture_json, receipt.final_changelog_revision_id, receipt_json, now, workspace_id],
+        )
+        .map_err(|error| {
+            CommandError::new("database_write_failed", "Finalization could not be saved")
+                .with_details(error.to_string())
+        })?;
+    if changed == 0 {
+        return Err(CommandError::new(
+            "invalid_finalization_state",
+            "Workspace is not eligible for finalization or is already finalized",
+        ));
+    }
+    transaction
+        .execute(
+            "INSERT INTO release_workspace_activity (workspace_id, event_type, occurred_at, message) VALUES (?1, 'finalized', ?2, ?3)",
+            params![workspace_id, now, "Release workspace finalized"],
+        )
+        .map_err(|error| {
+            CommandError::new("database_write_failed", "Finalization activity could not be saved")
+                .with_details(error.to_string())
+        })?;
+    transaction.commit().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Finalization could not be committed",
+        )
+        .with_details(error.to_string())
+    })
+}
+
+#[tauri::command]
+pub fn finalize_release_workspace(
+    state: State<'_, Database>,
+    request: crate::domain::FinalizeReleaseWorkspaceRequest,
+) -> Result<crate::domain::ReleaseWorkspace, CommandError> {
+    let workspace = load_release_workspace_inner(&state, &request.workspace_id)?;
+    if !matches!(
+        workspace.lifecycle,
+        crate::domain::ReleaseWorkspaceLifecycle::ReadyToFinalize
+            | crate::domain::ReleaseWorkspaceLifecycle::Provisional
+    ) {
+        return Err(CommandError::new(
+            "invalid_finalization_state",
+            "Workspace is not ready to finalize",
+        ));
+    }
+    let baseline = workspace.baseline_capture.clone().ok_or_else(|| {
+        CommandError::new(
+            "baseline_capture_unavailable",
+            "The release workspace has no validated baseline capture",
+        )
+    })?;
+    let project_path = registered_modpack_path(&state, &workspace.modpack_id)?;
+    let final_capture = crate::domain::capture::capture(
+        std::path::Path::new(&project_path),
+        baseline.eligibility.clone(),
+        workspace.source_snapshot_id.clone(),
+        Vec::new(),
+    )?;
+    let unresolved_candidates = workspace.candidates.iter().any(|candidate| {
+        !matches!(
+            candidate.decision,
+            crate::domain::ReleaseCandidateDecision::Selected
+                | crate::domain::ReleaseCandidateDecision::Skipped
+                | crate::domain::ReleaseCandidateDecision::Pinned
+        )
+    });
+    crate::domain::validate_finalization(
+        &workspace.lifecycle,
+        &baseline.capture_fingerprint,
+        &final_capture,
+        Some(&request.final_changelog_revision_id),
+        unresolved_candidates,
+    )?;
+    let receipt = crate::domain::ReleaseReceipt {
+        workspace_id: workspace.id.clone(),
+        source_snapshot_id: workspace.source_snapshot_id.clone(),
+        baseline_fingerprint: baseline.capture_fingerprint.clone(),
+        final_capture_fingerprint: final_capture.capture_fingerprint.clone(),
+        changed: true,
+        stable: true,
+        validated: true,
+        final_changelog_revision_id: request.final_changelog_revision_id.clone(),
+        finalized_at: timestamp(),
+    };
+    persist_finalized_release_workspace(&state, &workspace.id, &final_capture, &receipt)?;
+    load_release_workspace_inner(&state, &workspace.id)
+}
+
+#[tauri::command]
+pub fn publish_release_workspace(
+    state: State<'_, Database>,
+    request: crate::domain::PublishReleaseWorkspaceRequest,
+) -> Result<crate::domain::ReleaseWorkspace, CommandError> {
+    let workspace = load_release_workspace_inner(&state, &request.workspace_id)?;
+    if !matches!(
+        workspace.lifecycle,
+        crate::domain::ReleaseWorkspaceLifecycle::Finalized
+    ) {
+        return Err(CommandError::new(
+            "invalid_publication_state",
+            "Only finalized workspaces can be published",
+        ));
+    }
+    update_release_workspace_lifecycle(
+        &state,
+        &workspace.id,
+        crate::domain::ReleaseWorkspaceLifecycle::Published,
+        "Release workspace published",
+    )?;
+    load_release_workspace_inner(&state, &workspace.id)
+}
+
+#[tauri::command]
+pub fn withdraw_release_workspace(
+    state: State<'_, Database>,
+    request: crate::domain::WithdrawReleaseWorkspaceRequest,
+) -> Result<crate::domain::ReleaseWorkspace, CommandError> {
+    let workspace = load_release_workspace_inner(&state, &request.workspace_id)?;
+    if !matches!(
+        workspace.lifecycle,
+        crate::domain::ReleaseWorkspaceLifecycle::Published
+    ) {
+        return Err(CommandError::new(
+            "invalid_withdrawal_state",
+            "Only published workspaces can be withdrawn",
+        ));
+    }
+    update_release_workspace_lifecycle(
+        &state,
+        &workspace.id,
+        crate::domain::ReleaseWorkspaceLifecycle::Withdrawn,
+        "Release workspace withdrawn",
+    )?;
+    load_release_workspace_inner(&state, &workspace.id)
+}
+
+pub(crate) fn update_release_workspace_lifecycle(
+    database: &Database,
+    workspace_id: &str,
+    lifecycle: crate::domain::ReleaseWorkspaceLifecycle,
+    message: &str,
+) -> Result<(), CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let now = timestamp();
+    let lifecycle_value = serialize(&lifecycle, "workspace lifecycle")?
+        .trim_matches('"')
+        .to_string();
+    let transaction = connection.unchecked_transaction().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Workspace transition could not be started",
+        )
+        .with_details(error.to_string())
+    })?;
+    let changed = transaction
+        .execute(
+            "UPDATE release_workspaces SET lifecycle = ?1, publication_status = CASE WHEN ?1 IN ('published', 'withdrawn') THEN ?1 ELSE publication_status END, updated_at = ?2 WHERE id = ?3",
+            params![lifecycle_value, now, workspace_id],
+        )
+        .map_err(|error| {
+            CommandError::new(
+                "database_write_failed",
+                "Workspace transition could not be saved",
+            )
+            .with_details(error.to_string())
+        })?;
+    if changed == 0 {
+        return Err(CommandError::new(
+            "workspace_not_found",
+            "Release workspace is not available",
+        ));
+    }
+    transaction.execute("INSERT INTO release_workspace_activity (workspace_id, event_type, occurred_at, message) VALUES (?1, 'workspace_transition', ?2, ?3)", params![workspace_id, now, message]).map_err(|error| CommandError::new("database_write_failed", "Workspace activity could not be saved").with_details(error.to_string()))?;
+    transaction.commit().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Workspace transition could not be committed",
+        )
+        .with_details(error.to_string())
+    })
+}
+
+pub(crate) fn start_release_workspace_operation(
+    database: &Database,
+    operation_id: &str,
+    workspace_id: &str,
+    snapshot_id: Option<&str>,
+) -> Result<(), CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    connection
+        .execute(
+            "INSERT INTO release_workspace_operations (id, workspace_id, snapshot_id, status, created_at) VALUES (?1, ?2, ?3, 'running', ?4)",
+            params![operation_id, workspace_id, snapshot_id, timestamp()],
+        )
+        .map_err(|error| {
+            CommandError::new(
+                "database_write_failed",
+                "Workspace operation could not be started",
+            )
+            .with_details(error.to_string())
+        })?;
+    Ok(())
+}
+
+pub(crate) fn candidate_source_json(
+    database: &Database,
+    workspace_id: &str,
+    candidate_id: &str,
+) -> Result<String, CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    connection
+        .query_row(
+            "SELECT candidate_json FROM release_workspace_candidate_sources WHERE id = ?1 AND workspace_id = ?2",
+            params![candidate_id, workspace_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| {
+            CommandError::new("candidate_not_found", "Selected candidate does not belong to the release workspace")
+                .with_details(error.to_string())
+        })
+}
+
+pub(crate) fn finish_release_workspace_operation(
+    database: &Database,
+    operation_id: &str,
+    outcome: &crate::domain::OperationOutcome,
+) -> Result<(), CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let changed = connection
+        .execute(
+            "UPDATE release_workspace_operations SET status = 'completed', outcome = ?1, finished_at = ?2 WHERE id = ?3",
+            params![serialize(outcome, "operation outcome")?.trim_matches('"'), timestamp(), operation_id],
+        )
+        .map_err(|error| {
+            CommandError::new(
+                "database_write_failed",
+                "Workspace operation could not be completed",
+            )
+            .with_details(error.to_string())
+        })?;
+    if changed == 0 {
+        return Err(CommandError::new(
+            "operation_not_found",
+            "Workspace operation is not available",
+        ));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn load_release_workspace(
+    state: State<'_, Database>,
+    id: String,
+) -> Result<crate::domain::ReleaseWorkspace, CommandError> {
+    load_release_workspace_inner(&state, &id)
+}
+
+#[tauri::command]
+pub fn start_release_workspace(
+    state: State<'_, Database>,
+    request: crate::domain::StartReleaseWorkspaceRequest,
+) -> Result<crate::domain::ReleaseWorkspace, CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let (
+        source_snapshot_id,
+        baseline_origin,
+        baseline_release_id,
+        baseline_capture_json,
+        candidate_snapshot_id,
+    ) = if let Some(snapshot_id) = request.snapshot_id.as_deref() {
+        let snapshot = connection
+            .query_row(
+                "SELECT modpack_id, lifecycle, baseline_capture_json FROM snapshots WHERE id = ?1",
+                [snapshot_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                },
+            )
+            .map_err(|error| {
+                CommandError::new("snapshot_not_found", "Snapshot is not available")
+                    .with_details(error.to_string())
+            })?;
+        if snapshot.0 != request.modpack_id {
+            return Err(CommandError::new(
+                "snapshot_project_mismatch",
+                "Snapshot does not belong to the project",
+            ));
+        }
+        if snapshot.1 != "reviewable" {
+            return Err(CommandError::new(
+                "snapshot_not_reviewable",
+                "Only a reviewable snapshot can start a release workspace",
+            ));
+        }
+        (
+            Some(snapshot_id.to_string()),
+            "snapshot",
+            None,
+            snapshot.2,
+            Some(snapshot_id.to_string()),
+        )
+    } else if let Some(baseline_release_id) = request.baseline_release_id.as_deref() {
+        let baseline = connection
+            .query_row(
+                "SELECT modpack_id, publication_status, capture_json FROM releases WHERE id = ?1",
+                [baseline_release_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .map_err(|error| {
+                CommandError::new(
+                    "baseline_release_not_found",
+                    "Baseline release is not available",
+                )
+                .with_details(error.to_string())
+            })?;
+        if baseline.0 != request.modpack_id {
+            return Err(CommandError::new(
+                "baseline_release_project_mismatch",
+                "Baseline release does not belong to the project",
+            ));
+        }
+        if !matches!(baseline.1.as_str(), "published" | "provisional") {
+            return Err(CommandError::new(
+                "baseline_release_not_finalized",
+                "Only a finalized release can be used as a baseline",
+            ));
+        }
+        let _: crate::domain::ReleaseCapture =
+            serde_json::from_str(&baseline.2).map_err(|error| {
+                CommandError::new(
+                    "baseline_capture_unavailable",
+                    "The selected release has no valid immutable capture",
+                )
+                .with_details(error.to_string())
+            })?;
+        (
+            None,
+            "finalized_release",
+            Some(baseline_release_id.to_string()),
+            Some(baseline.2),
+            None,
+        )
+    } else {
+        let project_path: String = connection
+            .query_row(
+                "SELECT canonical_path FROM modpacks WHERE id = ?1",
+                [&request.modpack_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| {
+                CommandError::new("project_not_found", "Project is not registered")
+                    .with_details(error.to_string())
+            })?;
+        let eligibility = crate::domain::ReleaseEligibility {
+            eligible: true,
+            provisional: false,
+            source: Some(crate::domain::ReleaseEligibilitySource::ValidatedCurrentState),
+            validation: Vec::new(),
+            diagnostic: None,
+        };
+        let capture = crate::domain::capture::capture(
+            std::path::Path::new(&project_path),
+            eligibility,
+            None,
+            Vec::new(),
+        )?;
+        (
+            None,
+            "current_project",
+            None,
+            Some(serialize(&capture, "release baseline capture")?),
+            None,
+        )
+    };
+    if baseline_capture_json.is_none() {
+        return Err(CommandError::new(
+            "baseline_capture_unavailable",
+            "A release workspace requires a stable immutable baseline capture",
+        ));
+    }
+    let now = timestamp();
+    let workspace_id = unique_id("release-workspace");
+    let lifecycle = if matches!(
+        request.metadata.publication_status,
+        crate::domain::ReleasePublicationStatus::Provisional
+    ) {
+        crate::domain::ReleaseWorkspaceLifecycle::Provisional
+    } else {
+        crate::domain::ReleaseWorkspaceLifecycle::Draft
+    };
+    let transaction = connection.unchecked_transaction().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Workspace transaction could not be started",
+        )
+        .with_details(error.to_string())
+    })?;
+    transaction.execute(
+        "INSERT INTO release_workspaces (id, modpack_id, source_snapshot_id, baseline_origin, baseline_release_id, baseline_capture_json, name, version, description, notes, lifecycle, evidence_status, publication_status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'baseline', ?12, ?13, ?13)",
+        params![workspace_id, request.modpack_id, source_snapshot_id, baseline_origin, baseline_release_id, baseline_capture_json, request.metadata.name, request.metadata.version, request.metadata.description, request.metadata.notes, serialize(&lifecycle, "workspace lifecycle")?.trim_matches('"'), serialize(&request.metadata.publication_status, "publication status")?.trim_matches('"'), now],
+    ).map_err(|error| CommandError::new("database_write_failed", "Release workspace could not be saved").with_details(error.to_string()))?;
+    let mut candidates = transaction
+        .prepare("SELECT id, candidate_json, observed_at FROM snapshot_candidates WHERE snapshot_id = ?1 ORDER BY id")
+        .map_err(|error| {
+            CommandError::new(
+                "database_read_failed",
+                "Snapshot candidates could not be read",
+            )
+            .with_details(error.to_string())
+        })?;
+    let candidate_sources = candidates
+        .query_map([candidate_snapshot_id.as_deref().unwrap_or("")], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|error| {
+            CommandError::new(
+                "database_read_failed",
+                "Snapshot candidates could not be read",
+            )
+            .with_details(error.to_string())
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            CommandError::new("database_record_invalid", "A snapshot candidate is invalid")
+                .with_details(error.to_string())
+        })?;
+    drop(candidates);
+    for (candidate_id, candidate_json, observed_at) in candidate_sources {
+        let source_id = format!("{workspace_id}:{candidate_id}");
+        transaction.execute("INSERT INTO release_workspace_candidate_sources (id, workspace_id, source_snapshot_candidate_id, candidate_json, observed_at) VALUES (?1, ?2, ?3, ?4, ?5)", params![source_id, workspace_id, candidate_id, candidate_json, observed_at]).map_err(|error| CommandError::new("database_write_failed", "Workspace candidate source could not be saved").with_details(error.to_string()))?;
+        transaction.execute("INSERT INTO release_workspace_candidates (workspace_id, source_candidate_id, decision, recorded_at) VALUES (?1, ?2, 'undecided', ?3)", params![workspace_id, source_id, now]).map_err(|error| CommandError::new("database_write_failed", "Workspace candidate could not be saved").with_details(error.to_string()))?;
+    }
+    let baseline_message = match (&source_snapshot_id, &baseline_release_id) {
+        (Some(snapshot_id), _) => {
+            format!("Release workspace {workspace_id} started from snapshot {snapshot_id}")
+        }
+        (None, Some(release_id)) => {
+            format!("Release workspace {workspace_id} started from finalized release {release_id}")
+        }
+        (None, None) => {
+            format!("Release workspace {workspace_id} started with a current-project baseline")
+        }
+    };
+    transaction.execute("INSERT INTO release_workspace_activity (workspace_id, event_type, occurred_at, message) VALUES (?1, 'workspace_started', ?2, ?3)", params![workspace_id, now, baseline_message]).map_err(|error| CommandError::new("database_write_failed", "Workspace activity could not be saved").with_details(error.to_string()))?;
+    transaction.commit().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Release workspace could not be committed",
+        )
+        .with_details(error.to_string())
+    })?;
+    drop(connection);
+    load_release_workspace_inner(&state, &workspace_id)
+}
+
+#[tauri::command]
+pub fn list_release_workspaces(
+    state: State<'_, Database>,
+    modpack_id: String,
+) -> Result<Vec<crate::domain::ReleaseWorkspace>, CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let rows = connection.prepare("SELECT id, modpack_id, source_snapshot_id, baseline_origin, baseline_release_id, baseline_capture_json, name, version, description, notes, lifecycle, evidence_status, publication_status, final_capture_json, final_changelog_revision_id, finalization_receipt_json, created_at, updated_at, abandoned_at FROM release_workspaces WHERE modpack_id = ?1 ORDER BY created_at DESC").map_err(|error| CommandError::new("database_read_failed", "Release workspaces could not be read").with_details(error.to_string()))?.query_map([modpack_id], workspace_from_row).map_err(|error| CommandError::new("database_read_failed", "Release workspaces could not be read").with_details(error.to_string()))?.collect::<Result<Vec<_>, _>>().map_err(|error| CommandError::new("database_record_invalid", "A stored release workspace is invalid").with_details(error.to_string()))?;
+    rows.into_iter()
+        .map(|workspace| enrich_workspace(&connection, workspace))
+        .collect()
+}
+
+#[tauri::command]
+pub fn abandon_release_workspace(
+    state: State<'_, Database>,
+    workspace_id: String,
+) -> Result<crate::domain::ReleaseWorkspace, CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let now = timestamp();
+    let transaction = connection.unchecked_transaction().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Workspace transaction could not be started",
+        )
+        .with_details(error.to_string())
+    })?;
+    let changed = transaction.execute("UPDATE release_workspaces SET lifecycle = 'abandoned', abandoned_at = ?1, updated_at = ?1 WHERE id = ?2 AND lifecycle NOT IN ('abandoned', 'finalized', 'published', 'withdrawn')", params![now, workspace_id]).map_err(|error| CommandError::new("database_write_failed", "Workspace could not be abandoned").with_details(error.to_string()))?;
+    if changed == 0 {
+        return Err(CommandError::new(
+            "workspace_not_editable",
+            "Release workspace cannot be abandoned",
+        ));
+    }
+    transaction.execute("INSERT INTO release_workspace_activity (workspace_id, event_type, occurred_at, message) VALUES (?1, 'workspace_abandoned', ?2, 'Workspace explicitly abandoned; project files were not reverted')", params![workspace_id, now]).map_err(|error| CommandError::new("database_write_failed", "Workspace activity could not be saved").with_details(error.to_string()))?;
+    transaction.commit().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Workspace abandonment could not be committed",
+        )
+        .with_details(error.to_string())
+    })?;
+    drop(connection);
+    load_release_workspace_inner(&state, &workspace_id)
+}
+
+#[tauri::command]
+pub fn unlink_snapshot_from_release_workspace(
+    state: State<'_, Database>,
+    workspace_id: String,
+) -> Result<crate::domain::ReleaseWorkspace, CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let transaction = connection.unchecked_transaction().map_err(|error| {
+        CommandError::new("database_write_failed", "Snapshot unlink could not start")
+            .with_details(error.to_string())
+    })?;
+    let now = timestamp();
+    let active_operation: bool = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM operation_attempts WHERE workspace_id = ?1 AND status IN ('running', 'applying'))",
+            [&workspace_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| CommandError::new("database_read_failed", "Workspace operation state could not be read").with_details(error.to_string()))?;
+    if active_operation {
+        return Err(CommandError::new(
+            "workspace_operation_active",
+            "Snapshot cannot be unlinked while a workspace operation is active",
+        ));
+    }
+    let changed = transaction
+        .execute(
+            "UPDATE release_workspaces SET source_snapshot_id = NULL, baseline_origin = 'detached_snapshot', final_changelog_revision_id = NULL, finalization_receipt_json = NULL, updated_at = ?1 WHERE id = ?2 AND source_snapshot_id IS NOT NULL AND lifecycle NOT IN ('abandoned', 'applying', 'finalized', 'published', 'withdrawn')",
+            params![now, workspace_id],
+        )
+        .map_err(|error| CommandError::new("database_write_failed", "Snapshot unlink could not be saved").with_details(error.to_string()))?;
+    if changed == 0 {
+        return Err(CommandError::new(
+            "workspace_snapshot_unlink_not_allowed",
+            "Only an editable workspace with a linked snapshot can unlink its snapshot",
+        ));
+    }
+    transaction
+        .execute(
+            "DELETE FROM release_workspace_candidates WHERE workspace_id = ?1",
+            [&workspace_id],
+        )
+        .map_err(|error| {
+            CommandError::new(
+                "database_write_failed",
+                "Workspace candidate decisions could not be cleared",
+            )
+            .with_details(error.to_string())
+        })?;
+    transaction
+        .execute(
+            "DELETE FROM release_workspace_candidate_sources WHERE workspace_id = ?1",
+            [&workspace_id],
+        )
+        .map_err(|error| {
+            CommandError::new(
+                "database_write_failed",
+                "Workspace candidate sources could not be cleared",
+            )
+            .with_details(error.to_string())
+        })?;
+    transaction
+        .execute(
+            "UPDATE changelog_artifacts SET release_workspace_id = NULL WHERE release_workspace_id = ?1 AND stage = 'proposed'",
+            [&workspace_id],
+        )
+        .map_err(|error| CommandError::new("database_write_failed", "Workspace changelog proposals could not be detached").with_details(error.to_string()))?;
+    transaction
+        .execute(
+            "INSERT INTO release_workspace_activity (workspace_id, event_type, occurred_at, message) VALUES (?1, 'snapshot_unlinked', ?2, 'Discovery snapshot unlinked; immutable snapshot baseline retained')",
+            params![workspace_id, now],
+        )
+        .map_err(|error| CommandError::new("database_write_failed", "Snapshot unlink activity could not be saved").with_details(error.to_string()))?;
+    transaction.commit().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Snapshot unlink could not be committed",
+        )
+        .with_details(error.to_string())
+    })?;
+    drop(connection);
+    load_release_workspace_inner(&state, &workspace_id)
+}
+
+#[tauri::command]
+pub fn rebase_release_workspace(
+    state: State<'_, Database>,
+    request: crate::domain::RebaseReleaseWorkspaceRequest,
+) -> Result<crate::domain::ReleaseWorkspace, CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let (project_path, lifecycle): (String, String) = connection
+        .query_row(
+            "SELECT modpacks.canonical_path, release_workspaces.lifecycle FROM modpacks JOIN release_workspaces ON release_workspaces.modpack_id = modpacks.id WHERE release_workspaces.id = ?1",
+            [&request.workspace_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|error| CommandError::new("workspace_not_found", "Release workspace is not available").with_details(error.to_string()))?;
+    if matches!(
+        lifecycle.as_str(),
+        "abandoned" | "applying" | "finalized" | "published" | "withdrawn"
+    ) {
+        return Err(CommandError::new(
+            "workspace_not_editable",
+            "Only an editable release workspace can rebase its baseline",
+        ));
+    }
+    let active_operation: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM operation_attempts WHERE workspace_id = ?1 AND status IN ('running', 'applying'))",
+            [&request.workspace_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| CommandError::new("database_read_failed", "Workspace operation state could not be read").with_details(error.to_string()))?;
+    if active_operation {
+        return Err(CommandError::new(
+            "workspace_operation_active",
+            "Baseline cannot be rebased while a workspace operation is active",
+        ));
+    }
+    let capture = crate::domain::capture::capture(
+        std::path::Path::new(&project_path),
+        crate::domain::ReleaseEligibility {
+            eligible: true,
+            provisional: false,
+            source: Some(crate::domain::ReleaseEligibilitySource::ValidatedCurrentState),
+            validation: Vec::new(),
+            diagnostic: None,
+        },
+        None,
+        Vec::new(),
+    )?;
+    let now = timestamp();
+    let transaction = connection.unchecked_transaction().map_err(|error| {
+        CommandError::new("database_write_failed", "Baseline rebase could not start")
+            .with_details(error.to_string())
+    })?;
+    transaction
+        .execute(
+            "DELETE FROM release_workspace_candidates WHERE workspace_id = ?1",
+            [&request.workspace_id],
+        )
+        .map_err(|error| {
+            CommandError::new(
+                "database_write_failed",
+                "Workspace candidate decisions could not be cleared",
+            )
+            .with_details(error.to_string())
+        })?;
+    transaction
+        .execute(
+            "DELETE FROM release_workspace_candidate_sources WHERE workspace_id = ?1",
+            [&request.workspace_id],
+        )
+        .map_err(|error| {
+            CommandError::new(
+                "database_write_failed",
+                "Workspace candidate sources could not be cleared",
+            )
+            .with_details(error.to_string())
+        })?;
+    transaction
+        .execute(
+            "UPDATE changelog_artifacts SET release_workspace_id = NULL WHERE release_workspace_id = ?1 AND stage = 'proposed'",
+            [&request.workspace_id],
+        )
+        .map_err(|error| CommandError::new("database_write_failed", "Workspace changelog proposals could not be detached").with_details(error.to_string()))?;
+    transaction.execute(
+        "UPDATE release_workspaces SET source_snapshot_id = NULL, baseline_origin = 'current_project', baseline_release_id = NULL, baseline_capture_json = ?1, evidence_status = 'baseline', lifecycle = 'draft', final_capture_json = NULL, final_changelog_revision_id = NULL, finalization_receipt_json = NULL, updated_at = ?2 WHERE id = ?3",
+        params![serialize(&capture, "release baseline capture")?, now, request.workspace_id],
+    ).map_err(|error| CommandError::new("database_write_failed", "Baseline rebase could not be saved").with_details(error.to_string()))?;
+    transaction.execute(
+        "INSERT INTO release_workspace_activity (workspace_id, event_type, occurred_at, message) VALUES (?1, 'baseline_rebased', ?2, 'Release baseline explicitly rebased from current project files')",
+        params![request.workspace_id, now],
+    ).map_err(|error| CommandError::new("database_write_failed", "Baseline rebase activity could not be saved").with_details(error.to_string()))?;
+    transaction.commit().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Baseline rebase could not be committed",
+        )
+        .with_details(error.to_string())
+    })?;
+    drop(connection);
+    load_release_workspace_inner(&state, &request.workspace_id)
+}
+
+#[tauri::command]
+pub fn link_snapshot_to_release_workspace(
+    state: State<'_, Database>,
+    workspace_id: String,
+    snapshot_id: String,
+) -> Result<crate::domain::ReleaseWorkspace, CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let transaction = connection.unchecked_transaction().map_err(|error| {
+        CommandError::new("database_write_failed", "Snapshot link could not start")
+            .with_details(error.to_string())
+    })?;
+    let workspace: (String, Option<String>, String) = transaction
+        .query_row(
+            "SELECT modpack_id, source_snapshot_id, lifecycle FROM release_workspaces WHERE id = ?1",
+            [&workspace_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|error| {
+            CommandError::new("workspace_not_found", "Release workspace is not available")
+                .with_details(error.to_string())
+        })?;
+    if workspace.1.is_some() {
+        return Err(CommandError::new(
+            "workspace_snapshot_already_linked",
+            "This release workspace already has a discovery snapshot",
+        ));
+    }
+    if matches!(
+        workspace.2.as_str(),
+        "abandoned" | "finalized" | "published" | "withdrawn"
+    ) {
+        return Err(CommandError::new(
+            "workspace_not_editable",
+            "Only an editable release workspace can receive a discovery snapshot",
+        ));
+    }
+    let snapshot: (String, String, Option<String>) = transaction
+        .query_row(
+            "SELECT modpack_id, lifecycle, baseline_capture_json FROM snapshots WHERE id = ?1",
+            [&snapshot_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|error| {
+            CommandError::new("snapshot_not_found", "Snapshot is not available")
+                .with_details(error.to_string())
+        })?;
+    if snapshot.0 != workspace.0 {
+        return Err(CommandError::new(
+            "snapshot_project_mismatch",
+            "Snapshot does not belong to the release project",
+        ));
+    }
+    if snapshot.1 != "reviewable" || snapshot.2.is_none() {
+        return Err(CommandError::new(
+            "snapshot_not_reviewable",
+            "Only a reviewable snapshot with stable baseline evidence can be linked",
+        ));
+    }
+    let now = timestamp();
+    transaction
+        .execute(
+            "UPDATE release_workspaces SET source_snapshot_id = ?1, updated_at = ?2 WHERE id = ?3 AND source_snapshot_id IS NULL",
+            params![snapshot_id, now, workspace_id],
+        )
+        .map_err(|error| {
+            CommandError::new("database_write_failed", "Snapshot link could not be saved")
+                .with_details(error.to_string())
+        })?;
+    let mut candidates = transaction
+        .prepare("SELECT id, candidate_json, observed_at FROM snapshot_candidates WHERE snapshot_id = ?1 ORDER BY id")
+        .map_err(|error| {
+            CommandError::new("database_read_failed", "Snapshot candidates could not be read")
+                .with_details(error.to_string())
+        })?;
+    let candidate_sources = candidates
+        .query_map([&snapshot_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|error| {
+            CommandError::new(
+                "database_read_failed",
+                "Snapshot candidates could not be read",
+            )
+            .with_details(error.to_string())
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            CommandError::new("database_record_invalid", "A snapshot candidate is invalid")
+                .with_details(error.to_string())
+        })?;
+    drop(candidates);
+    for (candidate_id, candidate_json, observed_at) in candidate_sources {
+        let source_id = format!("{workspace_id}:{candidate_id}");
+        transaction
+            .execute(
+                "INSERT INTO release_workspace_candidate_sources (id, workspace_id, source_snapshot_candidate_id, candidate_json, observed_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![source_id, workspace_id, candidate_id, candidate_json, observed_at],
+            )
+            .map_err(|error| {
+                CommandError::new("database_write_failed", "Workspace candidate source could not be linked")
+                    .with_details(error.to_string())
+            })?;
+        transaction
+            .execute(
+                "INSERT INTO release_workspace_candidates (workspace_id, source_candidate_id, decision, recorded_at) VALUES (?1, ?2, 'undecided', ?3)",
+                params![workspace_id, source_id, now],
+            )
+            .map_err(|error| {
+                CommandError::new("database_write_failed", "Workspace candidate could not be linked")
+                    .with_details(error.to_string())
+            })?;
+    }
+    transaction
+        .execute(
+            "INSERT INTO release_workspace_activity (workspace_id, event_type, occurred_at, message) VALUES (?1, 'snapshot_linked', ?2, ?3)",
+            params![workspace_id, now, format!("Discovery snapshot {snapshot_id} linked; release baseline was preserved")],
+        )
+        .map_err(|error| {
+            CommandError::new("database_write_failed", "Snapshot link activity could not be saved")
+                .with_details(error.to_string())
+        })?;
+    transaction.commit().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Snapshot link could not be committed",
+        )
+        .with_details(error.to_string())
+    })?;
+    drop(connection);
+    load_release_workspace_inner(&state, &workspace_id)
+}
+
+#[tauri::command]
+pub fn set_release_workspace_decision(
+    state: State<'_, Database>,
+    request: crate::domain::ReleaseWorkspaceDecisionRequest,
+) -> Result<crate::domain::ReleaseWorkspace, CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let now = timestamp();
+    let transaction = connection.unchecked_transaction().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Workspace transaction could not be started",
+        )
+        .with_details(error.to_string())
+    })?;
+    let valid_target: bool = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM release_workspace_candidates WHERE workspace_id = ?1 AND source_candidate_id = ?2) AND EXISTS(SELECT 1 FROM release_workspaces WHERE id = ?1 AND lifecycle NOT IN ('abandoned', 'finalized', 'published', 'withdrawn'))",
+            params![request.workspace_id, request.source_candidate_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| CommandError::new("database_read_failed", "Workspace decision target could not be read").with_details(error.to_string()))?;
+    if !valid_target {
+        return Err(CommandError::new(
+            "workspace_decision_not_allowed",
+            "Candidate is not editable in this release workspace",
+        ));
+    }
+    transaction
+        .execute(
+            "INSERT INTO release_workspace_candidates (workspace_id, source_candidate_id, decision, note, recorded_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![request.workspace_id, request.source_candidate_id, serialize(&request.decision, "candidate decision")?.trim_matches('"'), request.note, now],
+        )
+        .map_err(|error| CommandError::new("database_write_failed", "Workspace decision could not be saved").with_details(error.to_string()))?;
+    transaction
+        .execute(
+            "INSERT INTO release_workspace_activity (workspace_id, event_type, occurred_at, message) VALUES (?1, 'candidate_decision_changed', ?2, ?3)",
+            params![request.workspace_id, now, format!("Candidate {} decision changed", request.source_candidate_id)],
+        )
+        .map_err(|error| CommandError::new("database_write_failed", "Workspace activity could not be saved").with_details(error.to_string()))?;
+    transaction.commit().map_err(|error| {
+        CommandError::new(
+            "database_write_failed",
+            "Workspace decision could not be committed",
+        )
+        .with_details(error.to_string())
+    })?;
+    drop(connection);
+    load_release_workspace_inner(&state, &request.workspace_id)
+}
+
+#[tauri::command]
+pub fn select_release_workspace_changelog(
+    state: State<'_, Database>,
+    request: crate::domain::SelectReleaseWorkspaceChangelogRequest,
+) -> Result<crate::domain::ReleaseWorkspace, CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    if let Some(revision_id) = &request.changelog_revision_id {
+        let valid: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM changelog_revisions r JOIN changelog_artifacts a ON a.id = r.artifact_id WHERE r.id = ?1 AND a.release_workspace_id = ?2 AND a.stage = 'proposed' AND r.frozen = 0)",
+                params![revision_id, request.workspace_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| CommandError::new("database_read_failed", "The changelog revision could not be verified").with_details(error.to_string()))?;
+        if !valid {
+            return Err(CommandError::new(
+                "changelog_revision_mismatch",
+                "The selected changelog revision is not an editable proposed revision for this workspace",
+            ));
+        }
+    }
+    connection
+        .execute(
+            "UPDATE release_workspaces SET final_changelog_revision_id = ?1, updated_at = ?2 WHERE id = ?3 AND lifecycle NOT IN ('finalized', 'published', 'withdrawn', 'abandoned')",
+            params![request.changelog_revision_id, timestamp(), request.workspace_id],
+        )
+        .map_err(|error| CommandError::new("database_write_failed", "The changelog selection could not be saved").with_details(error.to_string()))?;
+    drop(connection);
+    load_release_workspace_inner(&state, &request.workspace_id)
+}
+
+#[tauri::command]
+pub fn create_release_workspace_changelog(
+    state: State<'_, Database>,
+    request: crate::domain::CreateReleaseWorkspaceChangelogRequest,
+) -> Result<crate::domain::ChangelogArtifact, CommandError> {
+    let workspace = load_release_workspace_inner(&state, &request.workspace_id)?;
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    if matches!(
+        workspace.lifecycle,
+        crate::domain::ReleaseWorkspaceLifecycle::Finalized
+            | crate::domain::ReleaseWorkspaceLifecycle::Published
+            | crate::domain::ReleaseWorkspaceLifecycle::Withdrawn
+            | crate::domain::ReleaseWorkspaceLifecycle::Abandoned
+    ) {
+        return Err(CommandError::new(
+            "invalid_changelog_state",
+            "This workspace cannot create a changelog proposal",
+        ));
+    }
+    let now = timestamp();
+    let attempt_id = unique_id("changelog-attempt");
+    let artifact_id = unique_id("changelog-artifact");
+    connection.execute("INSERT INTO changelog_attempts (id, modpack_id, snapshot_id, request_json, request_fingerprint, status, created_at, finished_at) VALUES (?1, ?2, ?3, ?4, ?5, 'complete', ?6, ?6)", params![attempt_id, workspace.modpack_id, workspace.source_snapshot_id, "{}", artifact_id, now]).map_err(|error| CommandError::new("database_write_failed", "Changelog proposal could not be saved").with_details(error.to_string()))?;
+    connection.execute("INSERT INTO changelog_artifacts (id, modpack_id, snapshot_id, release_workspace_id, stage, source_capture_fingerprint, attempt_id, status, introduction, content, entries_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 'proposed', NULL, ?5, 'complete', ?6, '', '[]', ?7, ?7)", params![artifact_id, workspace.modpack_id, workspace.source_snapshot_id, workspace.id, attempt_id, request.introduction, now]).map_err(|error| CommandError::new("database_write_failed", "Changelog proposal could not be saved").with_details(error.to_string()))?;
+    drop(connection);
+    load_changelog_artifact(&state, &artifact_id)
+}
+
+#[tauri::command]
+pub fn create_release(
+    _state: State<'_, Database>,
+    _request: crate::domain::ReleaseCreateRequest,
+) -> Result<ReleaseRecord, CommandError> {
+    Err(CommandError::new(
+        "release_workspace_required",
+        "New releases must start from a reviewable snapshot workspace",
+    ))
+}
+
+#[tauri::command]
+pub fn get_release(state: State<'_, Database>, id: String) -> Result<ReleaseRecord, CommandError> {
+    load_release(&state, &id)
+}
+
+#[tauri::command]
+pub fn list_releases_command(
+    state: State<'_, Database>,
+    modpack_id: String,
+) -> Result<Vec<ReleaseRecord>, CommandError> {
+    list_releases(&state, &modpack_id)
+}
+
+#[tauri::command]
+pub fn update_release(
+    state: State<'_, Database>,
+    request: crate::domain::ReleaseUpdateRequest,
+) -> Result<ReleaseRecord, CommandError> {
+    let existing = load_release(&state, &request.release_id)?;
+    crate::domain::validate_publication_transition(
+        &existing.metadata.publication_status,
+        &request.metadata.publication_status,
+        false,
+    )?;
+    if request.metadata.name.trim().is_empty() {
+        return Err(CommandError::new(
+            "invalid_release_name",
+            "Release name is required",
+        ));
+    }
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let updated_at = timestamp();
+    connection
+        .execute(
+            "UPDATE releases SET name = ?1, version = ?2, description = ?3, notes = ?4, publication_status = ?5, updated_at = ?6 WHERE id = ?7",
+            params![
+                request.metadata.name,
+                request.metadata.version,
+                request.metadata.description,
+                request.metadata.notes,
+                serialize(&request.metadata.publication_status, "release status")?.trim_matches('"'),
+                updated_at,
+                request.release_id,
+            ],
+        )
+        .map_err(|error| CommandError::new("database_write_failed", "Release could not be updated").with_details(error.to_string()))?;
+    drop(connection);
+    load_release(&state, &request.release_id)
+}
+
+#[tauri::command]
+pub fn compare_releases(
+    state: State<'_, Database>,
+    request: crate::domain::ReleaseComparisonRequest,
+) -> Result<crate::domain::ReleaseComparison, CommandError> {
+    let before = load_release(&state, &request.before_release_id)?;
+    let after = load_release(&state, &request.after_release_id)?;
+    Ok(crate::domain::comparison::compare(&before, &after))
+}
+
+fn row_to_release(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReleaseRecord> {
+    let status: String = row.get(6)?;
+    let capture_json: String = row.get(7)?;
+    Ok(ReleaseRecord {
+        id: row.get(0)?,
+        modpack_id: row.get(1)?,
+        metadata: crate::domain::ReleaseMetadata {
+            name: row.get(2)?,
+            version: row.get(3)?,
+            description: row.get(4)?,
+            notes: row.get(5)?,
+            publication_status: serde_json::from_value(serde_json::Value::String(status))
+                .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        },
+        capture: serde_json::from_str(&capture_json).map_err(|_| rusqlite::Error::InvalidQuery)?,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
+    })
 }
 
 pub fn persist_changelog_artifact(
@@ -440,8 +2112,8 @@ pub fn persist_changelog_artifact(
         .map_err(|error| CommandError::new("database_write_failed", "Changelog attempt could not be saved").with_details(error.to_string()))?;
     transaction
         .execute(
-            "INSERT INTO changelog_artifacts (id, modpack_id, snapshot_id, attempt_id, status, introduction, content, entries_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
-            params![artifact.id, artifact.modpack_id, artifact.snapshot_id, artifact.attempt_id, status, artifact.introduction, artifact.content, serialize(&artifact.entries, "changelog entries")?, now],
+            "INSERT INTO changelog_artifacts (id, modpack_id, snapshot_id, release_workspace_id, stage, source_capture_fingerprint, attempt_id, status, introduction, content, entries_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)",
+            params![artifact.id, artifact.modpack_id, artifact.snapshot_id, artifact.release_workspace_id, serialize(&artifact.stage, "changelog stage")?.trim_matches('"'), artifact.source_capture_fingerprint, artifact.attempt_id, status, artifact.introduction, artifact.content, serialize(&artifact.entries, "changelog entries")?, now],
         )
         .map_err(|error| CommandError::new("database_write_failed", "Changelog artifact could not be saved").with_details(error.to_string()))?;
     transaction.commit().map_err(|error| {
@@ -484,6 +2156,22 @@ pub fn persist_changelog_revision(
             "The source changelog artifact is not available",
         ));
     }
+    let artifact_frozen: bool = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM changelog_revisions WHERE artifact_id = ?1 AND frozen = 1)",
+            [&request.artifact_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| {
+            CommandError::new("database_read_failed", "The artifact freeze state could not be verified")
+                .with_details(error.to_string())
+        })?;
+    if artifact_frozen {
+        return Err(CommandError::new(
+            "changelog_revision_frozen",
+            "Final changelog revisions cannot be edited",
+        ));
+    }
     if let Some(prior_revision_id) = &request.prior_revision_id {
         let belongs_to_artifact: bool = transaction
             .query_row(
@@ -518,7 +2206,7 @@ pub fn persist_changelog_revision(
         })?;
     transaction
         .execute(
-            "INSERT INTO changelog_revisions (id, artifact_id, prior_revision_id, content, introduction, created_at, is_current) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1)",
+            "INSERT INTO changelog_revisions (id, artifact_id, prior_revision_id, content, introduction, created_at, is_current, frozen) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, 0)",
             params![id, request.artifact_id, request.prior_revision_id, request.content, request.introduction, now],
         )
         .map_err(|error| CommandError::new("database_write_failed", "Revision could not be saved").with_details(error.to_string()))?;
@@ -534,6 +2222,7 @@ pub fn persist_changelog_revision(
         introduction: request.introduction.clone(),
         created_at: now,
         is_current: true,
+        frozen: false,
     })
 }
 
@@ -615,15 +2304,18 @@ pub fn load_changelog_artifact(
         .0
         .lock()
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
-    connection.query_row("SELECT id, modpack_id, snapshot_id, attempt_id, status, introduction, content, entries_json, created_at, updated_at FROM changelog_artifacts WHERE id = ?1", [id], |row| {
-        let status: String = row.get(4)?;
-        let entries: String = row.get(7)?;
+    connection.query_row("SELECT id, modpack_id, snapshot_id, attempt_id, release_workspace_id, stage, source_capture_fingerprint, status, introduction, content, entries_json, created_at, updated_at FROM changelog_artifacts WHERE id = ?1", [id], |row| {
+        let status: String = row.get(7)?;
+        let entries: String = row.get(10)?;
         Ok(crate::domain::ChangelogArtifact {
             id: row.get(0)?, modpack_id: row.get(1)?, snapshot_id: row.get(2)?, attempt_id: row.get(3)?,
+            release_workspace_id: row.get(4)?,
+            stage: serde_json::from_value(serde_json::Value::String(row.get(5)?)).map_err(|_| rusqlite::Error::InvalidQuery)?,
+            source_capture_fingerprint: row.get(6)?,
             status: serde_json::from_value(serde_json::Value::String(status)).map_err(|_| rusqlite::Error::InvalidQuery)?,
-            introduction: row.get(5)?, content: row.get(6)?,
+            introduction: row.get(8)?, content: row.get(9)?,
             entries: serde_json::from_str(&entries).map_err(|_| rusqlite::Error::InvalidQuery)?,
-            created_at: row.get(8)?, updated_at: row.get(9)?,
+            created_at: row.get(11)?, updated_at: row.get(12)?,
         })
     }).map_err(|error| CommandError::new("changelog_not_found", "Changelog artifact is not available").with_details(error.to_string()))
 }
@@ -678,7 +2370,7 @@ pub fn list_changelog_revisions(
         .0
         .lock()
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
-    let mut statement = connection.prepare("SELECT id, artifact_id, prior_revision_id, content, introduction, created_at, is_current FROM changelog_revisions WHERE artifact_id = ?1 ORDER BY created_at DESC").map_err(|error| CommandError::new("database_read_failed", "Revision history could not be read").with_details(error.to_string()))?;
+    let mut statement = connection.prepare("SELECT id, artifact_id, prior_revision_id, content, introduction, created_at, is_current, frozen FROM changelog_revisions WHERE artifact_id = ?1 ORDER BY created_at DESC").map_err(|error| CommandError::new("database_read_failed", "Revision history could not be read").with_details(error.to_string()))?;
     let rows = statement
         .query_map([artifact_id], |row| {
             Ok(crate::domain::ChangelogRevision {
@@ -689,6 +2381,7 @@ pub fn list_changelog_revisions(
                 introduction: row.get(4)?,
                 created_at: row.get(5)?,
                 is_current: row.get::<_, i64>(6)? != 0,
+                frozen: row.get::<_, i64>(7)? != 0,
             })
         })
         .map_err(|error| {
@@ -1033,6 +2726,7 @@ fn row_to_snapshot(row: &rusqlite::Row<'_>) -> rusqlite::Result<SnapshotRecord> 
     let lifecycle: String = row.get(3)?;
     let outcome: String = row.get(4)?;
     let result_json: String = row.get(6)?;
+    let baseline_capture_json: Option<String> = row.get(7)?;
     Ok(SnapshotRecord {
         id: row.get(0)?,
         modpack_id: row.get(1)?,
@@ -1042,9 +2736,12 @@ fn row_to_snapshot(row: &rusqlite::Row<'_>) -> rusqlite::Result<SnapshotRecord> 
         outcome: serde_json::from_value(serde_json::Value::String(outcome))
             .map_err(|_| rusqlite::Error::InvalidQuery)?,
         label: row.get(5)?,
-        created_at: row.get(7)?,
-        updated_at: row.get(8)?,
-        closed_at: row.get(9)?,
+        baseline_capture: baseline_capture_json
+            .map(|json| serde_json::from_str(&json).map_err(|_| rusqlite::Error::InvalidQuery))
+            .transpose()?,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
+        closed_at: row.get(10)?,
         result: serde_json::from_str(&result_json).map_err(|_| rusqlite::Error::InvalidQuery)?,
         candidates: Vec::new(),
         decisions: Vec::new(),
@@ -1145,7 +2842,7 @@ pub fn list_snapshots(
         .lock()
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
     let mut statement = connection
-        .prepare("SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE modpack_id = ?1 ORDER BY created_at DESC")
+        .prepare("SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, baseline_capture_json, created_at, updated_at, closed_at FROM snapshots WHERE modpack_id = ?1 ORDER BY created_at DESC")
         .map_err(|error| CommandError::new("database_read_failed", "Snapshots could not be read").with_details(error.to_string()))?;
     let snapshots = statement
         .query_map([modpack_id], row_to_snapshot)
@@ -1176,7 +2873,7 @@ pub fn get_snapshot(
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
     let snapshot = connection
         .query_row(
-            "SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1",
+            "SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, baseline_capture_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1",
             [id],
             row_to_snapshot,
         )
@@ -1322,7 +3019,7 @@ pub fn close_snapshot(
                 .with_details(error.to_string())
         })?;
     if current == requested {
-        let snapshot = connection.query_row("SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1", [&id], row_to_snapshot).map_err(|error| CommandError::new("snapshot_not_found", "Snapshot is not available").with_details(error.to_string()))?;
+        let snapshot = connection.query_row("SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, baseline_capture_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1", [&id], row_to_snapshot).map_err(|error| CommandError::new("snapshot_not_found", "Snapshot is not available").with_details(error.to_string()))?;
         return enrich_snapshot(&connection, snapshot);
     }
     if !matches!(current.as_str(), "draft" | "reviewable") {
@@ -1340,7 +3037,7 @@ pub fn close_snapshot(
             CommandError::new("database_write_failed", "Snapshot could not be closed")
                 .with_details(error.to_string())
         })?;
-    let snapshot = connection.query_row("SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1", [&id], row_to_snapshot).map_err(|error| CommandError::new("snapshot_not_found", "Snapshot is not available").with_details(error.to_string()))?;
+    let snapshot = connection.query_row("SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, baseline_capture_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1", [&id], row_to_snapshot).map_err(|error| CommandError::new("snapshot_not_found", "Snapshot is not available").with_details(error.to_string()))?;
     enrich_snapshot(&connection, snapshot)
 }
 
@@ -1390,7 +3087,7 @@ pub fn link_snapshot_retry(
         )
         .map_err(|error| CommandError::new("database_write_failed", "Retry link could not be saved").with_details(error.to_string()))?;
     let snapshot = connection
-        .query_row("SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1", [&retry_id], row_to_snapshot)
+        .query_row("SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, baseline_capture_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1", [&retry_id], row_to_snapshot)
         .map_err(|error| CommandError::new("snapshot_not_found", "Retry snapshot is not available").with_details(error.to_string()))?;
     enrich_snapshot(&connection, snapshot)
 }
@@ -1464,7 +3161,7 @@ pub fn recheck_snapshot(
                 .with_details(error.to_string())
             })?;
     }
-    let snapshot = connection.query_row("SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1", [id], row_to_snapshot).map_err(|error| CommandError::new("snapshot_not_found", "Snapshot is not available").with_details(error.to_string()))?;
+    let snapshot = connection.query_row("SELECT id, modpack_id, predecessor_id, lifecycle, outcome, label, result_json, baseline_capture_json, created_at, updated_at, closed_at FROM snapshots WHERE id = ?1", [id], row_to_snapshot).map_err(|error| CommandError::new("snapshot_not_found", "Snapshot is not available").with_details(error.to_string()))?;
     enrich_snapshot(&connection, snapshot)
 }
 
@@ -1894,6 +3591,51 @@ mod tests {
     }
 
     #[test]
+    fn workspace_schema_allows_multiple_active_records_and_preserves_history() {
+        let database = initialize(Path::new(":memory:")).expect("database should initialize");
+        let connection = database
+            .0
+            .lock()
+            .expect("database lock should be available");
+        connection
+            .execute(
+                "INSERT INTO modpacks (id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at) VALUES ('project', '.', '{}', '{}', '[]', '0', '0')",
+                [],
+            )
+            .expect("project should be insertable");
+        connection
+            .execute(
+                "INSERT INTO snapshots (id, modpack_id, lifecycle, outcome, result_json, baseline_capture_json, created_at, updated_at) VALUES ('snapshot', 'project', 'reviewable', 'normal', '{}', '{}', '0', '0')",
+                [],
+            )
+            .expect("snapshot should be insertable");
+        let workspace = |id: &str| {
+            connection.execute(
+                "INSERT INTO release_workspaces (id, modpack_id, source_snapshot_id, name, lifecycle, evidence_status, publication_status, created_at, updated_at) VALUES (?1, 'project', 'snapshot', 'Release', 'draft', 'baseline', 'draft', '0', '0')",
+                [id],
+            )
+        };
+        workspace("first").expect("first workspace should be insertable");
+        workspace("second").expect("multiple active workspaces should be insertable");
+        connection
+            .execute(
+                "UPDATE release_workspaces SET lifecycle = 'abandoned', abandoned_at = '1' WHERE id = 'first'",
+                [],
+            )
+            .expect("workspace should be abandonable");
+        drop(connection);
+        let loaded = super::load_release_workspace_inner(&database, "second")
+            .expect("a newly stored workspace should load with nullable finalization fields");
+        assert_eq!(
+            loaded.publication_status,
+            crate::domain::ReleasePublicationStatus::Draft
+        );
+        assert!(loaded.final_capture.is_none());
+        assert!(loaded.final_changelog_revision_id.is_none());
+        assert!(loaded.finalization_receipt.is_none());
+    }
+
+    #[test]
     fn registration_lifecycle_preserves_identity_without_deleting_external_files() {
         let database = initialize(Path::new(":memory:")).expect("database should initialize");
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/packwiz/valid");
@@ -2082,5 +3824,53 @@ mod tests {
         assert!(super::cached_changelog_response(&database, &mismatched_key)
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn release_capture_round_trips_without_current_tree_reads() {
+        let database = initialize(Path::new(":memory:")).expect("database should initialize");
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/packwiz/valid");
+        let path = fixture.to_string_lossy().into_owned();
+        let registered = super::register_modpack_inner(&database, path.clone(), None)
+            .expect("valid fixture should register");
+        let capture = crate::domain::capture::capture(
+            &fixture,
+            crate::domain::ReleaseEligibility {
+                eligible: true,
+                provisional: false,
+                source: Some(crate::domain::ReleaseEligibilitySource::ValidatedCurrentState),
+                validation: Vec::new(),
+                diagnostic: None,
+            },
+            None,
+            Vec::new(),
+        )
+        .expect("release capture should succeed");
+        let release = crate::domain::ReleaseRecord {
+            id: "release-test".into(),
+            modpack_id: registered.id.clone(),
+            metadata: crate::domain::ReleaseMetadata {
+                name: "Test release".into(),
+                version: Some("1".into()),
+                description: None,
+                notes: Some("captured".into()),
+                publication_status: crate::domain::ReleasePublicationStatus::Draft,
+            },
+            capture,
+            created_at: "2026-09-07T00:00:00Z".into(),
+            updated_at: "2026-09-07T00:00:00Z".into(),
+        };
+        super::persist_release(&database, &release).expect("release should persist");
+        let loaded = super::load_release(&database, &release.id).expect("release should reload");
+        assert_eq!(
+            loaded.capture.capture_fingerprint,
+            release.capture.capture_fingerprint
+        );
+        assert_eq!(
+            super::list_releases(&database, &registered.id)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 }
