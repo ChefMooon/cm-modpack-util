@@ -134,11 +134,11 @@
   .versions-panel { display:grid; align-content:center; min-height:360px; padding:32px; }
   .detail-heading { padding:28px 24px 10px; }
   .detail-heading p:not(.eyebrow) { margin-bottom:0; color:var(--color-text-muted); line-height:1.6; }
-  .eyebrow { margin:0 0 10px; color:var(--color-accent-strong); font:700 10px var(--font-mono); letter-spacing:.12em; text-transform:uppercase; }
+  .eyebrow { margin:0 0 10px; color:var(--modpack-theme-color, var(--color-accent-strong)); font:700 10px var(--font-mono); letter-spacing:.12em; text-transform:uppercase; }
   .version-filters,.status-filters { display:flex; gap:4px; padding:12px 24px; border-bottom:1px solid var(--color-border); }
   .status-filters { padding-top:12px; flex-wrap:wrap; }
   .version-filters button,.status-filters button { min-height:34px; padding:0 12px; border:1px solid var(--color-border); color:var(--color-text-muted); background:transparent; font:11px var(--font-mono); cursor:pointer; }
-  .version-filters button.active,.status-filters button.active { color:var(--color-text); background:var(--color-surface-raised); box-shadow:inset 0 -3px 0 var(--color-accent); }
+  .version-filters button.active,.status-filters button.active { color:var(--color-text); background:var(--color-surface-raised); box-shadow:inset 0 -3px 0 var(--modpack-theme-color, var(--color-accent)); }
   .version-filters button:disabled,.status-filters button:disabled { cursor:not-allowed; opacity:.6; }
   .snapshot-list { display:grid; gap:1px; margin:16px 24px 24px; border:1px solid var(--color-border); background:var(--color-border); }
   .snapshot-row { display:grid; grid-template-columns:minmax(0,1.5fr) repeat(4,minmax(0,1fr)) minmax(82px,auto); gap:14px; align-items:center; box-sizing:border-box; width:100%; padding:14px; border:0; border-bottom:1px solid var(--color-border); color:var(--color-text-muted); background:var(--color-surface); text-align:left; text-decoration:none; cursor:pointer; }
@@ -146,7 +146,7 @@
   .snapshot-row > span { display:grid; gap:5px; min-width:0; font-size:11px; }
   .snapshot-row strong { overflow-wrap:anywhere; color:var(--color-text); }
   .snapshot-row small,.snapshot-row b { color:var(--color-text-subtle); font:10px var(--font-mono); text-transform:uppercase; }
-  .snapshot-action { min-width:0; overflow:hidden; color:var(--color-accent-strong); font:700 11px var(--font-mono); white-space:nowrap; text-overflow:ellipsis; }
+  .snapshot-action { min-width:0; overflow:hidden; color:var(--modpack-theme-color, var(--color-accent-strong)); font:700 11px var(--font-mono); white-space:nowrap; text-overflow:ellipsis; }
   .inspection-state { display:grid; justify-items:center; gap:10px; padding:34px 12px 12px; color:var(--color-text-muted); text-align:center; }
   .inspection-state p { margin:0; }
   .loader { width:22px; height:22px; border:2px solid var(--color-border); border-top-color:var(--color-accent); border-radius:50%; animation:spin .8s linear infinite; }

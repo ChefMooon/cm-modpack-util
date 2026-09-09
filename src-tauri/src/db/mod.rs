@@ -2352,7 +2352,12 @@ pub fn set_changelog_revision_archived(
                 archived_at: row.get(8)?,
             })
         })
-        .map_err(|_| CommandError::new("changelog_not_found", "The changelog revision is not available"))?;
+        .map_err(|_| {
+            CommandError::new(
+                "changelog_not_found",
+                "The changelog revision is not available",
+            )
+        })?;
     if revision.frozen {
         return Err(CommandError::new(
             "changelog_revision_frozen",
@@ -2365,7 +2370,13 @@ pub fn set_changelog_revision_archived(
             "UPDATE changelog_revisions SET archived_at = ?1 WHERE id = ?2",
             params![archived_at, request.revision_id],
         )
-        .map_err(|error| CommandError::new("database_write_failed", "Revision archive state could not be saved").with_details(error.to_string()))?;
+        .map_err(|error| {
+            CommandError::new(
+                "database_write_failed",
+                "Revision archive state could not be saved",
+            )
+            .with_details(error.to_string())
+        })?;
     drop(statement);
     load_changelog_revision(&connection, &request.revision_id)
 }
@@ -3879,6 +3890,7 @@ mod tests {
         let path = fixture.to_string_lossy().into_owned();
         let registered = super::register_modpack_inner(&database, path.clone(), None)
             .expect("valid fixture should register");
+        assert_eq!(registered.application.theme.as_deref(), Some("cyan"));
         let duplicate = super::register_modpack_inner(&database, path.clone(), None)
             .expect_err("equivalent project should be rejected");
         assert_eq!(duplicate.code, "duplicate_modpack");

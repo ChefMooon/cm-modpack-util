@@ -22,6 +22,7 @@
   import ReleaseReviewModal from "../components/modpacks/ReleaseReviewModal.svelte";
   import ReleaseEvidenceSummary from "../components/modpacks/ReleaseEvidenceSummary.svelte";
   import SnapshotHistory from "../components/modpacks/SnapshotHistory.svelte";
+  import ModpackColorSelect from "../components/modpacks/ModpackColorSelect.svelte";
   import ModpackSettings from "../components/modpacks/ModpackSettings.svelte";
   import ModpackList from "../components/modpacks/ModpackList.svelte";
   import ModpackSummary from "../components/modpacks/ModpackSummary.svelte";
@@ -114,11 +115,13 @@
     listReleaseWorkspaceActivity,
     getReleaseWorkspaceEvidence,
   } from "../lib/modpacks";
+  import { getModpackTheme } from "../lib/modpackTheme";
 
   let modpacks = $state<ModpackRecord[]>([]);
   type DetailTab = "summary" | "versions" | "settings";
   let focusedModpack = $state<ModpackRecord | null>(null);
   let activeTab = $state<DetailTab>("summary");
+  let focusedModpackTheme = $derived(getModpackTheme(focusedModpack?.application.theme));
   let listCollapsed = $state(false);
   let paneWidth = $state(300);
   let resizingPane = $state(false);
@@ -337,6 +340,7 @@
     if (!selected) return;
     busy = true;
     try {
+      selected.application_defaults.tags = tagsText.split(",").map((tag) => tag.trim()).filter(Boolean);
       await registerModpack(previewPath, selected.application_defaults);
       showPreview = false;
       selected = null;
@@ -1380,7 +1384,10 @@
         onpointercancel={endPaneResize}
         onkeydown={handlePaneResizeKey}
       ></div>
-      <div class="detail-pane">
+      <div
+        class="detail-pane"
+        style={`--modpack-theme-color: ${focusedModpackTheme.color}; --modpack-theme-foreground: ${focusedModpackTheme.foreground};`}
+      >
         <div class="detail-tabs" role="tablist" aria-label="Modpack details">
           <button class:active={activeTab === "summary"} id="summary-tab" role="tab" aria-selected={activeTab === "summary"} aria-controls="summary-panel" tabindex={activeTab === "summary" ? 0 : -1} onclick={() => { if (activeTab !== "summary" && canLeaveSettings()) activeTab = "summary"; }}>Summary</button>
           <button class:active={activeTab === "versions"} id="versions-tab" role="tab" aria-selected={activeTab === "versions"} aria-controls="versions-panel" tabindex={activeTab === "versions" ? 0 : -1} onclick={() => { if (activeTab !== "versions" && canLeaveSettings()) activeTab = "versions"; }}>Versions</button>
@@ -1599,17 +1606,11 @@
     </div>
     <div class="owned-fields">
       <label class="field"
-        >Display name<input
+        ><span>Display name</span><input
           bind:value={selected.application_defaults.display_name}
         /></label
       >
-      <label class="field"
-        >Theme / color<input
-          value={selected.application_defaults.theme ?? ""}
-          oninput={(event) =>
-            (selected!.application_defaults.theme = event.currentTarget.value || null)}
-        /></label
-      >
+      <ModpackColorSelect bind:value={selected.application_defaults.theme} />
       <label class="field wide"
         >Tags<input
           value={tagsText}
@@ -1781,6 +1782,11 @@
   .detail-pane {
     background: var(--color-bg);
   }
+  :global(.detail-pane .eyebrow),
+  :global(.detail-pane .snapshot-action),
+  :global(.detail-pane .modpack-theme-action) {
+    color: var(--modpack-theme-color, var(--color-accent-strong));
+  }
   .detail-tabs {
     position: sticky;
     top: 0;
@@ -1802,7 +1808,7 @@
     cursor: pointer;
   }
   .detail-tabs button.active {
-    border-bottom-color: var(--color-accent);
+    border-bottom-color: var(--modpack-theme-color, var(--color-accent));
     color: var(--color-text);
   }
   .detail-tabs button:focus-visible {
@@ -1946,6 +1952,10 @@
   .wide {
     grid-column: 1 / -1;
   }
+  .owned-fields > .field:not(.wide) {
+    grid-template-rows: 18px 40px;
+    line-height: 18px;
+  }
   code {
     overflow-wrap: anywhere;
     color: var(--color-text);
@@ -1957,7 +1967,13 @@
     color: var(--color-text);
     font-size: 12px;
   }
+  .field > span {
+    height: 18px;
+    line-height: 18px;
+  }
   .field input {
+    box-sizing: border-box;
+    height: 40px;
     min-height: 40px;
     padding: 0 10px;
     border: 1px solid var(--color-border);

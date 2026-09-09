@@ -26,6 +26,8 @@ Missing optional top-level values are shown as unavailable. Malformed TOML, miss
 
 Application-owned metadata is stored in SQLite separately from Packwiz observations. It includes display name, icon, theme, tags, favorite state, description, and lifecycle.
 
+The per-modpack theme is an application-owned identity color. New modpacks start with the neutral Cyan palette entry. Users can choose from eight named palette colors or provide a validated six-digit hex color in the registration review and Settings tab. The selected color is shown as a named swatch in the modpack list and may accent local modpack identity surfaces; it does not change the global application theme or any Packwiz file. Older missing or unrecognized theme values remain readable and display with the neutral fallback until replaced.
+
 ## Lifecycle
 
 - **Active:** included in the normal modpack list.

@@ -84,7 +84,7 @@ pub fn preview(path: &str) -> Result<RegistrationPreview, CommandError> {
                 .to_string()
         }),
         icon: None,
-        theme: None,
+        theme: Some("cyan".to_string()),
         tags: Vec::new(),
         favorite: false,
         description: None,

@@ -28,10 +28,10 @@
       <span>{evidenceLabel(entry.side)}</span>
       <span>{evidenceLabel(entry.pin)}</span>
       <div class="inventory-actions">
-        {#if entry.page_link && onopenPage}<Button variant="quiet" size="sm" type="button" onclick={() => onopenPage?.(entry)}><ArrowSquareOutIcon size={14} /> Open</Button>{/if}
+        {#if entry.page_link && onopenPage}<Button class="modpack-theme-action" style="color: var(--modpack-theme-color, var(--color-accent-strong));" variant="quiet" size="sm" type="button" onclick={() => onopenPage?.(entry)}><ArrowSquareOutIcon size={14} /> Open</Button>{/if}
         {#if onpin}
-          {#if evidenceLabel(entry.pin) === "true"}<Button variant="quiet" size="sm" type="button" disabled={pinningEntry !== null} loading={pinningEntry === entry.local_id} onclick={() => onpin?.(entry, false)}>Unpin</Button>
-          {:else if evidenceLabel(entry.pin) === "false"}<Button variant="quiet" size="sm" type="button" disabled={pinningEntry !== null} loading={pinningEntry === entry.local_id} onclick={() => onpin?.(entry, true)}>Pin</Button>
+          {#if evidenceLabel(entry.pin) === "true"}<Button class="modpack-theme-action" style="color: var(--modpack-theme-color, var(--color-accent-strong));" variant="quiet" size="sm" type="button" disabled={pinningEntry !== null} loading={pinningEntry === entry.local_id} onclick={() => onpin?.(entry, false)}>Unpin</Button>
+          {:else if evidenceLabel(entry.pin) === "false"}<Button class="modpack-theme-action" style="color: var(--modpack-theme-color, var(--color-accent-strong));" variant="quiet" size="sm" type="button" disabled={pinningEntry !== null} loading={pinningEntry === entry.local_id} onclick={() => onpin?.(entry, true)}>Pin</Button>
           {:else}<span class="unavailable">Unavailable</span>{/if}
         {/if}
       </div>
