@@ -1,6 +1,4 @@
 <script lang="ts">
-  import CaretDownIcon from "phosphor-svelte/lib/CaretDownIcon";
-  import CaretRightIcon from "phosphor-svelte/lib/CaretRightIcon";
   import Button from "../ui/Button.svelte";
   import Modal from "../ui/Modal.svelte";
   import ReleaseEvidenceSummary from "./ReleaseEvidenceSummary.svelte";
@@ -86,10 +84,35 @@
     pinningEntry?: string | null;
   } = $props();
 
+  type ReviewTab = "evidence" | "changelog" | "coordination";
+  const reviewTabs: ReviewTab[] = ["evidence", "changelog", "coordination"];
   let showAbandon = $state(false);
-  let historyOpen = $state(false);
+  let activeTab = $state<ReviewTab>("evidence");
 
   const terminalLifecycles = ["finalized", "published", "withdrawn", "abandoned"];
+
+  $effect(() => {
+    workspace?.id;
+    if (open) activeTab = "evidence";
+  });
+
+  function selectTab(tab: ReviewTab, focus = false): void {
+    activeTab = tab;
+    if (!focus) return;
+    requestAnimationFrame(() => document.getElementById(`${tab}-tab`)?.focus());
+  }
+
+  function handleTabKeydown(event: KeyboardEvent, tab: ReviewTab): void {
+    const currentIndex = reviewTabs.indexOf(tab);
+    let nextIndex = currentIndex;
+    if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % reviewTabs.length;
+    else if (event.key === "ArrowLeft") nextIndex = (currentIndex - 1 + reviewTabs.length) % reviewTabs.length;
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = reviewTabs.length - 1;
+    else return;
+    event.preventDefault();
+    selectTab(reviewTabs[nextIndex], true);
+  }
 
   function watcherStatusLabel(status: ReleaseWorkspaceWatcherStatus): string {
     return {
@@ -119,7 +142,7 @@
   }
 </script>
 
-<Modal open={open} onclose={onclose} size="wide" title={workspace ? `Release Review · ${workspace.metadata.name}` : `Start release · ${modpack?.application.display_name ?? "Modpack"}`}>
+<Modal open={open} onclose={onclose} size="wide" fillHeight title={workspace ? `Release Review · ${workspace.metadata.name}` : `Start release · ${modpack?.application.display_name ?? "Modpack"}`}>
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   {#if !workspace}
     <p class="lede">This workspace starts from the immutable snapshot baseline and remains recoverable across navigation. Packwiz files are not changed until an explicit apply action.</p>
@@ -130,11 +153,27 @@
     </header>
     {#if workspace.blocking_reason}<div class="blocking" role="alert"><strong>Action required</strong><span>{workspace.blocking_reason.replaceAll("_", " ")}</span></div>{/if}
     <div class="facts" role="status"><span><b>Baseline</b>{workspace.baseline_origin.replaceAll("_", " ")}</span><span><b>Source</b>{workspace.source_snapshot_id ?? workspace.baseline_release_id ?? "Current project"}</span><span><b>Evidence</b>{workspace.evidence_status}</span><span><b>Publication</b>{workspace.publication_status}</span><span><b>Activity</b>{workspace.activity_count}</span><div class="observer-fact"><b>Observer</b><span class:watching={watcherStatus === "observing"} class:watch-error={watcherStatus === "error"} class="watch-status" role="status" aria-live="polite">{watcherStatusLabel(watcherStatus)}</span><div class="watch-actions"><Button size="sm" variant="quiet" type="button" disabled={busy || terminalLifecycles.includes(workspace.lifecycle) || watcherStatus === "starting" || watcherStatus === "observing"} loading={watcherStatus === "starting"} onclick={onstartWatcher}>Observe files</Button><Button size="sm" variant="quiet" type="button" disabled={busy || terminalLifecycles.includes(workspace.lifecycle) || watcherStatus === "stopped" || watcherStatus === "stopping" || watcherStatus === "error"} loading={watcherStatus === "stopping"} onclick={onstopWatcher}>Stop observing</Button></div></div></div>
-    <ReleaseEvidenceSummary candidates={workspace.candidates} {inventory} baselineEntries={workspace.baseline_capture?.state.entries ?? []} baselineFingerprint={workspace.baseline_capture?.state.source_fingerprint ?? null} {observations} {evidenceLabel} {busy} ondecision={ondecision} ondiscoverUpdates={ondiscoverUpdates} {onopenPage} {onopenLink} {onpin} {pinningEntry} />
-    <details bind:open={historyOpen} class="workspace-section history-section"><summary class="section-heading"><div class="history-title"><span class="history-toggle" aria-hidden="true">{#if historyOpen}<CaretDownIcon size={18} weight="bold" />{:else}<CaretRightIcon size={18} weight="bold" />{/if}</span><div><p class="eyebrow">Evidence coordination</p><h3>Terminal edits and recovery</h3></div></div><span class="history-summary">{workspace.activity_count} recorded</span></summary>{#if activityError}<p class="error" role="alert">{activityError}</p>{/if}{#if activity.length}<ul class="activity">{#each activity as item (item.id)}<li><time datetime={item.occurred_at} title={item.occurred_at}>{formatTimestamp(item.occurred_at)}</time><span>{item.event_type.replaceAll("_", " ")}</span><small>{item.message}</small></li>{/each}</ul>{:else if activityLoading}<p class="muted">Loading workspace activity...</p>{:else}<p class="muted">No workspace activity has been recorded yet.</p>{/if}{#if activityHasMore}<Button size="sm" variant="quiet" type="button" disabled={activityLoading || busy} loading={activityLoading} onclick={onloadMoreActivity}>Show more history</Button>{/if}</details>
-    <section class="workspace-section" aria-labelledby="changelog-title"><div class="section-heading"><div><p class="eyebrow">Proposed changelog</p><h3 id="changelog-title">Choose the revision to finalize</h3></div><div class="watch-actions"><Button size="sm" variant="quiet" type="button" disabled={busy || changelogBusy} loading={changelogBusy} onclick={ongenerateChangelog}>Generate proposal</Button><Button size="sm" variant="quiet" type="button" disabled={busy || changelogBusy} onclick={oncreateBlankChangelog}>Blank proposal</Button></div></div>{#if changelogRevisions.length}<div class="revision-list">{#each changelogRevisions as revision (revision.id)}<label class:selected={selectedChangelogRevision?.id === revision.id}><input type="radio" name="workspace-changelog" checked={selectedChangelogRevision?.id === revision.id} onchange={() => onselectChangelog(revision.id)} /><span><strong>Proposed revision</strong><small>{revision.created_at} · {revision.content.length} characters</small></span></label>{/each}</div>{:else}<p class="muted">No proposed revision exists yet. Generate one from workspace evidence or start with a blank proposal.</p>{/if}{#if selectedChangelogRevision}<div class="revision-editor"><div class="revision-preview"><span class="proposal-label">PROPOSED · NOT FINAL</span><pre>{selectedChangelogRevision.content}</pre></div><label class="editor-field"><span>Edit proposed revision</span><textarea rows="8" bind:value={changelogDraft}></textarea></label><Button size="sm" variant="quiet" type="button" disabled={busy || changelogBusy} onclick={onsaveChangelogRevision}>Save new proposed revision</Button></div>{/if}</section>
-    <div class="actions"><Button variant="quiet" type="button" onclick={onclose}>Keep Release Review open</Button>{#if workspace.source_snapshot_id && !["finalized", "published", "withdrawn", "abandoned"].includes(workspace.lifecycle)}<Button variant="quiet" type="button" disabled={busy} onclick={onunlinkSnapshot}>Unlink snapshot</Button>{/if}{#if !["finalized", "published", "withdrawn", "abandoned"].includes(workspace.lifecycle)}<Button variant="quiet" type="button" disabled={busy} onclick={onrebase}>Rebase from current files</Button>{/if}{#if ["draft", "recovery_required"].includes(workspace.lifecycle) && workspace.candidates.some((candidate) => candidate.decision === "selected")}<Button variant="primary" type="button" disabled={busy} loading={busy} onclick={onapply}>Apply selected updates</Button>{/if}{#if workspace.lifecycle === "ready_to_finalize" || workspace.lifecycle === "provisional"}<Button variant="primary" type="button" disabled={busy || !selectedChangelogRevision} loading={busy} onclick={onfinalize}>Finalize validated release</Button>{/if}{#if workspace.lifecycle === "finalized"}<Button variant="primary" type="button" disabled={busy} loading={busy} onclick={onpublish}>Publish read-only record</Button>{/if}{#if !["finalized", "published", "withdrawn", "abandoned"].includes(workspace.lifecycle)}<Button variant="danger" type="button" disabled={busy} onclick={() => (showAbandon = true)}>Abandon Release Review</Button>{/if}</div>
+    <div class="review-tabs" role="tablist" aria-label="Release review sections">
+      <button class:active={activeTab === "evidence"} id="evidence-tab" role="tab" aria-selected={activeTab === "evidence"} aria-controls="evidence-panel" tabindex={activeTab === "evidence" ? 0 : -1} onclick={() => selectTab("evidence")} onkeydown={(event) => handleTabKeydown(event, "evidence")}>Release evidence</button>
+      <button class:active={activeTab === "changelog"} id="changelog-tab" role="tab" aria-selected={activeTab === "changelog"} aria-controls="changelog-panel" tabindex={activeTab === "changelog" ? 0 : -1} onclick={() => selectTab("changelog")} onkeydown={(event) => handleTabKeydown(event, "changelog")}>Proposed changelog</button>
+      <button class:active={activeTab === "coordination"} id="coordination-tab" role="tab" aria-selected={activeTab === "coordination"} aria-controls="coordination-panel" tabindex={activeTab === "coordination" ? 0 : -1} onclick={() => selectTab("coordination")} onkeydown={(event) => handleTabKeydown(event, "coordination")}>Evidence coordination</button>
+    </div>
+    <div id="evidence-panel" class="review-panel" role="tabpanel" aria-labelledby="evidence-tab" hidden={activeTab !== "evidence"}>
+      <ReleaseEvidenceSummary candidates={workspace.candidates} {inventory} baselineEntries={workspace.baseline_capture?.state.entries ?? []} baselineFingerprint={workspace.baseline_capture?.state.source_fingerprint ?? null} {observations} {evidenceLabel} {busy} ondecision={ondecision} ondiscoverUpdates={ondiscoverUpdates} {onopenPage} {onopenLink} {onpin} {pinningEntry} />
+    </div>
+    <div id="changelog-panel" class="review-panel" role="tabpanel" aria-labelledby="changelog-tab" hidden={activeTab !== "changelog"}>
+      <div class="panel-heading"><div><p class="eyebrow">Proposed changelog</p><h3>Choose the revision to finalize</h3></div><div class="watch-actions"><Button size="sm" variant="quiet" type="button" disabled={busy || changelogBusy} loading={changelogBusy} onclick={ongenerateChangelog}>Generate proposal</Button><Button size="sm" variant="quiet" type="button" disabled={busy || changelogBusy} onclick={oncreateBlankChangelog}>Blank proposal</Button></div></div>
+      {#if changelogRevisions.length}<div class="revision-list">{#each changelogRevisions as revision (revision.id)}<label class:selected={selectedChangelogRevision?.id === revision.id}><input type="radio" name="workspace-changelog" checked={selectedChangelogRevision?.id === revision.id} onchange={() => onselectChangelog(revision.id)} /><span><strong>Proposed revision</strong><small>{revision.created_at} · {revision.content.length} characters</small></span></label>{/each}</div>{:else}<p class="muted">No proposed revision exists yet. Generate one from workspace evidence or start with a blank proposal.</p>{/if}
+      {#if selectedChangelogRevision}<div class="revision-editor"><div class="revision-preview"><span class="proposal-label">PROPOSED · NOT FINAL</span><pre>{selectedChangelogRevision.content}</pre></div><label class="editor-field"><span>Edit proposed revision</span><textarea rows="8" bind:value={changelogDraft}></textarea></label><Button size="sm" variant="quiet" type="button" disabled={busy || changelogBusy} onclick={onsaveChangelogRevision}>Save new proposed revision</Button></div>{/if}
+    </div>
+    <div id="coordination-panel" class="review-panel" role="tabpanel" aria-labelledby="coordination-tab" hidden={activeTab !== "coordination"}>
+      <div class="panel-heading"><div><p class="eyebrow">Evidence coordination</p><h3>Terminal edits and recovery</h3></div><span class="history-summary">{workspace.activity_count} recorded</span></div>
+      {#if activityError}<p class="error" role="alert">{activityError}</p>{/if}{#if activity.length}<ul class="activity">{#each activity as item (item.id)}<li><time datetime={item.occurred_at} title={item.occurred_at}>{formatTimestamp(item.occurred_at)}</time><span>{item.event_type.replaceAll("_", " ")}</span><small>{item.message}</small></li>{/each}</ul>{:else if activityLoading}<p class="muted">Loading workspace activity...</p>{:else}<p class="muted">No workspace activity has been recorded yet.</p>{/if}{#if activityHasMore}<Button size="sm" variant="quiet" type="button" disabled={activityLoading || busy} loading={activityLoading} onclick={onloadMoreActivity}>Show more history</Button>{/if}
+    </div>
   {/if}
+  {#snippet footer()}
+    {#if workspace}<div class="actions"><Button variant="quiet" type="button" onclick={onclose}>Keep Release Review open</Button>{#if workspace.source_snapshot_id && !["finalized", "published", "withdrawn", "abandoned"].includes(workspace.lifecycle)}<Button variant="quiet" type="button" disabled={busy} onclick={onunlinkSnapshot}>Unlink snapshot</Button>{/if}{#if !["finalized", "published", "withdrawn", "abandoned"].includes(workspace.lifecycle)}<Button variant="quiet" type="button" disabled={busy} onclick={onrebase}>Rebase from current files</Button>{/if}{#if ["draft", "recovery_required"].includes(workspace.lifecycle) && workspace.candidates.some((candidate) => candidate.decision === "selected")}<Button variant="primary" type="button" disabled={busy} loading={busy} onclick={onapply}>Apply selected updates</Button>{/if}{#if workspace.lifecycle === "ready_to_finalize" || workspace.lifecycle === "provisional"}<Button variant="primary" type="button" disabled={busy || !selectedChangelogRevision} loading={busy} onclick={onfinalize}>Finalize validated release</Button>{/if}{#if workspace.lifecycle === "finalized"}<Button variant="primary" type="button" disabled={busy} loading={busy} onclick={onpublish}>Publish read-only record</Button>{/if}{#if !["finalized", "published", "withdrawn", "abandoned"].includes(workspace.lifecycle)}<Button variant="danger" type="button" disabled={busy} onclick={() => (showAbandon = true)}>Abandon Release Review</Button>{/if}</div>{/if}
+  {/snippet}
 </Modal>
 
 <Modal bind:open={showAbandon} title="Abandon Release Review" onclose={() => (showAbandon = false)}><p class="lede">Abandoning preserves the snapshot, decisions, and activity history. It does not revert Packwiz files.</p><div class="actions"><Button variant="quiet" type="button" onclick={() => (showAbandon = false)}>Keep Release Review open</Button><Button variant="danger" type="button" loading={busy} onclick={() => { showAbandon = false; void onabandon(); }}>Abandon</Button></div></Modal>
@@ -142,22 +181,26 @@
 <style>
   .lede,.muted { color:var(--color-text-muted); line-height:1.6; }
   .error { padding:10px 12px; border-left:3px solid var(--color-danger); color:var(--color-danger); background:var(--color-surface-raised); }
-  .workspace-header,.section-heading,.actions,.watch-actions,.facts { display:flex; align-items:center; gap:12px; }
-  .workspace-header,.section-heading { justify-content:space-between; }
+  .workspace-header,.actions,.watch-actions,.facts { display:flex; align-items:center; gap:12px; }
+  .workspace-header { justify-content:space-between; }
   .workspace-header { padding-bottom:18px; border-bottom:1px solid var(--color-border); }
   h2,h3,p { margin:0; }.workspace-header p:not(.eyebrow) { color:var(--color-text-muted); font-size:12px; }
   .eyebrow { color:var(--color-accent-strong); font:700 10px var(--font-mono); letter-spacing:.12em; text-transform:uppercase; }
   .state { display:grid; gap:5px; min-width:130px; text-align:right; }.state span,.facts,.activity small { color:var(--color-text-muted); font:11px var(--font-mono); }
   .blocking { display:grid; gap:4px; margin:16px 0; padding:12px; border-left:3px solid var(--color-warning); background:var(--color-surface-raised); }.blocking span { color:var(--color-text-muted); }
   .facts { flex-wrap:wrap; margin:16px 0; padding:10px; background:var(--color-surface-raised); }.facts span { display:grid; gap:4px; min-width:130px; }.facts b { color:var(--color-text-subtle); font:10px var(--font-mono); text-transform:uppercase; }
-  .workspace-section { display:grid; gap:12px; margin-top:20px; }
-  .history-section { border-top:1px solid var(--color-border); padding-top:12px; }
-  .history-section > summary { cursor:pointer; list-style-position:inside; }
-  .history-section > summary::-webkit-details-marker { display:none; }
-  .history-title { display:flex; align-items:center; gap:8px; }
-  .history-toggle { display:grid; color:var(--color-accent-strong); }
+  .review-tabs { display:flex; gap:1px; margin-top:20px; border:1px solid var(--color-border); background:var(--color-border); }
+  .review-tabs button { flex:1; min-height:42px; padding:9px 12px; border:0; color:var(--color-text-muted); background:var(--color-surface-raised); font:700 10px var(--font-mono); letter-spacing:.08em; text-transform:uppercase; cursor:pointer; }
+  .review-tabs button:hover,.review-tabs button.active { color:var(--color-accent-strong); background:var(--color-surface); }
+  .review-tabs button.active { box-shadow:inset 0 -3px 0 var(--color-accent-strong); }
+  .review-panel { display:grid; gap:12px; margin-top:0; padding:14px; border:1px solid var(--color-border); background:var(--color-surface-raised); }
+  #evidence-panel { padding:0; border:0; background:transparent; }
+  #evidence-panel :global(.evidence-summary) { margin-top:0; }
+  .review-panel[hidden] { display:none; }
+  .panel-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .panel-heading h3 { margin:0; }
   .history-summary { color:var(--color-text-muted); font:11px var(--font-mono); }
-  .revision-list { display:grid; gap:1px; border:1px solid var(--color-border); background:var(--color-border); }.revision-list label { display:flex; gap:10px; align-items:flex-start; padding:12px; background:var(--color-surface); cursor:pointer; }.revision-list label.selected { outline:2px solid var(--color-accent-strong); outline-offset:-2px; }.revision-list span { display:grid; gap:4px; }.revision-list small,.proposal-label { color:var(--color-text-muted); font:11px var(--font-mono); }.revision-editor { display:grid; gap:10px; padding:12px; background:var(--color-surface-raised); }.revision-preview { display:grid; gap:7px; }.revision-preview pre { max-height:180px; overflow:auto; margin:0; white-space:pre-wrap; font:12px/1.5 var(--font-mono); }.editor-field { display:grid; gap:6px; }.editor-field span { font:700 11px var(--font-mono); text-transform:uppercase; }.editor-field textarea { width:100%; box-sizing:border-box; resize:vertical; color:var(--color-text); background:var(--color-surface); border:1px solid var(--color-border); padding:10px; font:12px/1.5 var(--font-mono); }
-  .activity { display:grid; gap:8px; margin:0; padding:0; list-style:none; }.activity li { display:grid; gap:3px; padding:9px 10px; background:var(--color-surface-raised); }.activity time { color:var(--color-text-muted); font:11px var(--font-mono); }.activity span { font:700 10px var(--font-mono); text-transform:uppercase; }.actions { justify-content:flex-end; flex-wrap:wrap; margin-top:20px; }.watch-actions { flex-wrap:wrap; }.watch-status { color:var(--color-text-muted); font:700 10px var(--font-mono); text-transform:uppercase; }.watch-status.watching { color:var(--color-success); }.watch-status.watch-error { color:var(--color-danger); }.observer-fact { display:grid; gap:4px; min-width:230px; }.observer-fact > .watch-actions { margin-top:2px; }
-  @media (max-width:640px) { .workspace-header,.section-heading { align-items:flex-start; flex-direction:column; }.state { text-align:left; } }
+  .revision-list { display:grid; gap:1px; border:1px solid var(--color-border); background:var(--color-border); }.revision-list label { display:flex; gap:10px; align-items:flex-start; padding:12px; background:var(--color-surface); cursor:pointer; }.revision-list label.selected { outline:2px solid var(--color-accent-strong); outline-offset:-2px; }.revision-list span { display:grid; gap:4px; }.revision-list small,.proposal-label { color:var(--color-text-muted); font:11px var(--font-mono); }.revision-editor { display:grid; gap:10px; padding:12px; border:1px solid var(--color-border); background:var(--color-surface); }.revision-preview { display:grid; gap:7px; }.revision-preview pre { max-height:180px; overflow:auto; margin:0; white-space:pre-wrap; font:12px/1.5 var(--font-mono); }.editor-field { display:grid; gap:6px; }.editor-field span { color:var(--color-accent-strong); font:700 11px var(--font-mono); text-transform:uppercase; }.editor-field textarea { width:100%; box-sizing:border-box; resize:vertical; color:var(--color-text); background:var(--color-surface); border:1px solid var(--color-border); padding:10px; font:12px/1.5 var(--font-mono); }
+  .activity { display:grid; gap:1px; margin:0; padding:0; border:1px solid var(--color-border); background:var(--color-border); list-style:none; }.activity li { display:grid; gap:3px; padding:10px 12px; background:var(--color-surface); }.activity time { color:var(--color-text-muted); font:11px var(--font-mono); }.activity span { color:var(--color-accent-strong); font:700 10px var(--font-mono); text-transform:uppercase; }.actions { justify-content:flex-end; flex-wrap:wrap; margin-top:20px; }.watch-actions { flex-wrap:wrap; }.watch-status { color:var(--color-text-muted); font:700 10px var(--font-mono); text-transform:uppercase; }.watch-status.watching { color:var(--color-success); }.watch-status.watch-error { color:var(--color-danger); }.observer-fact { display:grid; gap:4px; min-width:230px; }.observer-fact > .watch-actions { margin-top:2px; }
+  @media (max-width:640px) { .workspace-header,.panel-heading { align-items:flex-start; flex-direction:column; }.state { text-align:left; }.review-tabs { flex-direction:column; }.review-tabs button { flex:none; text-align:left; }.review-tabs button.active { box-shadow:inset 3px 0 0 var(--color-accent-strong); } }
 </style>
