@@ -18,6 +18,8 @@
     "@tauri-apps/plugin-dialog": "^2.7.3",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-window-state": "^2.4.1",
+    "dompurify": "^3.4.15",
+    "marked": "^18.0.12",
     "phosphor-svelte": "^3.1.0"
   },
   "devDependencies": {

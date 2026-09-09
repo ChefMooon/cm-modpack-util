@@ -238,6 +238,7 @@ CREATE TABLE IF NOT EXISTS changelog_revisions (
     created_at TEXT NOT NULL,
     is_current INTEGER NOT NULL DEFAULT 1,
     frozen INTEGER NOT NULL DEFAULT 0,
+    archived_at TEXT,
     FOREIGN KEY (artifact_id) REFERENCES changelog_artifacts(id) ON DELETE RESTRICT,
     FOREIGN KEY (prior_revision_id) REFERENCES changelog_revisions(id) ON DELETE RESTRICT
 );

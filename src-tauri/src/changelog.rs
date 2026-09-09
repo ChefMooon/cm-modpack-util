@@ -950,6 +950,14 @@ pub fn create_changelog_revision(
 }
 
 #[tauri::command]
+pub fn archive_changelog_revision(
+    database: State<'_, db::Database>,
+    request: crate::domain::ChangelogRevisionArchiveRequest,
+) -> Result<crate::domain::ChangelogRevision, CommandError> {
+    db::set_changelog_revision_archived(&database, &request)
+}
+
+#[tauri::command]
 pub fn get_changelog_artifact(
     database: State<'_, db::Database>,
     artifact_id: String,

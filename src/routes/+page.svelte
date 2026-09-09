@@ -88,6 +88,7 @@
     chooseChangelogDestination,
     exportChangelog,
     createChangelogRevision,
+    archiveChangelogRevision,
     cancelChangelogGeneration,
     listenChangelogProgress,
     listChangelogArtifacts,
@@ -708,6 +709,21 @@
       workspaceChangelogDraft = revision.content;
       if (workspaceRecord) workspaceRecord = await selectReleaseWorkspaceChangelog({ workspace_id: workspaceRecord.id, changelog_revision_id: revision.id });
       toast({ title: "Proposed revision saved", severity: "success" });
+    } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceChangelogBusy = false; }
+  }
+
+  async function archiveWorkspaceChangelogRevision(revision: ChangelogRevision) {
+    if (workspaceChangelogBusy) return;
+    workspaceChangelogBusy = true;
+    try {
+      const archived = await archiveChangelogRevision({ revision_id: revision.id, archived: !revision.archived_at });
+      workspaceChangelogRevisions = workspaceChangelogRevisions.map((item) => item.id === archived.id ? archived : item);
+      if (archived.archived_at && workspaceChangelogRevision?.id === archived.id && workspaceRecord) {
+        workspaceRecord = await selectReleaseWorkspaceChangelog({ workspace_id: workspaceRecord.id, changelog_revision_id: null });
+        workspaceChangelogRevision = null;
+        workspaceChangelogDraft = "";
+      }
+      toast({ title: archived.archived_at ? "Revision marked as old" : "Revision restored", severity: "success" });
     } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceChangelogBusy = false; }
   }
 
@@ -1493,6 +1509,7 @@
   oncreateBlankChangelog={createWorkspaceBlankChangelog}
   onselectChangelog={selectWorkspaceChangelog}
   onsaveChangelogRevision={saveWorkspaceChangelogRevision}
+  onarchiveChangelogRevision={archiveWorkspaceChangelogRevision}
   onstartWatcher={() => workspaceRecord ? startWorkspaceWatcher(workspaceRecord.id) : Promise.resolve()}
   onstopWatcher={() => workspaceRecord ? stopWorkspaceWatcher(workspaceRecord.id) : Promise.resolve()}
   ondiscoverUpdates={discoverUpdatesForWorkspace}

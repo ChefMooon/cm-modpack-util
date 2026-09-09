@@ -166,6 +166,7 @@ pub struct ChangelogRevision {
     pub created_at: String,
     pub is_current: bool,
     pub frozen: bool,
+    pub archived_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -249,6 +250,12 @@ pub struct ChangelogRevisionRequest {
     pub prior_revision_id: Option<String>,
     pub content: String,
     pub introduction: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ChangelogRevisionArchiveRequest {
+    pub revision_id: String,
+    pub archived: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -11,7 +11,7 @@ pub use changelog::{
     ChangelogArtifact, ChangelogCacheKey, ChangelogCacheRecord, ChangelogEntryResult,
     ChangelogExport, ChangelogExportRequest, ChangelogExportStatus, ChangelogGenerationRequest,
     ChangelogGenerationStatus, ChangelogProgress, ChangelogRetrievalStatus, ChangelogRevision,
-    ChangelogRevisionRequest, ChangelogSourceKind, ChangelogStage, LocalEntryIdentity,
+    ChangelogRevisionArchiveRequest, ChangelogRevisionRequest, ChangelogSourceKind, ChangelogStage, LocalEntryIdentity,
     ModrinthProjectIdentity, ModrinthVersionIdentity, ProviderMatchConfidence,
     ProviderMatchEvidence, VersionAssociationEvidence,
 };

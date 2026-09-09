@@ -947,9 +947,9 @@ pub(crate) fn persist_finalized_release_workspace(
         CommandError::new("database_write_failed", "Finalization could not be started")
             .with_details(error.to_string())
     })?;
-    let revision_context: (String, String, String, String, String, i64) = transaction
+    let revision_context: (String, String, String, String, String, i64, Option<String>) = transaction
         .query_row(
-            "SELECT a.id, a.release_workspace_id, a.snapshot_id, a.status, a.stage, r.frozen FROM changelog_revisions r JOIN changelog_artifacts a ON a.id = r.artifact_id WHERE r.id = ?1",
+            "SELECT a.id, a.release_workspace_id, a.snapshot_id, a.status, a.stage, r.frozen, r.archived_at FROM changelog_revisions r JOIN changelog_artifacts a ON a.id = r.artifact_id WHERE r.id = ?1",
             [&receipt.final_changelog_revision_id],
             |row| {
                 Ok((
@@ -959,6 +959,7 @@ pub(crate) fn persist_finalized_release_workspace(
                     row.get(3)?,
                     row.get(4)?,
                     row.get(5)?,
+                    row.get(6)?,
                 ))
             },
         )
@@ -970,6 +971,7 @@ pub(crate) fn persist_finalized_release_workspace(
         || revision_context.3 != "complete"
         || revision_context.4 != "proposed"
         || revision_context.5 != 0
+        || revision_context.6.is_some()
     {
         return Err(CommandError::new(
             "final_changelog_invalid",
@@ -2027,7 +2029,7 @@ pub fn select_release_workspace_changelog(
     if let Some(revision_id) = &request.changelog_revision_id {
         let valid: bool = connection
             .query_row(
-                "SELECT EXISTS(SELECT 1 FROM changelog_revisions r JOIN changelog_artifacts a ON a.id = r.artifact_id WHERE r.id = ?1 AND a.release_workspace_id = ?2 AND a.stage = 'proposed' AND r.frozen = 0)",
+                "SELECT EXISTS(SELECT 1 FROM changelog_revisions r JOIN changelog_artifacts a ON a.id = r.artifact_id WHERE r.id = ?1 AND a.release_workspace_id = ?2 AND a.stage = 'proposed' AND r.frozen = 0 AND r.archived_at IS NULL)",
                 params![revision_id, request.workspace_id],
                 |row| row.get(0),
             )
@@ -2303,7 +2305,7 @@ pub fn persist_changelog_revision(
         })?;
     transaction
         .execute(
-            "INSERT INTO changelog_revisions (id, artifact_id, prior_revision_id, content, introduction, created_at, is_current, frozen) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, 0)",
+            "INSERT INTO changelog_revisions (id, artifact_id, prior_revision_id, content, introduction, created_at, is_current, frozen, archived_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, 0, NULL)",
             params![id, request.artifact_id, request.prior_revision_id, request.content, request.introduction, now],
         )
         .map_err(|error| CommandError::new("database_write_failed", "Revision could not be saved").with_details(error.to_string()))?;
@@ -2320,7 +2322,77 @@ pub fn persist_changelog_revision(
         created_at: now,
         is_current: true,
         frozen: false,
+        archived_at: None,
     })
+}
+
+pub fn set_changelog_revision_archived(
+    database: &Database,
+    request: &crate::domain::ChangelogRevisionArchiveRequest,
+) -> Result<crate::domain::ChangelogRevision, CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let now = timestamp();
+    let mut statement = connection
+        .prepare("SELECT id, artifact_id, prior_revision_id, content, introduction, created_at, is_current, frozen, archived_at FROM changelog_revisions WHERE id = ?1")
+        .map_err(|error| CommandError::new("database_read_failed", "Revision could not be read").with_details(error.to_string()))?;
+    let revision = statement
+        .query_row([&request.revision_id], |row| {
+            Ok(crate::domain::ChangelogRevision {
+                id: row.get(0)?,
+                artifact_id: row.get(1)?,
+                prior_revision_id: row.get(2)?,
+                content: row.get(3)?,
+                introduction: row.get(4)?,
+                created_at: row.get(5)?,
+                is_current: row.get::<_, i64>(6)? != 0,
+                frozen: row.get::<_, i64>(7)? != 0,
+                archived_at: row.get(8)?,
+            })
+        })
+        .map_err(|_| CommandError::new("changelog_not_found", "The changelog revision is not available"))?;
+    if revision.frozen {
+        return Err(CommandError::new(
+            "changelog_revision_frozen",
+            "Final changelog revisions cannot be archived",
+        ));
+    }
+    let archived_at = if request.archived { Some(now) } else { None };
+    connection
+        .execute(
+            "UPDATE changelog_revisions SET archived_at = ?1 WHERE id = ?2",
+            params![archived_at, request.revision_id],
+        )
+        .map_err(|error| CommandError::new("database_write_failed", "Revision archive state could not be saved").with_details(error.to_string()))?;
+    drop(statement);
+    load_changelog_revision(&connection, &request.revision_id)
+}
+
+fn load_changelog_revision(
+    connection: &Connection,
+    revision_id: &str,
+) -> Result<crate::domain::ChangelogRevision, CommandError> {
+    connection
+        .query_row(
+            "SELECT id, artifact_id, prior_revision_id, content, introduction, created_at, is_current, frozen, archived_at FROM changelog_revisions WHERE id = ?1",
+            [revision_id],
+            |row| {
+                Ok(crate::domain::ChangelogRevision {
+                    id: row.get(0)?,
+                    artifact_id: row.get(1)?,
+                    prior_revision_id: row.get(2)?,
+                    content: row.get(3)?,
+                    introduction: row.get(4)?,
+                    created_at: row.get(5)?,
+                    is_current: row.get::<_, i64>(6)? != 0,
+                    frozen: row.get::<_, i64>(7)? != 0,
+                    archived_at: row.get(8)?,
+                })
+            },
+        )
+        .map_err(|error| CommandError::new("database_read_failed", "Revision could not be read").with_details(error.to_string()))
 }
 
 pub fn persist_changelog_export(
@@ -2467,7 +2539,7 @@ pub fn list_changelog_revisions(
         .0
         .lock()
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
-    let mut statement = connection.prepare("SELECT id, artifact_id, prior_revision_id, content, introduction, created_at, is_current, frozen FROM changelog_revisions WHERE artifact_id = ?1 ORDER BY created_at DESC").map_err(|error| CommandError::new("database_read_failed", "Revision history could not be read").with_details(error.to_string()))?;
+    let mut statement = connection.prepare("SELECT id, artifact_id, prior_revision_id, content, introduction, created_at, is_current, frozen, archived_at FROM changelog_revisions WHERE artifact_id = ?1 ORDER BY created_at DESC").map_err(|error| CommandError::new("database_read_failed", "Revision history could not be read").with_details(error.to_string()))?;
     let rows = statement
         .query_map([artifact_id], |row| {
             Ok(crate::domain::ChangelogRevision {
@@ -2479,6 +2551,7 @@ pub fn list_changelog_revisions(
                 created_at: row.get(5)?,
                 is_current: row.get::<_, i64>(6)? != 0,
                 frozen: row.get::<_, i64>(7)? != 0,
+                archived_at: row.get(8)?,
             })
         })
         .map_err(|error| {

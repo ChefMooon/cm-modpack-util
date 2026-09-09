@@ -1,6 +1,7 @@
 <script lang="ts">
   import Button from "../ui/Button.svelte";
   import Modal from "../ui/Modal.svelte";
+  import ProposedChangelogPanel from "./ProposedChangelogPanel.svelte";
   import ReleaseEvidenceSummary from "./ReleaseEvidenceSummary.svelte";
   import type { ChangelogArtifact, ChangelogRevision, Evidence, InventoryEntry, ModpackRecord, ReleaseWorkspace, ReleaseWorkspaceWatcherStatus, SnapshotRecord } from "../../lib/domain";
 
@@ -35,6 +36,7 @@
     oncreateBlankChangelog,
     onselectChangelog,
     onsaveChangelogRevision,
+    onarchiveChangelogRevision,
     onstartWatcher,
     onstopWatcher,
     ondiscoverUpdates,
@@ -74,6 +76,7 @@
     oncreateBlankChangelog: () => void | Promise<void>;
     onselectChangelog: (revisionId: string) => void | Promise<void>;
     onsaveChangelogRevision: () => void | Promise<void>;
+    onarchiveChangelogRevision?: (revision: ChangelogRevision) => void | Promise<void>;
     onstartWatcher: () => void | Promise<void>;
     onstopWatcher: () => void | Promise<void>;
     ondiscoverUpdates: () => void | Promise<void>;
@@ -88,12 +91,16 @@
   const reviewTabs: ReviewTab[] = ["evidence", "changelog", "coordination"];
   let showAbandon = $state(false);
   let activeTab = $state<ReviewTab>("evidence");
+  let previousWorkspaceId = $state<string | null>(null);
+  let wasOpen = $state(false);
 
   const terminalLifecycles = ["finalized", "published", "withdrawn", "abandoned"];
 
   $effect(() => {
-    workspace?.id;
-    if (open) activeTab = "evidence";
+    const workspaceId = workspace?.id ?? null;
+    if (open && (!wasOpen || workspaceId !== previousWorkspaceId)) activeTab = "evidence";
+    wasOpen = open;
+    previousWorkspaceId = workspaceId;
   });
 
   function selectTab(tab: ReviewTab, focus = false): void {
@@ -162,9 +169,7 @@
       <ReleaseEvidenceSummary candidates={workspace.candidates} {inventory} baselineEntries={workspace.baseline_capture?.state.entries ?? []} baselineFingerprint={workspace.baseline_capture?.state.source_fingerprint ?? null} {observations} {evidenceLabel} {busy} ondecision={ondecision} ondiscoverUpdates={ondiscoverUpdates} {onopenPage} {onopenLink} {onpin} {pinningEntry} />
     </div>
     <div id="changelog-panel" class="review-panel" role="tabpanel" aria-labelledby="changelog-tab" hidden={activeTab !== "changelog"}>
-      <div class="panel-heading"><div><p class="eyebrow">Proposed changelog</p><h3>Choose the revision to finalize</h3></div><div class="watch-actions"><Button size="sm" variant="quiet" type="button" disabled={busy || changelogBusy} loading={changelogBusy} onclick={ongenerateChangelog}>Generate proposal</Button><Button size="sm" variant="quiet" type="button" disabled={busy || changelogBusy} onclick={oncreateBlankChangelog}>Blank proposal</Button></div></div>
-      {#if changelogRevisions.length}<div class="revision-list">{#each changelogRevisions as revision (revision.id)}<label class:selected={selectedChangelogRevision?.id === revision.id}><input type="radio" name="workspace-changelog" checked={selectedChangelogRevision?.id === revision.id} onchange={() => onselectChangelog(revision.id)} /><span><strong>Proposed revision</strong><small>{revision.created_at} · {revision.content.length} characters</small></span></label>{/each}</div>{:else}<p class="muted">No proposed revision exists yet. Generate one from workspace evidence or start with a blank proposal.</p>{/if}
-      {#if selectedChangelogRevision}<div class="revision-editor"><div class="revision-preview"><span class="proposal-label">PROPOSED · NOT FINAL</span><pre>{selectedChangelogRevision.content}</pre></div><label class="editor-field"><span>Edit proposed revision</span><textarea rows="8" bind:value={changelogDraft}></textarea></label><Button size="sm" variant="quiet" type="button" disabled={busy || changelogBusy} onclick={onsaveChangelogRevision}>Save new proposed revision</Button></div>{/if}
+      <ProposedChangelogPanel artifacts={changelogArtifacts} revisions={changelogRevisions} selectedRevision={selectedChangelogRevision} bind:draft={changelogDraft} {busy} {changelogBusy} ongenerate={ongenerateChangelog} oncreateBlank={oncreateBlankChangelog} onselect={onselectChangelog} onsave={onsaveChangelogRevision} onarchive={onarchiveChangelogRevision} />
     </div>
     <div id="coordination-panel" class="review-panel" role="tabpanel" aria-labelledby="coordination-tab" hidden={activeTab !== "coordination"}>
       <div class="panel-heading"><div><p class="eyebrow">Evidence coordination</p><h3>Terminal edits and recovery</h3></div><span class="history-summary">{workspace.activity_count} recorded</span></div>
@@ -200,7 +205,6 @@
   .panel-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
   .panel-heading h3 { margin:0; }
   .history-summary { color:var(--color-text-muted); font:11px var(--font-mono); }
-  .revision-list { display:grid; gap:1px; border:1px solid var(--color-border); background:var(--color-border); }.revision-list label { display:flex; gap:10px; align-items:flex-start; padding:12px; background:var(--color-surface); cursor:pointer; }.revision-list label.selected { outline:2px solid var(--color-accent-strong); outline-offset:-2px; }.revision-list span { display:grid; gap:4px; }.revision-list small,.proposal-label { color:var(--color-text-muted); font:11px var(--font-mono); }.revision-editor { display:grid; gap:10px; padding:12px; border:1px solid var(--color-border); background:var(--color-surface); }.revision-preview { display:grid; gap:7px; }.revision-preview pre { max-height:180px; overflow:auto; margin:0; white-space:pre-wrap; font:12px/1.5 var(--font-mono); }.editor-field { display:grid; gap:6px; }.editor-field span { color:var(--color-accent-strong); font:700 11px var(--font-mono); text-transform:uppercase; }.editor-field textarea { width:100%; box-sizing:border-box; resize:vertical; color:var(--color-text); background:var(--color-surface); border:1px solid var(--color-border); padding:10px; font:12px/1.5 var(--font-mono); }
   .activity { display:grid; gap:1px; margin:0; padding:0; border:1px solid var(--color-border); background:var(--color-border); list-style:none; }.activity li { display:grid; gap:3px; padding:10px 12px; background:var(--color-surface); }.activity time { color:var(--color-text-muted); font:11px var(--font-mono); }.activity span { color:var(--color-accent-strong); font:700 10px var(--font-mono); text-transform:uppercase; }.actions { justify-content:flex-end; flex-wrap:wrap; margin-top:20px; }.watch-actions { flex-wrap:wrap; }.watch-status { color:var(--color-text-muted); font:700 10px var(--font-mono); text-transform:uppercase; }.watch-status.watching { color:var(--color-success); }.watch-status.watch-error { color:var(--color-danger); }.observer-fact { display:grid; gap:4px; min-width:230px; }.observer-fact > .watch-actions { margin-top:2px; }
   @media (max-width:640px) { .workspace-header,.panel-heading { align-items:flex-start; flex-direction:column; }.state { text-align:left; }.review-tabs { flex-direction:column; }.review-tabs button { flex:none; text-align:left; }.review-tabs button.active { box-shadow:inset 3px 0 0 var(--color-accent-strong); } }
 </style>

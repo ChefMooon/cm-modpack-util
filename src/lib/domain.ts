@@ -507,12 +507,17 @@ export type ChangelogRevision = {
   created_at: string;
   is_current: boolean;
   frozen: boolean;
+  archived_at: string | null;
 };
 export type ChangelogRevisionRequest = {
   artifact_id: string;
   prior_revision_id: string | null;
   content: string;
   introduction: string | null;
+};
+export type ChangelogRevisionArchiveRequest = {
+  revision_id: string;
+  archived: boolean;
 };
 export type ChangelogExportStatus = "exported" | "unavailable" | "failed";
 export type ChangelogExport = {
