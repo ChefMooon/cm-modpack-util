@@ -188,6 +188,7 @@
   let showWorkspaceFinalizeConfirmation = $state(false);
   let workspaceResetAction = $state<"unlink" | "rebase" | null>(null);
   let versionFilter = $state<"all" | "releases" | "snapshots">("all");
+  let releaseStatusFilter = $state<"all" | "in_progress" | "needs_attention" | "ready_to_finalize" | "finalized" | "published" | "withdrawn" | "abandoned">("all");
   let workspaceObservationUnlisten: (() => void)[] = [];
   let showSnapshotNote = $state(false);
   let showApplyConfirmation = $state(false);
@@ -799,13 +800,21 @@
     showWorkspaceFinalizeConfirmation = false;
     if (!workspaceRecord || !workspaceRecord.final_changelog_revision_id) return;
     workspaceBusy = true;
-    try { workspaceRecord = await finalizeReleaseWorkspace({ workspace_id: workspaceRecord.id, final_changelog_revision_id: workspaceRecord.final_changelog_revision_id }); await stopWorkspaceWatcher(workspaceRecord.id); } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceBusy = false; }
+    try {
+      workspaceRecord = await finalizeReleaseWorkspace({ workspace_id: workspaceRecord.id, final_changelog_revision_id: workspaceRecord.final_changelog_revision_id });
+      await stopWorkspaceWatcher(workspaceRecord.id);
+      if (focusedModpack) await loadSnapshots(focusedModpack);
+    } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceBusy = false; }
   }
 
   async function publishWorkspace() {
     if (!workspaceRecord) return;
     workspaceBusy = true;
-    try { workspaceRecord = await publishReleaseWorkspace({ workspace_id: workspaceRecord.id }); await stopWorkspaceWatcher(workspaceRecord.id); } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceBusy = false; }
+    try {
+      workspaceRecord = await publishReleaseWorkspace({ workspace_id: workspaceRecord.id });
+      await stopWorkspaceWatcher(workspaceRecord.id);
+      if (focusedModpack) await loadSnapshots(focusedModpack);
+    } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceBusy = false; }
   }
 
   function settingsDirty() {
@@ -1403,6 +1412,7 @@
         {:else if activeTab === "versions"}
           <SnapshotHistory
             bind:filter={versionFilter}
+            bind:statusFilter={releaseStatusFilter}
             snapshots={snapshots}
             releases={releases}
             workspaces={workspaces}
