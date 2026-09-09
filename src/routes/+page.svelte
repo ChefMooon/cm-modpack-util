@@ -49,6 +49,7 @@
     ReleaseCreateRequest,
     ReleaseRecord,
     ReleaseWorkspace,
+    ReleaseWorkspaceActivity,
     ReleaseWorkspaceObservation,
     ReleaseWorkspaceWatcherStatus,
   } from "../lib/domain";
@@ -109,6 +110,7 @@
     listenReleaseWorkspaceObservation,
     listenReleaseWorkspaceWatcherError,
     listReleaseWorkspaceObservations,
+    listReleaseWorkspaceActivity,
     getReleaseWorkspaceEvidence,
   } from "../lib/modpacks";
 
@@ -166,6 +168,11 @@
   let workspaceRecord = $state<ReleaseWorkspace | null>(null);
   let workspaceInventory = $state<InventoryEntry[]>([]);
   let workspaceObservations = $state<ReleaseWorkspaceObservation[]>([]);
+  let workspaceActivity = $state<ReleaseWorkspaceActivity[]>([]);
+  let workspaceActivityCursor = $state<number | null>(null);
+  let workspaceActivityHasMore = $state(false);
+  let workspaceActivityLoading = $state(false);
+  let workspaceActivityError = $state("");
   let releaseCreationModpack = $state<ModpackRecord | null>(null);
   let releaseBaselineChoice = $state<string | null>(null);
   let releaseBaselineModalOpen = $state(false);
@@ -482,6 +489,7 @@
       discoverySnapshotId = null;
       workspaceInventory = [];
       workspaceObservations = [];
+      resetWorkspaceActivity();
       workspaceWatcherStatus = "stopped";
       workspaceModalOpen = true;
       workspaces = await listReleaseWorkspaces(modpack.id);
@@ -515,6 +523,7 @@
     workspaceWatcherStatus = "stopped";
     workspaceInventory = [];
     workspaceObservations = [];
+    resetWorkspaceActivity();
     workspaceModalOpen = true;
     void loadWorkspaceEvidence(workspaceId).catch((cause) => { workspaceError = commandErrorMessage(cause); });
     if (workspaceRecord.source_snapshot_id) {
@@ -539,6 +548,7 @@
       });
       workspaceInventory = [];
       workspaceObservations = [];
+      resetWorkspaceActivity();
       workspaceWatcherStatus = "stopped";
       await loadWorkspaceChangelog();
       workspaceModalOpen = true;
@@ -581,6 +591,52 @@
     workspaceRecord = evidence.workspace;
     workspaceInventory = evidence.inventory;
     workspaceObservations = evidence.observations;
+    await loadWorkspaceActivity(workspaceId);
+  }
+
+  function resetWorkspaceActivity() {
+    workspaceActivity = [];
+    workspaceActivityCursor = null;
+    workspaceActivityHasMore = false;
+    workspaceActivityLoading = false;
+    workspaceActivityError = "";
+  }
+
+  async function loadWorkspaceActivity(workspaceId: string) {
+    if (workspaceActivityLoading) return;
+    workspaceActivityLoading = true;
+    workspaceActivityError = "";
+    try {
+      const page = await listReleaseWorkspaceActivity(workspaceId, null, 10);
+      if (workspaceRecord?.id !== workspaceId) return;
+      const merged = new Map(workspaceActivity.map((entry) => [entry.id, entry]));
+      page.entries.forEach((entry) => merged.set(entry.id, entry));
+      workspaceActivity = [...merged.values()].sort((left, right) => right.id - left.id);
+      workspaceActivityHasMore = workspaceActivity.length < page.total_count;
+      workspaceActivityCursor = workspaceActivityHasMore ? workspaceActivity.at(-1)?.id ?? page.next_cursor : null;
+    } catch (cause) {
+      workspaceActivityError = commandErrorMessage(cause);
+    } finally {
+      workspaceActivityLoading = false;
+    }
+  }
+
+  async function loadMoreWorkspaceActivity() {
+    if (!workspaceRecord || workspaceActivityLoading || !workspaceActivityHasMore || workspaceActivityCursor === null) return;
+    workspaceActivityLoading = true;
+    workspaceActivityError = "";
+    try {
+      const page = await listReleaseWorkspaceActivity(workspaceRecord.id, workspaceActivityCursor, 10);
+      const merged = new Map(workspaceActivity.map((entry) => [entry.id, entry]));
+      page.entries.forEach((entry) => merged.set(entry.id, entry));
+      workspaceActivity = [...merged.values()].sort((left, right) => right.id - left.id);
+      workspaceActivityHasMore = page.has_more;
+      workspaceActivityCursor = page.next_cursor;
+    } catch (cause) {
+      workspaceActivityError = commandErrorMessage(cause);
+    } finally {
+      workspaceActivityLoading = false;
+    }
   }
 
   async function loadWorkspaceChangelog() {
@@ -1413,6 +1469,11 @@
   watcherStatus={workspaceWatcherStatus}
   inventory={workspaceInventory}
   observations={workspaceObservations}
+  activity={workspaceActivity}
+  activityLoading={workspaceActivityLoading}
+  activityHasMore={workspaceActivityHasMore}
+  activityError={workspaceActivityError}
+  onloadMoreActivity={loadMoreWorkspaceActivity}
   changelogArtifacts={workspaceChangelogArtifacts}
   changelogRevisions={workspaceChangelogRevisions}
   selectedChangelogRevision={workspaceChangelogRevision}

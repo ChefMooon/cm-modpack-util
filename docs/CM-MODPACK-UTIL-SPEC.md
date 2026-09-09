@@ -527,6 +527,13 @@ action. Applying requires a live fingerprint match to the immutable baseline.
 Partial, failed, cancelled, stale, external-change, and recovery states remain
 visible and retryable where safe.
 
+Workspace activity is stored with precise UTC epoch timestamps and is presented
+newest first in the release review. The review loads ten activity records at a
+time through a Rust-owned cursor query; older records are requested explicitly
+with `Show more history`. The activity history is collapsed by default, while
+observer status and controls remain visible in the evidence metadata strip and
+continue independently of history visibility.
+
 A workspace can finalize only from a changed, stable, validated final capture
 with no unresolved candidate or recovery outcome and a selected final changelog
 revision. Finalization freezes the final capture and revision. Publication and

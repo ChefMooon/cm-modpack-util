@@ -272,6 +272,12 @@ export type ReleaseWorkspaceActivity = {
   occurred_at: string;
   message: string;
 };
+export type ReleaseWorkspaceActivityPage = {
+  entries: ReleaseWorkspaceActivity[];
+  next_cursor: number | null;
+  has_more: boolean;
+  total_count: number;
+};
 export type ReleaseWorkspaceObservation = {
   workspace_id: string;
   changed_scope: string[];
@@ -312,6 +318,7 @@ export type ReleaseWorkspace = {
   abandoned_at: string | null;
   candidates: ReleaseWorkspaceCandidate[];
   activity: ReleaseWorkspaceActivity[];
+  activity_count: number;
 };
 export type StartReleaseWorkspaceRequest = {
   modpack_id: string;

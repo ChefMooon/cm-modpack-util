@@ -224,7 +224,10 @@ mod tests {
         let mut file_after = file("a");
         file_after.modified_ns = Some(2);
 
-        let result = compare(complete(vec![before, file("a")]), complete(vec![after, file_after]));
+        let result = compare(
+            complete(vec![before, file("a")]),
+            complete(vec![after, file_after]),
+        );
         assert!(result.unchanged);
     }
 }

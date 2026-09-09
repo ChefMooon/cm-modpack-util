@@ -43,6 +43,7 @@ import type {
   ReleaseWorkspaceObservation,
   ReleaseWorkspaceObservationRecord,
   ReleaseWorkspaceEvidence,
+  ReleaseWorkspaceActivityPage,
 } from "./domain";
 
 export async function chooseModpackDirectory(): Promise<string | null> {
@@ -238,6 +239,10 @@ export function startReleaseWorkspace(request: StartReleaseWorkspaceRequest): Pr
 
 export function loadReleaseWorkspace(id: string): Promise<ReleaseWorkspace> {
   return invoke("load_release_workspace", { id });
+}
+
+export function listReleaseWorkspaceActivity(workspaceId: string, beforeId: number | null = null, limit = 10): Promise<ReleaseWorkspaceActivityPage> {
+  return invoke("list_release_workspace_activity", { workspaceId, beforeId, limit });
 }
 
 export function listReleaseWorkspaceObservations(workspaceId: string): Promise<ReleaseWorkspaceObservationRecord[]> {

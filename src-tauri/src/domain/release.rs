@@ -102,6 +102,14 @@ pub struct ReleaseWorkspaceActivity {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReleaseWorkspaceActivityPage {
+    pub entries: Vec<ReleaseWorkspaceActivity>,
+    pub next_cursor: Option<i64>,
+    pub has_more: bool,
+    pub total_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ReleaseWorkspaceObservation {
     pub workspace_id: String,
     pub changed_scope: Vec<String>,
@@ -153,6 +161,7 @@ pub struct ReleaseWorkspace {
     pub abandoned_at: Option<String>,
     pub candidates: Vec<ReleaseWorkspaceCandidate>,
     pub activity: Vec<ReleaseWorkspaceActivity>,
+    pub activity_count: i64,
 }
 
 pub fn project_workspace_state(

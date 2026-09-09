@@ -123,6 +123,7 @@ pub fn run() {
             db::start_release_workspace,
             db::list_release_workspaces,
             db::load_release_workspace,
+            db::list_release_workspace_activity,
             db::list_release_workspace_observations,
             db::get_release_workspace_evidence,
             db::abandon_release_workspace,

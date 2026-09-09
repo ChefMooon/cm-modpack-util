@@ -41,9 +41,9 @@ pub use release::{
     ReleaseComparisonRequest, ReleaseCreateRequest, ReleaseEligibility, ReleaseEligibilitySource,
     ReleaseMetadata, ReleasePublicationStatus, ReleaseReceipt, ReleaseRecord, ReleaseRuntimeChange,
     ReleaseStateChange, ReleaseUpdateRequest, ReleaseWorkspace, ReleaseWorkspaceActivity,
-    ReleaseWorkspaceCandidate, ReleaseWorkspaceDecisionRequest, ReleaseWorkspaceEvidence,
-    ReleaseWorkspaceEvidenceFreshness, ReleaseWorkspaceEvidenceStatus, ReleaseWorkspaceLifecycle,
-    ReleaseWorkspaceObservation, ReleaseWorkspaceObservationRecord, ReleaseWorkspacePhase,
-    SelectReleaseWorkspaceChangelogRequest, StartReleaseWorkspaceRequest,
+    ReleaseWorkspaceActivityPage, ReleaseWorkspaceCandidate, ReleaseWorkspaceDecisionRequest,
+    ReleaseWorkspaceEvidence, ReleaseWorkspaceEvidenceFreshness, ReleaseWorkspaceEvidenceStatus,
+    ReleaseWorkspaceLifecycle, ReleaseWorkspaceObservation, ReleaseWorkspaceObservationRecord,
+    ReleaseWorkspacePhase, SelectReleaseWorkspaceChangelogRequest, StartReleaseWorkspaceRequest,
     WithdrawReleaseWorkspaceRequest, RELEASE_CAPTURE_SCHEMA_VERSION,
 };

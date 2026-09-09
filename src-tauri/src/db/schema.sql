@@ -341,6 +341,9 @@ CREATE TABLE IF NOT EXISTS release_workspace_activity (
     FOREIGN KEY (workspace_id) REFERENCES release_workspaces(id) ON DELETE RESTRICT
 );
 
+CREATE INDEX IF NOT EXISTS idx_release_workspace_activity_workspace_id_id
+    ON release_workspace_activity (workspace_id, id);
+
 CREATE TABLE IF NOT EXISTS release_workspace_observations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     workspace_id TEXT NOT NULL,

@@ -670,6 +670,7 @@ fn workspace_from_row(
         abandoned_at: row.get(18)?,
         candidates: Vec::new(),
         activity: Vec::new(),
+        activity_count: 0,
     })
 }
 
@@ -694,20 +695,19 @@ fn enrich_workspace(
         .map_err(|error| CommandError::new("database_read_failed", "Workspace candidates could not be read").with_details(error.to_string()))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| CommandError::new("database_record_invalid", "A stored workspace candidate is invalid").with_details(error.to_string()))?;
-    workspace.activity = connection
-        .prepare("SELECT id, event_type, occurred_at, message FROM release_workspace_activity WHERE workspace_id = ?1 ORDER BY id")
-        .map_err(|error| CommandError::new("database_read_failed", "Workspace activity could not be read").with_details(error.to_string()))?
-        .query_map([&workspace.id], |row| {
-            Ok(crate::domain::ReleaseWorkspaceActivity {
-                id: row.get(0)?,
-                event_type: row.get(1)?,
-                occurred_at: row.get(2)?,
-                message: row.get(3)?,
-            })
-        })
-        .map_err(|error| CommandError::new("database_read_failed", "Workspace activity could not be read").with_details(error.to_string()))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| CommandError::new("database_record_invalid", "A stored workspace activity record is invalid").with_details(error.to_string()))?;
+    workspace.activity_count = connection
+        .query_row(
+            "SELECT COUNT(*) FROM release_workspace_activity WHERE workspace_id = ?1",
+            [&workspace.id],
+            |row| row.get(0),
+        )
+        .map_err(|error| {
+            CommandError::new(
+                "database_read_failed",
+                "Workspace activity count could not be read",
+            )
+            .with_details(error.to_string())
+        })?;
     let (phase, blocking_reason, evidence_freshness, primary_next_action) =
         crate::domain::project_workspace_state(
             &workspace.lifecycle,
@@ -1268,6 +1268,103 @@ pub fn load_release_workspace(
     id: String,
 ) -> Result<crate::domain::ReleaseWorkspace, CommandError> {
     load_release_workspace_inner(&state, &id)
+}
+
+#[tauri::command]
+pub fn list_release_workspace_activity(
+    state: State<'_, Database>,
+    workspace_id: String,
+    before_id: Option<i64>,
+    limit: Option<u32>,
+) -> Result<crate::domain::ReleaseWorkspaceActivityPage, CommandError> {
+    let connection = state
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let requested_limit = i64::from(limit.unwrap_or(10).clamp(1, 10));
+    let total_count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM release_workspace_activity WHERE workspace_id = ?1",
+            [&workspace_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| {
+            CommandError::new(
+                "database_read_failed",
+                "Workspace activity count could not be read",
+            )
+            .with_details(error.to_string())
+        })?;
+    let mut statement = if before_id.is_some() {
+        connection
+            .prepare("SELECT id, event_type, occurred_at, message FROM release_workspace_activity WHERE workspace_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3")
+            .map_err(|error| CommandError::new("database_read_failed", "Workspace activity could not be read").with_details(error.to_string()))?
+    } else {
+        connection
+            .prepare("SELECT id, event_type, occurred_at, message FROM release_workspace_activity WHERE workspace_id = ?1 ORDER BY id DESC LIMIT ?2")
+            .map_err(|error| CommandError::new("database_read_failed", "Workspace activity could not be read").with_details(error.to_string()))?
+    };
+    let entries = if let Some(before_id) = before_id {
+        statement
+            .query_map(
+                params![workspace_id, before_id, requested_limit + 1],
+                activity_from_row,
+            )
+            .map_err(|error| {
+                CommandError::new(
+                    "database_read_failed",
+                    "Workspace activity could not be read",
+                )
+                .with_details(error.to_string())
+            })?
+            .collect::<Result<Vec<_>, _>>()
+    } else {
+        statement
+            .query_map(
+                params![workspace_id, requested_limit + 1],
+                activity_from_row,
+            )
+            .map_err(|error| {
+                CommandError::new(
+                    "database_read_failed",
+                    "Workspace activity could not be read",
+                )
+                .with_details(error.to_string())
+            })?
+            .collect::<Result<Vec<_>, _>>()
+    }
+    .map_err(|error| {
+        CommandError::new(
+            "database_record_invalid",
+            "A stored workspace activity record is invalid",
+        )
+        .with_details(error.to_string())
+    })?;
+    let has_more = entries.len() as i64 > requested_limit;
+    let mut entries = entries;
+    entries.truncate(requested_limit as usize);
+    let next_cursor = if has_more {
+        entries.last().map(|entry| entry.id)
+    } else {
+        None
+    };
+    Ok(crate::domain::ReleaseWorkspaceActivityPage {
+        entries,
+        next_cursor,
+        has_more,
+        total_count,
+    })
+}
+
+fn activity_from_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<crate::domain::ReleaseWorkspaceActivity> {
+    Ok(crate::domain::ReleaseWorkspaceActivity {
+        id: row.get(0)?,
+        event_type: row.get(1)?,
+        occurred_at: row.get(2)?,
+        message: row.get(3)?,
+    })
 }
 
 #[tauri::command]
@@ -2546,7 +2643,7 @@ pub fn cached_changelog_response_for_local_version(
 fn timestamp() -> String {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs().to_string())
+        .map(|duration| format!("{}.{:09}", duration.as_secs(), duration.subsec_nanos()))
         .unwrap_or_else(|_| "0".to_string())
 }
 
@@ -3633,6 +3730,73 @@ mod tests {
         assert!(loaded.final_capture.is_none());
         assert!(loaded.final_changelog_revision_id.is_none());
         assert!(loaded.finalization_receipt.is_none());
+    }
+
+    #[test]
+    fn workspace_activity_cursor_query_returns_newest_entries_and_older_pages() {
+        let database = initialize(Path::new(":memory:")).expect("database should initialize");
+        let connection = database
+            .0
+            .lock()
+            .expect("database lock should be available");
+        connection
+            .execute(
+                "INSERT INTO modpacks (id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at) VALUES ('project', '.', '{}', '{}', '[]', '0', '0')",
+                [],
+            )
+            .expect("project should be insertable");
+        connection
+            .execute(
+                "INSERT INTO release_workspaces (id, modpack_id, name, lifecycle, evidence_status, publication_status, created_at, updated_at) VALUES ('workspace', 'project', 'Release', 'draft', 'baseline', 'draft', '0', '0')",
+                [],
+            )
+            .expect("workspace should be insertable");
+        for index in 1..=5 {
+            connection
+                .execute(
+                    "INSERT INTO release_workspace_activity (workspace_id, event_type, occurred_at, message) VALUES ('workspace', 'event', ?1, ?2)",
+                    params![format!("legacy-{}", index), format!("Event {index}")],
+                )
+                .expect("activity should be insertable");
+        }
+
+        let first_page = connection
+            .prepare("SELECT id, event_type, occurred_at, message FROM release_workspace_activity WHERE workspace_id = 'workspace' ORDER BY id DESC LIMIT 4")
+            .expect("first page query should prepare")
+            .query_map([], super::activity_from_row)
+            .expect("first page query should run")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("first page should decode");
+        assert_eq!(first_page.len(), 4);
+        assert!(first_page[0].id > first_page[1].id);
+        let cursor = first_page[2].id;
+        let older_page = connection
+            .prepare("SELECT id, event_type, occurred_at, message FROM release_workspace_activity WHERE workspace_id = 'workspace' AND id < ?1 ORDER BY id DESC LIMIT 4")
+            .expect("older page query should prepare")
+            .query_map([cursor], super::activity_from_row)
+            .expect("older page query should run")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("older page should decode");
+        assert_eq!(older_page.len(), 2);
+        assert!(older_page.iter().all(|entry| entry.id < cursor));
+    }
+
+    #[test]
+    fn timestamp_includes_fractional_seconds_and_legacy_values_remain_strings() {
+        let current = super::timestamp();
+        let (seconds, fraction) = current
+            .split_once('.')
+            .expect("timestamp should be precise");
+        assert!(seconds.parse::<u64>().is_ok());
+        assert_eq!(fraction.len(), 9);
+        assert!(fraction.parse::<u32>().is_ok());
+        let legacy = "1760000000";
+        assert_eq!(
+            legacy
+                .parse::<u64>()
+                .expect("legacy timestamp should parse"),
+            1_760_000_000
+        );
     }
 
     #[test]
