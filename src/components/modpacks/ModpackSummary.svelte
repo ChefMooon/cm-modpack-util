@@ -34,6 +34,23 @@
     if (inventoryFilter === "unknown") return [entry.provider, entry.side, entry.source_url, entry.version].some((value) => ["Unknown", "Unavailable", "Malformed"].some((prefix) => evidenceLabel(value).startsWith(prefix)));
     return evidenceLabel(entry.side).toLowerCase() === inventoryFilter;
   }));
+
+  function timestampDate(value: string): Date | null {
+    const numericValue = Number(value);
+    const date = Number.isFinite(numericValue)
+      ? new Date(numericValue * 1000)
+      : new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function formatTimestamp(value: string): string {
+    const date = timestampDate(value);
+    return date ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" }).format(date) : value;
+  }
+
+  function timestampIso(value: string): string | undefined {
+    return timestampDate(value)?.toISOString();
+  }
 </script>
 
 {#if inspected}
@@ -45,7 +62,7 @@
       {#if inventoryLoading}<div class="inspection-state" role="status"><div class="loader" aria-hidden="true"></div><p>Reading mod inventory...</p></div>{:else if inventoryError}<div class="inspection-state" role="alert"><WarningCircleIcon size={20} /><p>{inventoryError}</p><Button variant="secondary" size="sm" type="button" onclick={() => onretry(inspected!)}>Retry inventory</Button></div>{:else}
         <div class="inventory-heading"><div><p class="eyebrow">Mod inventory</p><h3>{filteredInventory.length} of {inventory.length} entries</h3></div><label class="filter-label">Filter<select bind:value={inventoryFilter}><option value="all">All entries</option><option value="pinned">Pinned</option><option value="client">Client</option><option value="server">Server</option><option value="both">Both sides</option><option value="unknown">Unknown evidence</option></select></label></div>
         <InventoryTable entries={filteredInventory} {evidenceLabel} {pinningEntry} onopenPage={onopenPage} onpin={onpin} />
-        {#if overview.activity.length}<div class="activity-section"><p class="eyebrow">Recent activity</p><div class="activity-list">{#each overview.activity as event}<div class="activity-item"><span class="label">{event.occurred_at}</span><strong>{event.event_type.replaceAll("_", " ")}</strong><span>{event.message}</span></div>{/each}</div></div>{/if}
+        {#if overview.activity.length}<div class="activity-section"><p class="eyebrow">Recent activity</p><div class="activity-list">{#each overview.activity as event}<div class="activity-item"><time class="label" datetime={timestampIso(event.occurred_at)} title={`UTC epoch timestamp: ${event.occurred_at}`}>{formatTimestamp(event.occurred_at)}</time><strong>{event.event_type.replaceAll("_", " ")}</strong><span>{event.message}</span></div>{/each}</div></div>{/if}
       {/if}
     {/if}
   </section>
@@ -53,4 +70,7 @@
 
 <style>
   .inspection { max-width:1060px; margin:22px auto 0; padding:24px; border:1px solid var(--color-border); background:var(--color-surface); }.inspection-heading,.inventory-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; }.inspection-heading { padding-bottom:20px; border-bottom:1px solid var(--color-border); }.inspection-actions { display:flex; align-items:center; gap:8px; }.eyebrow { margin:0 0 10px; color:var(--color-accent-strong); font:700 10px var(--font-mono); letter-spacing:.12em; text-transform:uppercase; }.path,.label { color:var(--color-text-muted); font:11px var(--font-mono); }.path { margin:7px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.overview-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:1px; margin:20px 0 26px; border:1px solid var(--color-border); background:var(--color-border); }.overview-grid > div { display:grid; gap:7px; min-height:72px; padding:13px; background:var(--color-surface); }.overview-grid strong { font-size:13px; line-height:1.4; }.validation-summary { display:grid; gap:8px; margin:-8px 0 26px; color:var(--color-text-muted); font-size:12px; }.validation-summary > span:not(.label) { display:flex; gap:6px; align-items:flex-start; }.valid-text { color:var(--color-success); }.item-warning { color:var(--color-warning); }.item-error { color:var(--color-danger); }.inventory-heading { align-items:center; margin-bottom:12px; }.inventory-heading h3 { margin-top:4px; }.filter-label { display:flex; align-items:center; gap:8px; color:var(--color-text-muted); font:11px var(--font-mono); }.filter-label select { min-height:34px; padding:0 8px; border:1px solid var(--color-border); color:var(--color-text); background:var(--color-bg); font:inherit; }.inspection-state { display:grid; justify-items:center; gap:10px; padding:34px 12px 12px; color:var(--color-text-muted); text-align:center; }.inspection-state p { margin:0; }.activity-section { margin-top:26px; }.activity-list { border-top:1px solid var(--color-border); }.activity-item { display:grid; grid-template-columns:155px 150px 1fr; gap:12px; align-items:center; padding:10px 0; border-bottom:1px solid var(--color-border); color:var(--color-text-muted); font-size:12px; }.activity-item strong { color:var(--color-text); font:11px var(--font-mono); text-transform:uppercase; }.loader { width:22px; height:22px; border:2px solid var(--color-border); border-top-color:var(--color-accent); border-radius:50%; animation:spin .8s linear infinite; }@keyframes spin { to { transform:rotate(360deg); } }@media (max-width:700px) { .inspection { padding:18px; }.inspection-heading,.inventory-heading { align-items:flex-start; flex-direction:column; }.overview-grid { grid-template-columns:1fr 1fr; }.activity-item { grid-template-columns:1fr; gap:4px; }}@media (prefers-reduced-motion:reduce) { .loader { animation:none; }}
+  .activity-item { grid-template-columns:210px 150px 1fr; }
+  .activity-item .label { white-space:nowrap; }
+  @media (max-width:700px) { .activity-item { grid-template-columns:1fr; } }
 </style>
