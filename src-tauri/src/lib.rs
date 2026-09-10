@@ -150,6 +150,7 @@ pub fn run() {
             changelog::generate_changelog,
             changelog::cancel_changelog_generation,
             changelog::create_changelog_revision,
+            changelog::create_changelog_selection_revision,
             changelog::archive_changelog_revision,
             changelog::get_changelog_artifact,
             changelog::list_changelog_artifacts,

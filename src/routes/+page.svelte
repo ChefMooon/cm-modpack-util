@@ -89,6 +89,7 @@
     chooseChangelogDestination,
     exportChangelog,
     createChangelogRevision,
+    createChangelogSelectionRevision,
     archiveChangelogRevision,
     cancelChangelogGeneration,
     listenChangelogProgress,
@@ -188,6 +189,7 @@
   let workspaceChangelogRevision = $state<ChangelogRevision | null>(null);
   let workspaceChangelogDraft = $state("");
   let workspaceChangelogBusy = $state(false);
+  let workspaceChangelogProgress = $state<ChangelogProgress | null>(null);
   let showWorkspaceFinalizeConfirmation = $state(false);
   let workspaceResetAction = $state<"unlink" | "rebase" | null>(null);
   let versionFilter = $state<"all" | "releases" | "snapshots">("all");
@@ -250,6 +252,7 @@
       }),
       listenChangelogProgress((progress) => {
         if (!changelogBusy || progress.attempt_id === changelog?.attempt_id) changelogProgress = progress;
+        if (workspaceChangelogBusy) workspaceChangelogProgress = progress;
       }),
       listenReleaseWorkspaceObservation((observation) => {
         if (workspaceRecord?.id !== observation.workspace_id) return;
@@ -657,8 +660,8 @@
 
   async function generateWorkspaceChangelog() {
     if (!workspaceRecord || workspaceChangelogBusy) return;
-    if (!workspaceRecord.source_snapshot_id) { workspaceError = "A discovery snapshot is required for this changelog action until release-owned candidate evidence is available."; return; }
     workspaceChangelogBusy = true;
+    workspaceChangelogProgress = { attempt_id: "", completed: 0, total: workspaceRecord.candidates.length, message: "Preparing changelog lookups", cancellable: true };
     try {
       const artifact = await generateChangelog({
         modpack_id: workspaceRecord.modpack_id,
@@ -669,14 +672,19 @@
         source: "release_workspace_evidence",
         request_fingerprint: crypto.randomUUID(),
       });
-      const revision = await createChangelogRevision({ artifact_id: artifact.id, prior_revision_id: null, content: artifact.content, introduction: artifact.introduction });
+      const revision = await createChangelogRevision({ artifact_id: artifact.id, prior_revision_id: null, content: artifact.content, introduction: artifact.introduction, selected_version_ids: artifact.entries.flatMap((entry) => entry.versions.filter((version) => version.included && version.content_status === "available").map((version) => version.version.version_id)) });
       workspaceChangelogArtifacts = [artifact, ...workspaceChangelogArtifacts];
       workspaceChangelogRevisions = [revision, ...workspaceChangelogRevisions];
       workspaceChangelogRevision = revision;
       workspaceChangelogDraft = revision.content;
       workspaceRecord = await selectReleaseWorkspaceChangelog({ workspace_id: workspaceRecord.id, changelog_revision_id: revision.id });
       toast({ title: "Proposed changelog generated", severity: "success" });
-    } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceChangelogBusy = false; }
+    } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceChangelogBusy = false; workspaceChangelogProgress = null; }
+  }
+
+  async function cancelWorkspaceChangelog() {
+    if (!workspaceChangelogBusy) return;
+    try { await cancelChangelogGeneration(); } catch (cause) { workspaceError = commandErrorMessage(cause); }
   }
 
   async function createWorkspaceBlankChangelog() {
@@ -684,7 +692,7 @@
     workspaceChangelogBusy = true;
     try {
       const artifact = await createReleaseWorkspaceChangelog({ workspace_id: workspaceRecord.id, introduction: null });
-      const revision = await createChangelogRevision({ artifact_id: artifact.id, prior_revision_id: null, content: "", introduction: artifact.introduction });
+      const revision = await createChangelogRevision({ artifact_id: artifact.id, prior_revision_id: null, content: "", introduction: artifact.introduction, selected_version_ids: [] });
       workspaceChangelogArtifacts = [artifact, ...workspaceChangelogArtifacts];
       workspaceChangelogRevisions = [revision, ...workspaceChangelogRevisions];
       workspaceChangelogRevision = revision;
@@ -704,11 +712,29 @@
     } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceBusy = false; }
   }
 
+  async function changeWorkspaceChangelogSelection(versionIds: string[]) {
+    if (!workspaceChangelogRevision || workspaceChangelogBusy) return;
+    if (workspaceChangelogDraft !== workspaceChangelogRevision.content && !window.confirm("This draft has unsaved manual edits. Replace it with the selected changelogs?")) return;
+    workspaceChangelogBusy = true;
+    try {
+      const revision = await createChangelogSelectionRevision({
+        workspace_id: workspaceRecord?.id ?? "",
+        artifact_id: workspaceChangelogRevision.artifact_id,
+        prior_revision_id: workspaceChangelogRevision.id,
+        selected_version_ids: versionIds,
+      });
+      workspaceChangelogRevisions = [revision, ...workspaceChangelogRevisions];
+      workspaceChangelogRevision = revision;
+      workspaceChangelogDraft = revision.content;
+      toast({ title: "Changelog selection saved", severity: "success" });
+    } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceChangelogBusy = false; }
+  }
+
   async function saveWorkspaceChangelogRevision() {
     if (!workspaceChangelogRevision || workspaceChangelogDraft === workspaceChangelogRevision.content) return;
     workspaceChangelogBusy = true;
     try {
-      const revision = await createChangelogRevision({ artifact_id: workspaceChangelogRevision.artifact_id, prior_revision_id: workspaceChangelogRevision.id, content: workspaceChangelogDraft, introduction: workspaceChangelogRevision.introduction });
+      const revision = await createChangelogRevision({ artifact_id: workspaceChangelogRevision.artifact_id, prior_revision_id: workspaceChangelogRevision.id, content: workspaceChangelogDraft, introduction: workspaceChangelogRevision.introduction, selected_version_ids: workspaceChangelogRevision.selected_version_ids });
       workspaceChangelogRevisions = [revision, ...workspaceChangelogRevisions];
       workspaceChangelogRevision = revision;
       workspaceChangelogDraft = revision.content;
@@ -1525,6 +1551,9 @@
   ongenerateChangelog={generateWorkspaceChangelog}
   oncreateBlankChangelog={createWorkspaceBlankChangelog}
   onselectChangelog={selectWorkspaceChangelog}
+  onselectionChange={changeWorkspaceChangelogSelection}
+  changelogProgress={workspaceChangelogProgress}
+  oncancelChangelog={cancelWorkspaceChangelog}
   onsaveChangelogRevision={saveWorkspaceChangelogRevision}
   onarchiveChangelogRevision={archiveWorkspaceChangelogRevision}
   onstartWatcher={() => workspaceRecord ? startWorkspaceWatcher(workspaceRecord.id) : Promise.resolve()}

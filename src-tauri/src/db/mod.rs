@@ -447,7 +447,7 @@ pub fn initialize(path: &std::path::Path) -> Result<Database, rusqlite::Error> {
             [],
             |row| row.get(0),
         )?;
-        if version != "2" {
+        if version != "3" {
             return Err(rusqlite::Error::InvalidQuery);
         }
     } else {
@@ -2305,8 +2305,8 @@ pub fn persist_changelog_revision(
         })?;
     transaction
         .execute(
-            "INSERT INTO changelog_revisions (id, artifact_id, prior_revision_id, content, introduction, created_at, is_current, frozen, archived_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, 0, NULL)",
-            params![id, request.artifact_id, request.prior_revision_id, request.content, request.introduction, now],
+            "INSERT INTO changelog_revisions (id, artifact_id, prior_revision_id, content, introduction, selected_version_ids_json, created_at, is_current, frozen, archived_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 0, NULL)",
+            params![id, request.artifact_id, request.prior_revision_id, request.content, request.introduction, serialize(&request.selected_version_ids, "selected changelog versions")?, now],
         )
         .map_err(|error| CommandError::new("database_write_failed", "Revision could not be saved").with_details(error.to_string()))?;
     transaction.commit().map_err(|error| {
@@ -2319,11 +2319,129 @@ pub fn persist_changelog_revision(
         prior_revision_id: request.prior_revision_id.clone(),
         content: request.content.clone(),
         introduction: request.introduction.clone(),
+        selected_version_ids: request.selected_version_ids.clone(),
         created_at: now,
         is_current: true,
         frozen: false,
         archived_at: None,
     })
+}
+
+pub fn persist_changelog_selection_revision(
+    database: &Database,
+    request: &crate::domain::ChangelogSelectionRevisionRequest,
+) -> Result<crate::domain::ChangelogRevision, CommandError> {
+    let artifact = load_changelog_artifact(database, &request.artifact_id)?;
+    let workspace_id = request.workspace_id.trim();
+    if workspace_id.is_empty() || artifact.release_workspace_id.as_deref() != Some(workspace_id) {
+        return Err(CommandError::new(
+            "changelog_workspace_mismatch",
+            "The changelog artifact does not belong to this release workspace",
+        ));
+    }
+    {
+        let connection = database
+            .0
+            .lock()
+            .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+        let (lifecycle, modpack_id): (String, String) = connection
+            .query_row(
+                "SELECT lifecycle, modpack_id FROM release_workspaces WHERE id = ?1",
+                [workspace_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|_| {
+                CommandError::new(
+                    "changelog_workspace_mismatch",
+                    "The release workspace is not available",
+                )
+            })?;
+        if modpack_id != artifact.modpack_id
+            || matches!(
+                lifecycle.as_str(),
+                "finalized" | "published" | "withdrawn" | "abandoned"
+            )
+        {
+            return Err(CommandError::new(
+                "invalid_changelog_state",
+                "This release workspace cannot change its proposed changelog",
+            ));
+        }
+    }
+    let selected: std::collections::HashSet<&str> = request
+        .selected_version_ids
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let available_ids: std::collections::HashSet<&str> = artifact
+        .entries
+        .iter()
+        .flat_map(|entry| entry.versions.iter())
+        .filter(|version| {
+            version.included
+                && !version.is_current
+                && version.content_status == crate::domain::ChangelogContentStatus::Available
+        })
+        .map(|version| version.version.version_id.as_str())
+        .collect();
+    if selected.iter().any(|id| !available_ids.contains(id)) {
+        return Err(CommandError::new(
+            "invalid_changelog_selection",
+            "Selection contains an unknown or unavailable provider version",
+        ));
+    }
+    let mut content = artifact
+        .introduction
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_default()
+        .to_string();
+    if !content.is_empty() {
+        content.push_str("\n\n");
+    }
+    for entry in &artifact.entries {
+        let versions = entry
+            .versions
+            .iter()
+            .filter(|version| selected.contains(version.version.version_id.as_str()))
+            .collect::<Vec<_>>();
+        if versions.iter().any(|version| version.changelog.is_none()) {
+            return Err(CommandError::new(
+                "empty_changelog_selection",
+                "A selected provider version has no changelog text",
+            ));
+        }
+        if versions.is_empty() {
+            continue;
+        }
+        let name = match &entry.local.local_identity {
+            crate::domain::Evidence::Observed(value) => value.as_str(),
+            _ => "Unknown mod",
+        };
+        content.push_str(&format!("## {name}\n\n"));
+        for version in versions {
+            content.push_str(&format!(
+                "### {}\n\n{}\n\n",
+                version
+                    .version
+                    .version_number
+                    .as_deref()
+                    .unwrap_or("Provider release"),
+                version.changelog.as_deref().unwrap_or_default()
+            ));
+        }
+    }
+    persist_changelog_revision(
+        database,
+        &crate::domain::ChangelogRevisionRequest {
+            artifact_id: request.artifact_id.clone(),
+            prior_revision_id: request.prior_revision_id.clone(),
+            content,
+            introduction: artifact.introduction,
+            selected_version_ids: request.selected_version_ids.clone(),
+        },
+    )
 }
 
 pub fn set_changelog_revision_archived(
@@ -2336,7 +2454,7 @@ pub fn set_changelog_revision_archived(
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
     let now = timestamp();
     let mut statement = connection
-        .prepare("SELECT id, artifact_id, prior_revision_id, content, introduction, created_at, is_current, frozen, archived_at FROM changelog_revisions WHERE id = ?1")
+        .prepare("SELECT id, artifact_id, prior_revision_id, content, introduction, selected_version_ids_json, created_at, is_current, frozen, archived_at FROM changelog_revisions WHERE id = ?1")
         .map_err(|error| CommandError::new("database_read_failed", "Revision could not be read").with_details(error.to_string()))?;
     let revision = statement
         .query_row([&request.revision_id], |row| {
@@ -2346,10 +2464,12 @@ pub fn set_changelog_revision_archived(
                 prior_revision_id: row.get(2)?,
                 content: row.get(3)?,
                 introduction: row.get(4)?,
-                created_at: row.get(5)?,
-                is_current: row.get::<_, i64>(6)? != 0,
-                frozen: row.get::<_, i64>(7)? != 0,
-                archived_at: row.get(8)?,
+                selected_version_ids: serde_json::from_str(&row.get::<_, String>(5)?)
+                    .unwrap_or_default(),
+                created_at: row.get(6)?,
+                is_current: row.get::<_, i64>(7)? != 0,
+                frozen: row.get::<_, i64>(8)? != 0,
+                archived_at: row.get(9)?,
             })
         })
         .map_err(|_| {
@@ -2387,7 +2507,7 @@ fn load_changelog_revision(
 ) -> Result<crate::domain::ChangelogRevision, CommandError> {
     connection
         .query_row(
-            "SELECT id, artifact_id, prior_revision_id, content, introduction, created_at, is_current, frozen, archived_at FROM changelog_revisions WHERE id = ?1",
+            "SELECT id, artifact_id, prior_revision_id, content, introduction, selected_version_ids_json, created_at, is_current, frozen, archived_at FROM changelog_revisions WHERE id = ?1",
             [revision_id],
             |row| {
                 Ok(crate::domain::ChangelogRevision {
@@ -2396,10 +2516,11 @@ fn load_changelog_revision(
                     prior_revision_id: row.get(2)?,
                     content: row.get(3)?,
                     introduction: row.get(4)?,
-                    created_at: row.get(5)?,
-                    is_current: row.get::<_, i64>(6)? != 0,
-                    frozen: row.get::<_, i64>(7)? != 0,
-                    archived_at: row.get(8)?,
+                    selected_version_ids: serde_json::from_str(&row.get::<_, String>(5)?).unwrap_or_default(),
+                    created_at: row.get(6)?,
+                    is_current: row.get::<_, i64>(7)? != 0,
+                    frozen: row.get::<_, i64>(8)? != 0,
+                    archived_at: row.get(9)?,
                 })
             },
         )
@@ -2550,7 +2671,7 @@ pub fn list_changelog_revisions(
         .0
         .lock()
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
-    let mut statement = connection.prepare("SELECT id, artifact_id, prior_revision_id, content, introduction, created_at, is_current, frozen, archived_at FROM changelog_revisions WHERE artifact_id = ?1 ORDER BY created_at DESC").map_err(|error| CommandError::new("database_read_failed", "Revision history could not be read").with_details(error.to_string()))?;
+    let mut statement = connection.prepare("SELECT id, artifact_id, prior_revision_id, content, introduction, selected_version_ids_json, created_at, is_current, frozen, archived_at FROM changelog_revisions WHERE artifact_id = ?1 ORDER BY created_at DESC").map_err(|error| CommandError::new("database_read_failed", "Revision history could not be read").with_details(error.to_string()))?;
     let rows = statement
         .query_map([artifact_id], |row| {
             Ok(crate::domain::ChangelogRevision {
@@ -2559,10 +2680,12 @@ pub fn list_changelog_revisions(
                 prior_revision_id: row.get(2)?,
                 content: row.get(3)?,
                 introduction: row.get(4)?,
-                created_at: row.get(5)?,
-                is_current: row.get::<_, i64>(6)? != 0,
-                frozen: row.get::<_, i64>(7)? != 0,
-                archived_at: row.get(8)?,
+                selected_version_ids: serde_json::from_str(&row.get::<_, String>(5)?)
+                    .unwrap_or_default(),
+                created_at: row.get(6)?,
+                is_current: row.get::<_, i64>(7)? != 0,
+                frozen: row.get::<_, i64>(8)? != 0,
+                archived_at: row.get(9)?,
             })
         })
         .map_err(|error| {
@@ -2622,6 +2745,17 @@ pub fn cache_changelog_response(
     response: &str,
     association: &crate::domain::ProviderMatchEvidence,
 ) -> Result<(), CommandError> {
+    cache_changelog_response_with_metadata(database, key, response, association, 1, true)
+}
+
+pub fn cache_changelog_response_with_metadata(
+    database: &Database,
+    key: &crate::domain::ChangelogCacheKey,
+    response: &str,
+    association: &crate::domain::ProviderMatchEvidence,
+    page_count: u32,
+    complete: bool,
+) -> Result<(), CommandError> {
     let connection = database
         .0
         .lock()
@@ -2630,7 +2764,12 @@ pub fn cache_changelog_response(
     let association_json = serialize(association, "cache association")?;
     use sha2::{Digest, Sha256};
     let cache_id = format!("cache-{:x}", Sha256::digest(key_json.as_bytes()));
-    connection.execute("INSERT OR REPLACE INTO changelog_cache (id, cache_key_json, raw_response, association_json, retrieved_at, request_context, response_context) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", params![cache_id, key_json, response, association_json, timestamp(), "exact changelog request", "modrinth version response"])
+    let retrieved_at = timestamp();
+    let normalized_query = format!(
+        "project={};loader={:?};game_version={:?};limit={}",
+        key.project_id, key.loader, key.game_version, key.request_shape
+    );
+    connection.execute("INSERT OR REPLACE INTO changelog_cache (id, cache_key_json, raw_response, association_json, retrieved_at, request_context, response_context, normalized_query, page_count, complete, loader, game_version) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)", params![cache_id, key_json, response, association_json, retrieved_at, "version-set request", "modrinth version response", normalized_query, page_count, complete, key.loader, key.game_version])
         .map(|_| ())
         .map_err(|error| CommandError::new("database_write_failed", "Provider response could not be cached").with_details(error.to_string()))
 }
@@ -2672,34 +2811,84 @@ pub fn cached_changelog_response_for_local_version(
     project_id: &str,
     local_version: &str,
 ) -> Result<Option<(String, crate::domain::ProviderMatchEvidence)>, CommandError> {
+    cached_changelog_response_for_local_version_with_freshness(database, project_id, local_version)
+        .map(|value| {
+            value.map(|(response, association, _stale, _complete, _page_count)| {
+                (response, association)
+            })
+        })
+}
+
+pub fn cached_changelog_response_for_local_version_with_freshness(
+    database: &Database,
+    project_id: &str,
+    local_version: &str,
+) -> Result<
+    Option<(
+        String,
+        crate::domain::ProviderMatchEvidence,
+        bool,
+        bool,
+        u32,
+    )>,
+    CommandError,
+> {
+    cached_changelog_response_for_local_version_with_query(
+        database,
+        project_id,
+        local_version,
+        None,
+        None,
+    )
+}
+
+pub fn cached_changelog_response_for_local_version_with_query(
+    database: &Database,
+    project_id: &str,
+    local_version: &str,
+    loader: Option<&str>,
+    game_version: Option<&str>,
+) -> Result<
+    Option<(
+        String,
+        crate::domain::ProviderMatchEvidence,
+        bool,
+        bool,
+        u32,
+    )>,
+    CommandError,
+> {
     let connection = database
         .0
         .lock()
         .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    let now = timestamp().parse::<f64>().unwrap_or_default();
     let mut statement = connection
-        .prepare("SELECT cache_key_json, raw_response, association_json FROM changelog_cache WHERE json_extract(cache_key_json, '$.provider') = 'modrinth' AND json_extract(cache_key_json, '$.project_id') = ?1")
+        .prepare("SELECT cache_key_json, raw_response, association_json, complete, page_count FROM changelog_cache WHERE json_extract(cache_key_json, '$.provider') = 'modrinth' AND json_extract(cache_key_json, '$.project_id') = ?1 AND (?2 IS NULL OR json_extract(cache_key_json, '$.loader') = ?2) AND (?3 IS NULL OR json_extract(cache_key_json, '$.game_version') = ?3)")
         .map_err(|error| {
             CommandError::new("database_read_failed", "Provider cache could not be read")
                 .with_details(error.to_string())
         })?;
     let rows = statement
-        .query_map([project_id], |row| {
+        .query_map(rusqlite::params![project_id, loader, game_version], |row| {
             let key_json: String = row.get(0)?;
             let response: String = row.get(1)?;
             let association_json: String = row.get(2)?;
+            let complete: bool = row.get(3)?;
+            let page_count: u32 = row.get(4)?;
             let key: crate::domain::ChangelogCacheKey =
                 serde_json::from_str(&key_json).map_err(|_| rusqlite::Error::InvalidQuery)?;
             let association: crate::domain::ProviderMatchEvidence =
                 serde_json::from_str(&association_json)
                     .map_err(|_| rusqlite::Error::InvalidQuery)?;
-            Ok((key, response, association))
+            Ok((key, response, association, complete, page_count))
         })
         .map_err(|error| {
             CommandError::new("database_read_failed", "Provider cache could not be read")
                 .with_details(error.to_string())
         })?;
     for row in rows {
-        let (_key, response, association) = row.map_err(|error| {
+        let (_key, response, association, complete, page_count) = row.map_err(|error| {
             CommandError::new(
                 "database_record_invalid",
                 "A cached provider response is invalid",
@@ -2718,7 +2907,22 @@ pub fn cached_changelog_response_for_local_version(
         }) == Some(local_version)
             && association.association.is_some();
         if eligible {
-            return Ok(Some((response, association)));
+            let retrieved_at = connection
+                .query_row(
+                    "SELECT retrieved_at FROM changelog_cache WHERE cache_key_json = ?1",
+                    [&serde_json::to_string(&_key).unwrap_or_default()],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap_or_else(|_| "0".into())
+                .parse::<f64>()
+                .unwrap_or_default();
+            return Ok(Some((
+                response,
+                association,
+                now - retrieved_at > 86_400.0,
+                complete,
+                page_count,
+            )));
         }
     }
     Ok(None)
@@ -3749,6 +3953,14 @@ mod tests {
                 .expect("operation schema should be queryable");
             assert_eq!(exists, 1, "missing operation table {table}");
         }
+        let has_selection_column: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('changelog_revisions') WHERE name = 'selected_version_ids_json'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("revision selection column should be queryable");
+        assert_eq!(has_selection_column, 1);
         connection
             .execute(
                 "INSERT INTO settings (key, value_json, updated_at) VALUES (?1, ?2, ?3)",
@@ -4054,6 +4266,43 @@ mod tests {
             .unwrap();
         assert_eq!(cached.0, r#"{"changelog":"fixed"}"#);
         assert_eq!(cached.1, association);
+        super::cache_changelog_response_with_metadata(
+            &database,
+            &key,
+            r#"[{"id":"version-id","version_number":"1.2.3","changelog":"fixed"}]"#,
+            &association,
+            7,
+            false,
+        )
+        .unwrap();
+        let metadata = super::cached_changelog_response_for_local_version_with_freshness(
+            &database,
+            "project-id",
+            "1.2.2",
+        )
+        .unwrap()
+        .unwrap();
+        assert!(!metadata.2);
+        assert!(!metadata.3);
+        assert_eq!(metadata.4, 7);
+        database
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE changelog_cache SET retrieved_at = '0' WHERE cache_key_json = ?1",
+                [&serde_json::to_string(&key).unwrap()],
+            )
+            .unwrap();
+        let stale = super::cached_changelog_response_for_local_version_with_freshness(
+            &database,
+            "project-id",
+            "1.2.2",
+        )
+        .unwrap()
+        .unwrap();
+        assert!(stale.2);
+        assert!(!stale.3);
         assert!(super::cached_changelog_response_for_local_version(
             &database,
             "project-id",

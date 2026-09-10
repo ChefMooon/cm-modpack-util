@@ -465,10 +465,26 @@ export type ChangelogEntryResult = {
   retrieval: ChangelogRetrievalStatus;
   changelog: string | null;
   diagnostic: CommandError | null;
+  versions: ChangelogVersionResult[];
+  pagination_complete: boolean;
+  page_count: number;
+};
+export type ChangelogContentStatus = "available" | "empty" | "unavailable";
+export type ChangelogVersionResult = {
+  version: ModrinthVersionIdentity;
+  response_position: number;
+  is_current: boolean;
+  published_at: string | null;
+  created_at: string | null;
+  changelog: string | null;
+  retrieval: ChangelogRetrievalStatus;
+  content_status: ChangelogContentStatus;
+  included: boolean;
+  diagnostic: CommandError | null;
 };
 export type ChangelogGenerationRequest = {
   modpack_id: string;
-  snapshot_id: string;
+  snapshot_id: string | null;
   release_workspace_id?: string | null;
   introduction: string | null;
   offline: boolean;
@@ -486,7 +502,7 @@ export type ChangelogProgress = {
 export type ChangelogArtifact = {
   id: string;
   modpack_id: string;
-  snapshot_id: string;
+  snapshot_id: string | null;
   release_workspace_id: string | null;
   stage: ChangelogStage;
   source_capture_fingerprint: string | null;
@@ -504,6 +520,7 @@ export type ChangelogRevision = {
   prior_revision_id: string | null;
   content: string;
   introduction: string | null;
+  selected_version_ids: string[];
   created_at: string;
   is_current: boolean;
   frozen: boolean;
@@ -514,6 +531,13 @@ export type ChangelogRevisionRequest = {
   prior_revision_id: string | null;
   content: string;
   introduction: string | null;
+  selected_version_ids?: string[];
+};
+export type ChangelogSelectionRevisionRequest = {
+  workspace_id: string;
+  artifact_id: string;
+  prior_revision_id: string | null;
+  selected_version_ids: string[];
 };
 export type ChangelogRevisionArchiveRequest = {
   revision_id: string;

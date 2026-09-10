@@ -8,12 +8,14 @@ pub mod release;
 pub mod validation;
 
 pub use changelog::{
-    ChangelogArtifact, ChangelogCacheKey, ChangelogCacheRecord, ChangelogEntryResult,
-    ChangelogExport, ChangelogExportRequest, ChangelogExportStatus, ChangelogGenerationRequest,
-    ChangelogGenerationStatus, ChangelogProgress, ChangelogRetrievalStatus, ChangelogRevision,
-    ChangelogRevisionArchiveRequest, ChangelogRevisionRequest, ChangelogSourceKind, ChangelogStage,
-    LocalEntryIdentity, ModrinthProjectIdentity, ModrinthVersionIdentity, ProviderMatchConfidence,
-    ProviderMatchEvidence, VersionAssociationEvidence,
+    ChangelogArtifact, ChangelogCacheKey, ChangelogCacheRecord, ChangelogContentStatus,
+    ChangelogEntryResult, ChangelogExport, ChangelogExportRequest, ChangelogExportStatus,
+    ChangelogGenerationRequest, ChangelogGenerationStatus, ChangelogProgress,
+    ChangelogRetrievalStatus, ChangelogRevision, ChangelogRevisionArchiveRequest,
+    ChangelogRevisionRequest, ChangelogSelectionRevisionRequest, ChangelogSourceKind,
+    ChangelogStage, ChangelogVersionResult, LocalEntryIdentity, ModrinthProjectIdentity,
+    ModrinthVersionIdentity, ProviderMatchConfidence, ProviderMatchEvidence,
+    VersionAssociationEvidence,
 };
 pub use contracts::{
     ActivityEventType, ActivityRecord, ApplicationModpackMetadata, ApplyOperationReport,

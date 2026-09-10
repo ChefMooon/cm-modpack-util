@@ -95,6 +95,28 @@ pub enum ChangelogRetrievalStatus {
     OfflineUnavailable,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangelogContentStatus {
+    Available,
+    Empty,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ChangelogVersionResult {
+    pub version: ModrinthVersionIdentity,
+    pub response_position: u32,
+    pub is_current: bool,
+    pub published_at: Option<String>,
+    pub created_at: Option<String>,
+    pub changelog: Option<String>,
+    pub retrieval: ChangelogRetrievalStatus,
+    pub content_status: ChangelogContentStatus,
+    pub included: bool,
+    pub diagnostic: Option<CommandError>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ChangelogEntryResult {
     pub local: LocalEntryIdentity,
@@ -102,6 +124,14 @@ pub struct ChangelogEntryResult {
     pub retrieval: ChangelogRetrievalStatus,
     pub changelog: Option<String>,
     pub diagnostic: Option<CommandError>,
+    #[serde(default)]
+    pub versions: Vec<ChangelogVersionResult>,
+    #[serde(default)]
+    pub pagination_complete: bool,
+    #[serde(default)]
+    pub page_count: u32,
+    #[serde(skip)]
+    pub raw_response: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -130,7 +160,7 @@ pub struct ChangelogCacheRecord {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ChangelogGenerationRequest {
     pub modpack_id: String,
-    pub snapshot_id: String,
+    pub snapshot_id: Option<String>,
     #[serde(default)]
     pub release_workspace_id: Option<String>,
     pub introduction: Option<String>,
@@ -143,7 +173,7 @@ pub struct ChangelogGenerationRequest {
 pub struct ChangelogArtifact {
     pub id: String,
     pub modpack_id: String,
-    pub snapshot_id: String,
+    pub snapshot_id: Option<String>,
     pub release_workspace_id: Option<String>,
     pub stage: ChangelogStage,
     pub source_capture_fingerprint: Option<String>,
@@ -163,6 +193,7 @@ pub struct ChangelogRevision {
     pub prior_revision_id: Option<String>,
     pub content: String,
     pub introduction: Option<String>,
+    pub selected_version_ids: Vec<String>,
     pub created_at: String,
     pub is_current: bool,
     pub frozen: bool,
@@ -225,6 +256,10 @@ mod tests {
             retrieval: ChangelogRetrievalStatus::Ambiguous,
             changelog: None,
             diagnostic: None,
+            versions: Vec::new(),
+            pagination_complete: false,
+            page_count: 0,
+            raw_response: None,
         };
         let json = serde_json::to_string(&entry).unwrap();
         assert!(json.contains("curseforge"));
@@ -250,6 +285,16 @@ pub struct ChangelogRevisionRequest {
     pub prior_revision_id: Option<String>,
     pub content: String,
     pub introduction: Option<String>,
+    #[serde(default)]
+    pub selected_version_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ChangelogSelectionRevisionRequest {
+    pub workspace_id: String,
+    pub artifact_id: String,
+    pub prior_revision_id: Option<String>,
+    pub selected_version_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -24,6 +24,7 @@ import type {
   ChangelogRevision,
   ChangelogRevisionArchiveRequest,
   ChangelogRevisionRequest,
+  ChangelogSelectionRevisionRequest,
   ChangelogExport,
   ChangelogExportRequest,
   ChangelogProgress,
@@ -188,6 +189,10 @@ export function listenChangelogProgress(
 
 export function createChangelogRevision(request: ChangelogRevisionRequest): Promise<ChangelogRevision> {
   return invoke("create_changelog_revision", { request });
+}
+
+export function createChangelogSelectionRevision(request: ChangelogSelectionRevisionRequest): Promise<ChangelogRevision> {
+  return invoke("create_changelog_selection_revision", { request });
 }
 
 export function archiveChangelogRevision(request: ChangelogRevisionArchiveRequest): Promise<ChangelogRevision> {

@@ -5,7 +5,7 @@
   import { marked } from "marked";
   import Button from "../ui/Button.svelte";
   import Modal from "../ui/Modal.svelte";
-  import type { ChangelogArtifact, ChangelogRevision } from "../../lib/domain";
+  import type { ChangelogArtifact, ChangelogRevision, ChangelogProgress } from "../../lib/domain";
 
   let {
     artifacts = [],
@@ -14,9 +14,12 @@
     draft = $bindable(""),
     busy = false,
     changelogBusy = false,
+    changelogProgress = null,
+    oncancel,
     ongenerate,
     oncreateBlank,
     onselect,
+    onselectionchange,
     onsave,
     onarchive,
   }: {
@@ -26,9 +29,12 @@
     draft?: string;
     busy?: boolean;
     changelogBusy?: boolean;
+    changelogProgress?: ChangelogProgress | null;
+    oncancel?: () => void | Promise<void>;
     ongenerate: () => void | Promise<void>;
     oncreateBlank: () => void | Promise<void>;
     onselect: (revisionId: string) => void | Promise<void>;
+    onselectionchange?: (versionIds: string[]) => void | Promise<void>;
     onsave: () => void | Promise<void>;
     onarchive?: (revision: ChangelogRevision) => void | Promise<void>;
   } = $props();
@@ -43,6 +49,36 @@
   const selectedArtifact = $derived(selectedRevision ? artifactById.get(selectedRevision.artifact_id) ?? null : null);
   const selectedIsArchived = $derived(Boolean(selectedRevision?.archived_at));
   const hasDraftChanges = $derived(Boolean(selectedRevision && draft !== selectedRevision.content));
+  const foundVersions = $derived(
+    selectedArtifact?.entries.flatMap((entry) =>
+      entry.versions.filter((version) => version.included && version.content_status === "available"),
+    ) ?? [],
+  );
+  let selectedVersionIds = $state<string[]>([]);
+
+  $effect(() => {
+    if (!selectedArtifact) {
+      selectedVersionIds = [];
+      return;
+    }
+    selectedVersionIds = selectedRevision?.selected_version_ids.length
+      ? selectedRevision.selected_version_ids
+      : foundVersions.map((version) => version.version.version_id);
+  });
+
+  function toggleVersion(versionId: string, checked: boolean): void {
+    selectedVersionIds = checked
+      ? [...new Set([...selectedVersionIds, versionId])]
+      : selectedVersionIds.filter((id) => id !== versionId);
+    void onselectionchange?.(selectedVersionIds);
+  }
+
+  function selectAllVersions(include: boolean): void {
+    selectedVersionIds = include
+      ? foundVersions.map((version) => version.version.version_id)
+      : [];
+    void onselectionchange?.(selectedVersionIds);
+  }
 
   onMount(() => {
     function closeMenus(event: MouseEvent): void {
@@ -128,6 +164,14 @@
     </div>
   </div>
 
+  {#if changelogBusy && changelogProgress}
+    <div class="generation-progress" role="status" aria-live="polite">
+      <div><strong>Generating changelog</strong><span>{changelogProgress.message}</span></div>
+      <span class="progress-count">{changelogProgress.completed} / {changelogProgress.total}</span>
+      {#if changelogProgress.cancellable && oncancel}<Button variant="danger" size="sm" type="button" onclick={oncancel}>Cancel</Button>{/if}
+    </div>
+  {/if}
+
   {#if revisions.length === 0}
     <p class="muted">No proposed revision exists yet. Generate one from workspace evidence or start with a blank proposal.</p>
   {:else}
@@ -166,6 +210,24 @@
     {/if}
   {/if}
 
+  {#if selectedArtifact && foundVersions.length}
+    <section class="found-changelogs" aria-labelledby="found-changelogs-heading">
+      <header class="panel-heading"><div><p class="eyebrow">Found changelogs</p><h3 id="found-changelogs-heading">Choose releases to include</h3></div><div class="panel-actions"><Button variant="quiet" size="sm" type="button" disabled={busy || changelogBusy} onclick={() => selectAllVersions(true)}>Add all</Button><Button variant="ghost" size="sm" type="button" disabled={busy || changelogBusy} onclick={() => selectAllVersions(false)}>Remove all</Button></div></header>
+      <p class="muted">{selectedVersionIds.length} of {foundVersions.length} changelogs selected.</p>
+      <div class="found-list">
+        {#each selectedArtifact.entries as entry (entry.local.entry_id)}
+          {#if entry.versions.length}
+            <div class="found-mod"><strong>{entry.local.local_identity === "unknown" ? "Unknown mod" : typeof entry.local.local_identity === "object" && "observed" in entry.local.local_identity ? entry.local.local_identity.observed : "Mod"}</strong>
+              {#each entry.versions.filter((version) => version.included && version.content_status === "available") as version (version.version.version_id)}
+                <label class:unavailable={version.content_status !== "available"}><input type="checkbox" checked={selectedVersionIds.includes(version.version.version_id)} disabled={busy || changelogBusy || version.content_status !== "available"} onchange={(event) => toggleVersion(version.version.version_id, event.currentTarget.checked)} /><span><b>{version.version.version_number ?? "Provider release"}</b><small>{version.content_status === "available" ? "Changelog available" : "No changelog text was published for this version; it will not be added to the generated Markdown."}</small></span></label>
+              {/each}
+            </div>
+          {/if}
+        {/each}
+      </div>
+    </section>
+  {/if}
+
   {#if selectedRevision}
     <section class="revision-editor" aria-label="Selected proposed revision">
       <header class="editor-heading">
@@ -191,6 +253,8 @@
 
 <style>
   .changelog-panel { display:grid; gap:12px; }
+  .generation-progress { display:flex; align-items:center; gap:12px; padding:10px 12px; border-left:3px solid var(--color-accent-strong); background:var(--color-surface-raised); }
+  .generation-progress > div { display:grid; gap:3px; min-width:0; flex:1; }.generation-progress span { color:var(--color-text-muted); font:11px var(--font-mono); }.progress-count { white-space:nowrap; }
   .panel-heading,.artifact-heading,.editor-heading,.editor-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; }
   h3,h4,p { margin:0; }
   .panel-actions,.editor-footer { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
@@ -211,6 +275,13 @@
   .revision-menu-items { position:absolute; z-index:2; top:32px; right:0; min-width:150px; padding:5px; border:1px solid var(--color-border); background:var(--color-surface); box-shadow:var(--shadow-md); }
   .revision-menu-items :global(.button) { width:100%; justify-content:flex-start; }
   .revision-editor { display:grid; gap:12px; padding:14px; border:1px solid var(--color-border); background:var(--color-surface); }
+  .found-changelogs { display:grid; gap:10px; padding:14px; border:1px solid var(--color-border); background:var(--color-surface); }
+  .found-list,.found-mod { display:grid; gap:1px; }
+  .found-mod { border:1px solid var(--color-border); background:var(--color-border); }
+  .found-mod > strong { padding:9px 10px; background:var(--color-surface-raised); font:700 12px var(--font-mono); }
+  .found-mod label { display:flex; align-items:flex-start; gap:9px; padding:9px 10px; background:var(--color-surface); cursor:pointer; }
+  .found-mod label.unavailable { color:var(--color-text-muted); cursor:not-allowed; }
+  .found-mod label span { display:grid; gap:3px; }.found-mod small { color:var(--color-text-muted); font:11px var(--font-mono); line-height:1.4; }
   .editor-heading { align-items:flex-start; }
   .editor-heading > div { display:grid; gap:5px; }
   .editor-heading strong { font-size:13px; }

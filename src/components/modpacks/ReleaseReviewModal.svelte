@@ -3,7 +3,7 @@
   import Modal from "../ui/Modal.svelte";
   import ProposedChangelogPanel from "./ProposedChangelogPanel.svelte";
   import ReleaseEvidenceSummary from "./ReleaseEvidenceSummary.svelte";
-  import type { ChangelogArtifact, ChangelogRevision, Evidence, InventoryEntry, ModpackRecord, ReleaseWorkspace, ReleaseWorkspaceWatcherStatus, SnapshotRecord } from "../../lib/domain";
+  import type { ChangelogArtifact, ChangelogProgress, ChangelogRevision, Evidence, InventoryEntry, ModpackRecord, ReleaseWorkspace, ReleaseWorkspaceWatcherStatus, SnapshotRecord } from "../../lib/domain";
 
   let {
     open = false,
@@ -15,6 +15,7 @@
     selectedChangelogRevision = null,
     changelogDraft = $bindable(""),
     changelogBusy = false,
+    changelogProgress = null,
     inventory = [],
     observations = [],
     activity = [],
@@ -35,6 +36,8 @@
     ongenerateChangelog,
     oncreateBlankChangelog,
     onselectChangelog,
+    onselectionChange,
+    oncancelChangelog,
     onsaveChangelogRevision,
     onarchiveChangelogRevision,
     onstartWatcher,
@@ -55,6 +58,7 @@
     selectedChangelogRevision?: ChangelogRevision | null;
     changelogDraft?: string;
     changelogBusy?: boolean;
+    changelogProgress?: ChangelogProgress | null;
     inventory?: InventoryEntry[];
     observations?: import("../../lib/domain").ReleaseWorkspaceObservation[];
     activity?: import("../../lib/domain").ReleaseWorkspaceActivity[];
@@ -75,6 +79,8 @@
     ongenerateChangelog: () => void | Promise<void>;
     oncreateBlankChangelog: () => void | Promise<void>;
     onselectChangelog: (revisionId: string) => void | Promise<void>;
+    onselectionChange?: (versionIds: string[]) => void | Promise<void>;
+    oncancelChangelog?: () => void | Promise<void>;
     onsaveChangelogRevision: () => void | Promise<void>;
     onarchiveChangelogRevision?: (revision: ChangelogRevision) => void | Promise<void>;
     onstartWatcher: () => void | Promise<void>;
@@ -169,7 +175,7 @@
       <ReleaseEvidenceSummary candidates={workspace.candidates} {inventory} baselineEntries={workspace.baseline_capture?.state.entries ?? []} baselineFingerprint={workspace.baseline_capture?.state.source_fingerprint ?? null} {observations} {evidenceLabel} {busy} ondecision={ondecision} ondiscoverUpdates={ondiscoverUpdates} {onopenPage} {onopenLink} {onpin} {pinningEntry} />
     </div>
     <div id="changelog-panel" class="review-panel" role="tabpanel" aria-labelledby="changelog-tab" hidden={activeTab !== "changelog"}>
-      <ProposedChangelogPanel artifacts={changelogArtifacts} revisions={changelogRevisions} selectedRevision={selectedChangelogRevision} bind:draft={changelogDraft} {busy} {changelogBusy} ongenerate={ongenerateChangelog} oncreateBlank={oncreateBlankChangelog} onselect={onselectChangelog} onsave={onsaveChangelogRevision} onarchive={onarchiveChangelogRevision} />
+      <ProposedChangelogPanel artifacts={changelogArtifacts} revisions={changelogRevisions} selectedRevision={selectedChangelogRevision} bind:draft={changelogDraft} {busy} {changelogBusy} {changelogProgress} oncancel={oncancelChangelog} ongenerate={ongenerateChangelog} oncreateBlank={oncreateBlankChangelog} onselect={onselectChangelog} onselectionchange={onselectionChange} onsave={onsaveChangelogRevision} onarchive={onarchiveChangelogRevision} />
     </div>
     <div id="coordination-panel" class="review-panel" role="tabpanel" aria-labelledby="coordination-tab" hidden={activeTab !== "coordination"}>
       <div class="panel-heading"><div><p class="eyebrow">Evidence coordination</p><h3>Terminal edits and recovery</h3></div><span class="history-summary">{workspace.activity_count} recorded</span></div>

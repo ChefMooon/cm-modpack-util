@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS schema_metadata (
     value TEXT NOT NULL
 );
 
-INSERT OR IGNORE INTO schema_metadata (key, value) VALUES ('schema_version', '2');
+INSERT OR IGNORE INTO schema_metadata (key, value) VALUES ('schema_version', '3');
 
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY NOT NULL,
@@ -192,13 +192,18 @@ CREATE TABLE IF NOT EXISTS changelog_cache (
     association_json TEXT NOT NULL,
     retrieved_at TEXT NOT NULL,
     request_context TEXT NOT NULL,
-    response_context TEXT NOT NULL
+    response_context TEXT NOT NULL,
+    normalized_query TEXT NOT NULL DEFAULT '',
+    page_count INTEGER NOT NULL DEFAULT 1,
+    complete INTEGER NOT NULL DEFAULT 1,
+    loader TEXT,
+    game_version TEXT
 );
 
 CREATE TABLE IF NOT EXISTS changelog_attempts (
     id TEXT PRIMARY KEY NOT NULL,
     modpack_id TEXT NOT NULL,
-    snapshot_id TEXT NOT NULL,
+    snapshot_id TEXT,
     request_json TEXT NOT NULL,
     request_fingerprint TEXT NOT NULL,
     status TEXT NOT NULL,
@@ -212,13 +217,14 @@ CREATE TABLE IF NOT EXISTS changelog_attempts (
 CREATE TABLE IF NOT EXISTS changelog_artifacts (
     id TEXT PRIMARY KEY NOT NULL,
     modpack_id TEXT NOT NULL,
-    snapshot_id TEXT NOT NULL,
+    snapshot_id TEXT,
     release_workspace_id TEXT,
     stage TEXT NOT NULL DEFAULT 'proposed',
     source_capture_fingerprint TEXT,
     attempt_id TEXT NOT NULL UNIQUE,
     status TEXT NOT NULL,
     introduction TEXT,
+    selected_version_ids_json TEXT NOT NULL DEFAULT '[]',
     content TEXT NOT NULL,
     entries_json TEXT NOT NULL,
     created_at TEXT NOT NULL,
@@ -235,6 +241,7 @@ CREATE TABLE IF NOT EXISTS changelog_revisions (
     prior_revision_id TEXT,
     content TEXT NOT NULL,
     introduction TEXT,
+    selected_version_ids_json TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     is_current INTEGER NOT NULL DEFAULT 1,
     frozen INTEGER NOT NULL DEFAULT 0,
