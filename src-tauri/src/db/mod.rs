@@ -280,7 +280,7 @@ pub fn persist_apply_attempt(
 
 pub fn list_operation_attempts(
     database: &Database,
-    project_id: &str,
+    modpack_id: &str,
 ) -> Result<Vec<crate::domain::OperationAttempt>, CommandError> {
     let connection = database
         .0
@@ -290,7 +290,7 @@ pub fn list_operation_attempts(
         .prepare("SELECT id, modpack_id, workspace_id, snapshot_id, predecessor_id, kind, status, outcome, recovery_json, process_json, before_fingerprint_json, after_fingerprint_json, verification_json, error_json, created_at, finished_at FROM operation_attempts WHERE modpack_id = ?1 ORDER BY created_at DESC")
         .map_err(|error| CommandError::new("database_read_failed", "Operations could not be read").with_details(error.to_string()))?;
     let result = statement
-        .query_map([project_id], |row| {
+        .query_map([modpack_id], |row| {
             let kind: String = row.get(5)?;
             let status: String = row.get(6)?;
             let outcome: Option<String> = row.get(7)?;
@@ -415,9 +415,9 @@ pub fn record_recovery_acknowledgement(
 #[tauri::command]
 pub fn get_operation_history(
     state: State<'_, Database>,
-    project_id: String,
+    modpack_id: String,
 ) -> Result<Vec<crate::domain::OperationAttempt>, CommandError> {
-    list_operation_attempts(&state, &project_id)
+    list_operation_attempts(&state, &modpack_id)
 }
 
 /// Read a boolean preference for native lifecycle decisions (tray/startup).
