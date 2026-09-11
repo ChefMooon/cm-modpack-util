@@ -1838,10 +1838,10 @@
     justify-content: space-between;
     gap: 24px;
     max-width: 1060px;
-    margin: 58px auto 34px;
+    margin: 25px auto 24px;
   }
   .eyebrow {
-    margin: 0 0 10px;
+    margin: 0 0 7px;
     color: var(--color-accent-strong);
     font: 700 10px var(--font-mono);
     letter-spacing: 0.12em;
@@ -1853,7 +1853,7 @@
   }
   h1 {
     max-width: 680px;
-    font-size: clamp(28px, 5vw, 46px);
+    font-size: clamp(24px, 4vw, 36px);
     line-height: 1.04;
   }
   h2 {
@@ -1861,10 +1861,10 @@
   }
   .lede {
     max-width: 620px;
-    margin: 14px 0 0;
+    margin: 10px 0 0;
     color: var(--color-text-muted);
-    font-size: 15px;
-    line-height: 1.55;
+    font-size: 13px;
+    line-height: 1.45;
   }
   .error-banner {
     display: flex;
@@ -2043,7 +2043,7 @@
     .hero {
       align-items: flex-start;
       flex-direction: column;
-      margin-top: 36px;
+      margin-top: 25px;
     }
     .preview-grid {
       grid-template-columns: 1fr;
