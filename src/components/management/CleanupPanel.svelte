@@ -49,5 +49,35 @@
 </section>
 
 <style>
-  .cleanup-card { height:100%; padding:20px; border:1px solid var(--color-border); background:var(--color-surface); }.section-heading { display:flex; justify-content:space-between; gap:14px; align-items:flex-start; }.eyebrow { margin:0 0 8px; color:var(--color-accent-strong); font:700 10px var(--font-mono); letter-spacing:.12em; text-transform:uppercase; }.cleanup-card h2 { margin:0; font-size:20px; }.scope-label { color:var(--color-info); font:700 11px var(--font-mono); }.description { color:var(--color-text-muted); font-size:13px; line-height:1.5; }.scope { display:grid; gap:7px; margin:18px 0; color:var(--color-text-muted); font:11px var(--font-mono); }.scope select { min-height:40px; padding:0 10px; border:1px solid var(--color-border); color:var(--color-text); background:var(--color-bg); font:inherit; }.actions { display:flex; gap:10px; flex-wrap:wrap; }.plan-summary { display:flex; flex-wrap:wrap; gap:14px; margin-top:18px; padding:12px; color:var(--color-text-muted); background:var(--color-surface-raised); font-size:12px; }.plan-summary strong { color:var(--color-text); }.candidate-list { display:grid; gap:8px; margin:16px 0 0; padding:0; list-style:none; }.candidate-list li { display:grid; grid-template-columns:1fr auto; gap:4px 12px; padding:10px 0; border-top:1px solid var(--color-border); font-size:12px; }.candidate-list li div { display:grid; gap:3px; }.candidate-list li div span { color:var(--color-text-muted); font:11px var(--font-mono); }.candidate-action { display:flex !important; align-items:center; gap:8px; }.candidate-list p { grid-column:1 / -1; margin:0; color:var(--color-text-muted); }.candidate-list .protected { color:var(--color-warning); }.blocked,.result { margin-top:16px; padding:11px; border-left:3px solid var(--color-warning); background:color-mix(in srgb,var(--color-warning) 10%,var(--color-surface)); font-size:12px; }.blocked p,.result p { margin:4px 0 0; }.result { border-color:var(--color-success); background:color-mix(in srgb,var(--color-success) 10%,var(--color-surface)); }.result-warning { border-color:var(--color-warning); background:color-mix(in srgb,var(--color-warning) 10%,var(--color-surface)); }.result strong { margin-right:12px; text-transform:capitalize; }@media (max-width:600px) { .section-heading { flex-direction:column; }.candidate-list li { grid-template-columns:1fr; }.candidate-action { align-items:flex-start; flex-direction:column; } }
+  .cleanup-card { min-width:0; height:100%; padding:20px; border:1px solid var(--color-border); background:var(--color-surface); }
+  .section-heading { display:flex; justify-content:space-between; gap:14px; align-items:flex-start; }
+  .section-heading > div { min-width:0; }
+  .eyebrow { margin:0 0 8px; color:var(--color-accent-strong); font:700 10px var(--font-mono); letter-spacing:.12em; text-transform:uppercase; }
+  .cleanup-card h2 { margin:0; font-size:20px; overflow-wrap:anywhere; }
+  .scope-label { flex:0 0 auto; color:var(--color-info); font:700 11px var(--font-mono); }
+  .description { color:var(--color-text-muted); font-size:13px; line-height:1.5; }
+  .scope { display:grid; gap:7px; margin:18px 0; color:var(--color-text-muted); font:11px var(--font-mono); }
+  .scope select { width:100%; min-width:0; min-height:40px; padding:0 10px; border:1px solid var(--color-border); color:var(--color-text); background:var(--color-bg); font:inherit; }
+  .actions { display:flex; gap:10px; flex-wrap:wrap; }
+  .plan-summary { display:flex; flex-wrap:wrap; gap:14px; margin-top:18px; padding:12px; color:var(--color-text-muted); background:var(--color-surface-raised); font-size:12px; }
+  .plan-summary strong { color:var(--color-text); }
+  .candidate-list { display:grid; gap:8px; min-width:0; margin:16px 0 0; padding:0; list-style:none; }
+  .candidate-list li { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,auto); gap:4px 12px; min-width:0; padding:10px 0; border-top:1px solid var(--color-border); font-size:12px; }
+  .candidate-list li > div { display:grid; gap:3px; min-width:0; }
+  .candidate-list li div span { color:var(--color-text-muted); font:11px var(--font-mono); overflow-wrap:anywhere; }
+  .candidate-action { display:flex !important; align-items:center; justify-content:flex-end; gap:8px; min-width:0; flex-wrap:wrap; }
+  .candidate-action :global(.button) { max-width:100%; white-space:normal; text-align:left; }
+  .candidate-list p { grid-column:1 / -1; min-width:0; margin:0; color:var(--color-text-muted); overflow-wrap:anywhere; }
+  .candidate-list .protected { color:var(--color-warning); }
+  .blocked,.result { margin-top:16px; padding:11px; border-left:3px solid var(--color-warning); background:color-mix(in srgb,var(--color-warning) 10%,var(--color-surface)); font-size:12px; overflow-wrap:anywhere; }
+  .blocked p,.result p { margin:4px 0 0; }
+  .result { border-color:var(--color-success); background:color-mix(in srgb,var(--color-success) 10%,var(--color-surface)); }
+  .result-warning { border-color:var(--color-warning); background:color-mix(in srgb,var(--color-warning) 10%,var(--color-surface)); }
+  .result strong { margin-right:12px; text-transform:capitalize; }
+  @media (max-width:600px) {
+    .cleanup-card { padding:16px; }
+    .section-heading { flex-direction:column; }
+    .candidate-list li { grid-template-columns:1fr; }
+    .candidate-action { align-items:flex-start; justify-content:flex-start; flex-direction:column; }
+  }
 </style>
