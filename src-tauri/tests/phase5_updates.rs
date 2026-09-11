@@ -15,12 +15,12 @@ fn updater_configuration_keeps_windows_release_contract() {
     )
     .unwrap();
 
-    assert_eq!(config["version"], "0.0.12");
+    assert_eq!(config["version"], "0.0.13");
     assert_eq!(config["bundle"]["targets"][0], "nsis");
     assert_eq!(config["bundle"]["createUpdaterArtifacts"], true);
     assert_eq!(
         config["plugins"]["updater"]["endpoints"][0],
-        "https://github.com/ChefMooon/cm-modpack-util/releases/download/v0.0.12/latest.json"
+        "https://github.com/ChefMooon/cm-modpack-util/releases/latest/download/latest.json"
     );
     assert!(!config["plugins"]["updater"]["pubkey"]
         .as_str()
