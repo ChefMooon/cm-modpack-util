@@ -25,6 +25,7 @@
   let resetMessage = $state("");
   let resetPending = $state(false);
   let search = $state("");
+  let activeCategory = $state("general");
   const { toast } = useToast();
 
   const visibleDefinitions = $derived(settingDefinitions.filter((setting) => {
@@ -34,24 +35,37 @@
   const hasMatch = (id: string) => visibleDefinitions.some((setting) => setting.id === id);
   const description = (id: string) => settingDefinitions.find((setting) => setting.id === id)?.description ?? "";
 
-  onMount(async () => {
-    try {
-      const settings = await loadSettings();
-      const savedTheme = JSON.parse(settings["appearance.theme"] ?? '"system"');
-      const savedMotion = JSON.parse(settings["accessibility.reducedMotion"] ?? "false");
-      const savedHideToTray = JSON.parse(settings["general.hideToTray"] ?? "false");
-      const savedRestoreWindowState = JSON.parse(settings["general.restoreWindowState"] ?? "true");
-      const savedStartMinimized = JSON.parse(settings["general.startMinimized"] ?? "false");
-      if (savedTheme === "system" || savedTheme === "light" || savedTheme === "dark") theme = savedTheme;
-      if (typeof savedMotion === "boolean") reducedMotion = savedMotion;
-      if (typeof savedHideToTray === "boolean") hideToTray = savedHideToTray;
-      if (typeof savedRestoreWindowState === "boolean") restoreWindowState = savedRestoreWindowState;
-      if (typeof savedStartMinimized === "boolean") startMinimized = savedStartMinimized;
-      launchAtLogin = await isAutostartEnabled();
-      // Native setup restores the window before it is revealed.
-    } catch {
-      // Defaults remain usable if the database is unavailable.
-    }
+  onMount(() => {
+    const updateActiveCategory = () => {
+      const category = window.location.hash.slice(1);
+      if (["general", "appearance", "accessibility", "about"].includes(category)) {
+        activeCategory = category;
+      }
+    };
+    updateActiveCategory();
+    window.addEventListener("hashchange", updateActiveCategory);
+
+    void (async () => {
+      try {
+        const settings = await loadSettings();
+        const savedTheme = JSON.parse(settings["appearance.theme"] ?? '"system"');
+        const savedMotion = JSON.parse(settings["accessibility.reducedMotion"] ?? "false");
+        const savedHideToTray = JSON.parse(settings["general.hideToTray"] ?? "false");
+        const savedRestoreWindowState = JSON.parse(settings["general.restoreWindowState"] ?? "true");
+        const savedStartMinimized = JSON.parse(settings["general.startMinimized"] ?? "false");
+        if (savedTheme === "system" || savedTheme === "light" || savedTheme === "dark") theme = savedTheme;
+        if (typeof savedMotion === "boolean") reducedMotion = savedMotion;
+        if (typeof savedHideToTray === "boolean") hideToTray = savedHideToTray;
+        if (typeof savedRestoreWindowState === "boolean") restoreWindowState = savedRestoreWindowState;
+        if (typeof savedStartMinimized === "boolean") startMinimized = savedStartMinimized;
+        launchAtLogin = await isAutostartEnabled();
+        // Native setup restores the window before it is revealed.
+      } catch {
+        // Defaults remain usable if the database is unavailable.
+      }
+    })();
+
+    return () => window.removeEventListener("hashchange", updateActiveCategory);
   });
 
   async function setBooleanSetting(key: string, value: boolean) {
@@ -130,10 +144,10 @@
 
   <div class="settings-layout">
     <nav class="sidebar" aria-label="Settings categories">
-      <a class:active={hasMatch("general.hideToTray") || hasMatch("general.restoreWindowState") || hasMatch("general.launchAtLogin") || hasMatch("general.startMinimized")} class="category" href="#general">General</a>
-      <a class:active={hasMatch("appearance.theme")} class="category" href="#appearance">Appearance</a>
-      <a class:active={hasMatch("accessibility.reducedMotion")} class="category" href="#accessibility">Accessibility</a>
-      <a class="category" href="#about">About</a>
+      <a class:active={activeCategory === "general"} class="category" href="#general" aria-current={activeCategory === "general" ? "location" : undefined}>General</a>
+      <a class:active={activeCategory === "appearance"} class="category" href="#appearance" aria-current={activeCategory === "appearance" ? "location" : undefined}>Appearance</a>
+      <a class:active={activeCategory === "accessibility"} class="category" href="#accessibility" aria-current={activeCategory === "accessibility" ? "location" : undefined}>Accessibility</a>
+      <a class:active={activeCategory === "about"} class="category" href="#about" aria-current={activeCategory === "about" ? "location" : undefined}>About</a>
     </nav>
 
     <div class="detail-pane">
