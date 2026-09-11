@@ -304,6 +304,8 @@
     changelogExports = [];
     changelogDraft = "";
     showReviewModal = true;
+    void inspectModpack(modpack);
+    void loadSnapshots(modpack);
     void loadSnapshotChangelog(modpack, snapshot.id);
   }
 
