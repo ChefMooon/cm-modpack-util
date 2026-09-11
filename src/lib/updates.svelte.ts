@@ -16,6 +16,7 @@ export type UpdateSnapshot = {
   downloadedBytes: number;
   contentLength: number | null;
   downloadReady: boolean;
+  installPromptOpen: boolean;
   error: { category: UpdateErrorCategory; message: string } | null;
   detailsOpen: boolean;
 };
@@ -31,6 +32,7 @@ const initialSnapshot: UpdateSnapshot = {
   downloadedBytes: 0,
   contentLength: null,
   downloadReady: false,
+  installPromptOpen: false,
   error: null,
   detailsOpen: false,
 };
@@ -74,6 +76,7 @@ function laterAction(): ToastAction {
     onclick: () => {
       deferredThisSession = true;
       setState("later");
+      updateSnapshot.installPromptOpen = false;
       if (updateSnapshot.availableVersion) {
         void saveSetting("updates.lastDeferredVersion", updateSnapshot.availableVersion);
       }
@@ -214,6 +217,7 @@ export async function downloadUpdate(): Promise<void> {
       });
     });
     updateSnapshot.downloadReady = true;
+    updateSnapshot.installPromptOpen = true;
     setState("install_confirm");
     showToast({
       title: "Update ready to install",
@@ -236,6 +240,7 @@ export async function downloadUpdate(): Promise<void> {
 export async function installAndRestart(): Promise<void> {
   if (!canStartUpdateOperation(operation, "install") || !currentUpdate || !updateSnapshot.downloadReady) return;
   operation = "install";
+  updateSnapshot.installPromptOpen = false;
   setState("installing");
   showToast({
     title: "Installing update",
@@ -296,6 +301,10 @@ export function deferUpdateReview() {
   if (updateSnapshot.availableVersion) {
     void saveSetting("updates.lastDeferredVersion", updateSnapshot.availableVersion);
   }
+}
+
+export function closeInstallPrompt() {
+  updateSnapshot.installPromptOpen = false;
 }
 
 export function resetSessionUpdateState() {

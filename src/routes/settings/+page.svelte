@@ -14,7 +14,7 @@
   import { loadSettings, resetStoredSettings, saveSetting } from "../../lib/settings";
   import { commandErrorMessage } from "../../lib/errors";
   import { appVersion, formatAppVersion, loadAppVersion } from "../../lib/appVersion.svelte";
-  import { checkForUpdates, closeUpdateDetails, deferUpdateReview, downloadUpdate, installAndRestart, openUpdateDetails, updateSnapshot } from "../../lib/updates.svelte";
+  import { checkForUpdates, closeInstallPrompt, closeUpdateDetails, deferUpdateReview, downloadUpdate, installAndRestart, openUpdateDetails, updateSnapshot } from "../../lib/updates.svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
 
   let theme = $state<Theme>("system");
@@ -202,6 +202,11 @@
     <p class="muted">The signed Windows installer will download only after you choose <strong>Download update</strong>. Windows will close and restart only after you choose <strong>Install and restart</strong>.</p>
   </div>
   <div class="modal-actions"><Button variant="ghost" type="button" onclick={viewRelease}>View release on GitHub</Button><Button variant="secondary" type="button" onclick={deferUpdateReview}>Later</Button><Button variant="primary" type="button" onclick={downloadUpdate}>Download update</Button></div>
+</Modal>
+
+<Modal open={updateSnapshot.installPromptOpen} title="Update ready to install" onclose={closeInstallPrompt}>
+  <p>The update has been downloaded and is ready to install. Choose whether to restart now or continue working and install it later.</p>
+  <div class="modal-actions"><Button variant="secondary" type="button" onclick={closeInstallPrompt}>Later</Button><Button variant="primary" type="button" onclick={installAndRestart}>Install and restart</Button></div>
 </Modal>
 
 <Modal bind:open={showReset} title="Reset all settings?" onclose={() => (showReset = false)}>
