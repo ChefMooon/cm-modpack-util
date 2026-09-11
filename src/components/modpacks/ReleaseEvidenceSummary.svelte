@@ -179,7 +179,7 @@
     </div>
     <div class="summary-actions">
       <span class="count" aria-live="polite">{filteredRows.length} of {rows.length} shown</span>
-      {#if ondiscoverUpdates}<Tooltip text="Discover updates"><Button size="icon" variant="secondary" type="button" aria-label="Discover updates" disabled={busy} onclick={ondiscoverUpdates}><ArrowClockwiseIcon size={17} aria-hidden="true" /></Button></Tooltip>{/if}
+      {#if ondiscoverUpdates}<Tooltip text="Discover updates" alignment="end"><Button size="icon" variant="secondary" type="button" aria-label="Discover updates" disabled={busy} onclick={ondiscoverUpdates}><ArrowClockwiseIcon size={17} aria-hidden="true" /></Button></Tooltip>{/if}
     </div>
   </div>
   <div class="summary-controls">
