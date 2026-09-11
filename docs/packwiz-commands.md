@@ -1,4 +1,4 @@
-## v0.0.4 discovery compatibility profile
+## v0.0.8 Packwiz compatibility profile
 
 The initial discovery profile is deliberately narrow: the tested Packwiz 1.1.0
 Windows x86_64 executable, invoked in the registered canonical project root,
@@ -33,7 +33,9 @@ are valid, otherwise unknown.
 
 Known limitations: the profile does not support alternate Packwiz output
 formats or versions, performs no provider requests, and does not apply or
-persist update decisions. The compatibility profile is the v0.0.4 boundary.
+persist update decisions. The compatibility profile remains the v0.0.8
+boundary for v0.0.9; lifecycle and cleanup actions do not broaden Packwiz
+support or modify Packwiz project files.
 
 ## v0.0.6 mutation boundary
 

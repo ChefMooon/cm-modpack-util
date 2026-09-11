@@ -11,6 +11,7 @@
   <nav class="navigation" aria-label="Main navigation">
     <span class="version">{version}</span>
     <a href="/activity">Activity</a>
+    <a href="/management">Management</a>
     <a href="/settings">Settings</a>
   </nav>
 </header>

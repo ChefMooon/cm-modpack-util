@@ -1,3 +1,5 @@
+pub mod lifecycle;
+
 use crate::domain::{
     inventory, validation, ActivityRecord, ApplicationModpackMetadata, CommandError,
     DiscoveryResult, InventoryEntry, ModpackLifecycle, ModpackOverview, ModpackRecord,
@@ -447,7 +449,7 @@ pub fn initialize(path: &std::path::Path) -> Result<Database, rusqlite::Error> {
             [],
             |row| row.get(0),
         )?;
-        if version != "3" {
+        if version != "4" {
             return Err(rusqlite::Error::InvalidQuery);
         }
     } else {
@@ -461,6 +463,14 @@ pub fn initialize(path: &std::path::Path) -> Result<Database, rusqlite::Error> {
         }
         connection.execute_batch(include_str!("schema.sql"))?;
     }
+    connection.execute(
+        "UPDATE lifecycle_operations SET status = 'failed', finished_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), error_json = '{\"code\":\"stale_operation\",\"message\":\"Recovered after application restart\"}' WHERE status = 'running'",
+        [],
+    )?;
+    connection.execute(
+        "UPDATE cleanup_operations SET status = 'failed', finished_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), error_json = '{\"code\":\"stale_operation\",\"message\":\"Recovered after application restart\"}' WHERE status = 'running'",
+        [],
+    )?;
     Ok(Database(Mutex::new(connection)))
 }
 
@@ -3943,6 +3953,9 @@ mod tests {
             "changelog_artifacts",
             "changelog_revisions",
             "changelog_exports",
+            "lifecycle_tombstones",
+            "lifecycle_operations",
+            "cleanup_operations",
         ] {
             let exists: i64 = connection
                 .query_row(
@@ -3981,6 +3994,80 @@ mod tests {
             )
             .expect("setting should be readable");
         assert_eq!(value, "\\\"light\\\"");
+        let schema_version: String = connection
+            .query_row(
+                "SELECT value FROM schema_metadata WHERE key = 'schema_version'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("schema version should be readable");
+        assert_eq!(schema_version, "4");
+    }
+
+    #[test]
+    fn rejects_existing_version_three_database_without_migration() {
+        let path =
+            std::env::temp_dir().join(format!("cm-modpack-util-v3-{}.sqlite", std::process::id()));
+        {
+            let connection = rusqlite::Connection::open(&path).expect("database should open");
+            connection
+                .execute_batch(
+                    "CREATE TABLE schema_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL); INSERT INTO schema_metadata (key, value) VALUES ('schema_version', '3');",
+                )
+                .expect("legacy sentinel should be created");
+        }
+        assert!(initialize(&path).is_err());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn recovers_persisted_running_lifecycle_and_cleanup_operations() {
+        let path = std::env::temp_dir().join(format!(
+            "cm-modpack-util-recovery-{}-{}.sqlite",
+            std::process::id(),
+            super::unique_id("test")
+        ));
+        {
+            let database = initialize(&path).expect("database should initialize");
+            let connection = database
+                .0
+                .lock()
+                .expect("database lock should be available");
+            connection
+                .execute(
+                    "INSERT INTO lifecycle_operations (id, record_type, record_id, action, preview_fingerprint, status, created_at) VALUES ('lifecycle-1', 'snapshot', 'snapshot-1', 'archive', 'fingerprint', 'running', '1')",
+                    [],
+                )
+                .expect("running lifecycle operation should be insertable");
+            connection
+                .execute(
+                    "INSERT INTO cleanup_operations (id, scope, preview_fingerprint, status, created_at) VALUES ('cleanup-1', 'provider_cache', 'fingerprint', 'running', '1')",
+                    [],
+                )
+                .expect("running cleanup operation should be insertable");
+        }
+        let database = initialize(&path).expect("database should recover stale operations");
+        let connection = database
+            .0
+            .lock()
+            .expect("database lock should be available");
+        for table in ["lifecycle_operations", "cleanup_operations"] {
+            let status: String = connection
+                .query_row(
+                    &format!("SELECT status FROM {table} WHERE id = ?1"),
+                    [if table == "lifecycle_operations" {
+                        "lifecycle-1"
+                    } else {
+                        "cleanup-1"
+                    }],
+                    |row| row.get(0),
+                )
+                .expect("recovered operation should be readable");
+            assert_eq!(status, "failed");
+        }
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
     }
 
     #[test]

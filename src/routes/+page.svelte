@@ -55,7 +55,6 @@
     ReleaseWorkspaceWatcherStatus,
   } from "../lib/domain";
   import {
-    archiveModpack,
     chooseModpackDirectory,
     disconnectModpack,
     listModpacks,
@@ -66,7 +65,6 @@
     reconnectModpack,
     refreshModpack,
     registerModpack,
-    restoreModpack,
     updateModpackMetadata,
     cancelUpdateCheck,
     listenUpdateCheckProcess,
@@ -1173,14 +1171,14 @@
     modpack: ModpackRecord,
     action: "archive" | "restore" | "disconnect",
   ) {
+    if (action !== "disconnect") {
+      window.location.assign(`/management?target=${encodeURIComponent(modpack.id)}&action=${action}`);
+      return;
+    }
     busy = true;
     try {
       const result =
-        action === "archive"
-          ? await archiveModpack(modpack.id)
-          : action === "restore"
-            ? await restoreModpack(modpack.id)
-            : await disconnectModpack(modpack.id);
+        await disconnectModpack(modpack.id);
       replace(result);
     } catch (cause) {
       error = commandErrorMessage(cause);

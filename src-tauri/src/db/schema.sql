@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS schema_metadata (
     value TEXT NOT NULL
 );
 
-INSERT OR IGNORE INTO schema_metadata (key, value) VALUES ('schema_version', '3');
+INSERT OR IGNORE INTO schema_metadata (key, value) VALUES ('schema_version', '4');
 
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY NOT NULL,
@@ -362,4 +362,43 @@ CREATE TABLE IF NOT EXISTS release_workspace_observations (
     overlapped_operation INTEGER NOT NULL DEFAULT 0,
     fingerprint_json TEXT,
     FOREIGN KEY (workspace_id) REFERENCES release_workspaces(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS lifecycle_tombstones (
+    record_type TEXT NOT NULL,
+    record_id TEXT NOT NULL,
+    state TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (record_type, record_id)
+);
+
+CREATE TABLE IF NOT EXISTS lifecycle_operations (
+    id TEXT PRIMARY KEY NOT NULL,
+    record_type TEXT NOT NULL,
+    record_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    scope TEXT,
+    preview_fingerprint TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    finished_at TEXT,
+    error_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_lifecycle_operations_target
+    ON lifecycle_operations (record_type, record_id, status);
+
+CREATE TABLE IF NOT EXISTS cleanup_operations (
+    id TEXT PRIMARY KEY NOT NULL,
+    scope TEXT NOT NULL,
+    preview_fingerprint TEXT NOT NULL,
+    status TEXT NOT NULL,
+    removed_count INTEGER NOT NULL DEFAULT 0,
+    protected_count INTEGER NOT NULL DEFAULT 0,
+    removed_bytes INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    finished_at TEXT,
+    error_json TEXT
 );

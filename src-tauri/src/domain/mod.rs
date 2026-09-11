@@ -3,6 +3,7 @@ pub mod changelog;
 pub mod comparison;
 mod contracts;
 pub mod inventory;
+pub mod lifecycle;
 pub mod provenance;
 pub mod release;
 pub mod validation;
@@ -32,6 +33,13 @@ pub use contracts::{
     SnapshotLifecycle, SnapshotNoteRecord, SnapshotNoteScope, SnapshotRecheckRecord,
     SnapshotRecord, TrustedPageLink, UpdateCandidate, ValidationResult, ValidationSeverity,
     VersionChangeKind, VersionEvidence,
+};
+pub use lifecycle::{
+    action_is_supported, confirmation_phrase, preview_fingerprint, validate_confirmation,
+    CleanupCandidate, CleanupPlan, CleanupRequest, CleanupResult, CleanupScope, ImpactPreview,
+    LifecycleAction, LifecycleOperationStatus, LifecycleRecordType, LifecycleRequest,
+    LifecycleResult, OrphanClassification, ProtectedReference, StorageCategory, StorageReport,
+    UnavailableDestination,
 };
 pub use release::{
     project_workspace_state, validate_finalization, validate_publication_transition, CapturedEntry,

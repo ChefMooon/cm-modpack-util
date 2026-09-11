@@ -21,6 +21,129 @@ export type CommandError = {
   details?: string;
 };
 
+export type LifecycleRecordType =
+  | "modpack"
+  | "snapshot"
+  | "operation"
+  | "release_workspace"
+  | "release"
+  | "changelog_artifact"
+  | "changelog_revision"
+  | "changelog_export"
+  | "provider_cache";
+
+export type LifecycleAction = "archive" | "restore" | "detach" | "permanent_delete";
+export type CleanupScope = "provider_cache" | "obsolete_exports" | "provider_cache_and_obsolete_exports";
+export type LifecycleOperationStatus = "planned" | "running" | "succeeded" | "partial" | "blocked" | "failed";
+
+export type ProtectedReference = {
+  source_type: LifecycleRecordType;
+  source_id: string;
+  relationship: string;
+  reason: string;
+};
+
+export type OrphanClassification = {
+  record_type: LifecycleRecordType;
+  record_id: string;
+  missing_parent_type: LifecycleRecordType;
+  missing_parent_id: string;
+  reason: string;
+};
+
+export type UnavailableDestination = {
+  export_id: string;
+  destination: string;
+  status: string;
+  diagnostic: string | null;
+};
+
+export type ImpactPreview = {
+  target_type: LifecycleRecordType;
+  target_id: string;
+  action: LifecycleAction;
+  scope: CleanupScope | null;
+  fingerprint: string;
+  direct_references: ProtectedReference[];
+  retained_evidence: string[];
+  removable_records: string[];
+  external_boundaries: string[];
+  orphan: OrphanClassification | null;
+  unavailable_destination: UnavailableDestination | null;
+  active_operation: boolean;
+  blocked_reasons: string[];
+  eligible: boolean;
+  requires_confirmation: boolean;
+};
+
+export type LifecycleRequest = {
+  target_type: LifecycleRecordType;
+  target_id: string;
+  action: LifecycleAction;
+  scope: CleanupScope | null;
+  preview_fingerprint: string;
+  confirmation: string | null;
+};
+
+export type LifecycleResult = {
+  target_type: LifecycleRecordType;
+  target_id: string;
+  action: LifecycleAction;
+  status: LifecycleOperationStatus;
+  tombstoned: boolean;
+  physically_deleted: boolean;
+  retained_references: ProtectedReference[];
+  message: string;
+};
+
+export type CleanupCandidate = {
+  record_type: LifecycleRecordType;
+  record_id: string;
+  bytes: number;
+  protected: boolean;
+  reason: string;
+};
+
+export type CleanupPlan = {
+  scope: CleanupScope;
+  fingerprint: string;
+  candidates: CleanupCandidate[];
+  protected_count: number;
+  removable_bytes: number;
+  blocked_reasons: string[];
+};
+
+export type CleanupRequest = {
+  scope: CleanupScope;
+  preview_fingerprint: string;
+};
+
+export type CleanupResult = {
+  scope: CleanupScope;
+  status: LifecycleOperationStatus;
+  removed_count: number;
+  protected_count: number;
+  removed_bytes: number;
+  partial_failures: string[];
+};
+
+export type StorageCategory = {
+  name: string;
+  bytes: number;
+  removable: boolean;
+  protected: boolean;
+  availability: string;
+};
+
+export type StorageReport = {
+  categories: StorageCategory[];
+  application_owned_bytes: number;
+  removable_bytes: number;
+  protected_bytes: number;
+  unavailable_categories: string[];
+  external_boundaries: string[];
+};
+
 export type Observation<T> = { observed: T } | "unavailable";
 
 export type ModpackLifecycle = "active" | "maintenance" | "archived" | "disconnected";

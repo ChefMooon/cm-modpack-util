@@ -2,7 +2,24 @@
 
 A local-first foundation for CM modpacks, built with **Tauri 2**, **SvelteKit**, **TypeScript**, **Vite**, and **SQLite**.
 
-The v0.0.8 alpha provides local Packwiz modpack registration, inventory inspection, durable update-check snapshots, recoverable release workspaces, captured-state comparison, review decisions and notes, verified positional-slug pin/unpin operations, sequential selected updates, mutation history, modpack overview facts, changelog generation, Markdown export, and the Modpacks, Releases, Activity, and Settings shell. It reads Packwiz evidence offline for snapshot baselines and release comparison, while explicitly selected targeted updates and changelog generation may use their documented provider/network behavior. New releases begin from reviewable snapshots; direct capture-to-release creation is rejected.
+The v0.0.9 alpha provides local Packwiz modpack registration, inventory inspection, durable update-check snapshots, recoverable release workspaces, captured-state comparison, review decisions and notes, verified positional-slug pin/unpin operations, sequential selected updates, mutation history, modpack overview facts, changelog generation, Markdown export, data management, cleanup, and the Modpacks, Releases, Activity, Management, and Settings shell. It reads Packwiz evidence offline for snapshot baselines and release comparison, while explicitly selected targeted updates and changelog generation may use their documented provider/network behavior. New releases begin from reviewable snapshots; direct capture-to-release creation is rejected.
+
+## v0.0.9 data management boundaries
+
+Management actions operate only on application-owned SQLite records and retained
+provider-cache or export observations. Archive, restore, and detach actions are
+previewed before mutation; permanent deletion requires an impact preview and the
+exact target-specific phrase `DELETE <record-id>`. Cleanup defaults to scoped,
+unreferenced provider-cache rows and obsolete export records, and reports
+protected references or partial outcomes instead of claiming that all data was
+removed.
+
+Registered Packwiz directories, Packwiz files, Git metadata/history, and user
+export destination files are external resources and are never deleted, moved, or
+rewritten by lifecycle or cleanup actions. A broken application parent is shown
+as an orphaned record; an unavailable export destination is a separate persisted
+observation and does not authorize external-file access. Storage reporting counts
+application-owned bytes and lists external or unavailable observations separately.
 
 ## v0.0.8 release boundaries
 
@@ -119,6 +136,7 @@ All of these settings can be reset from the Advanced section of the Settings pag
 
 - The local SQLite database is initialized with the current schema only when it is empty. Existing databases must contain the current schema compatibility sentinel.
 - There is no migration, backup, or in-app database rebuild workflow in alpha.
+- The v0.0.9 schema compatibility sentinel is version 4. Existing version-3 alpha databases are intentionally incompatible and must be reset manually using the stop-app/delete-database procedure below; the app does not migrate or rewrite them.
 - When a clean reset is needed during development, stop the app and delete `cm-modpack-util.sqlite`, `cm-modpack-util.sqlite-wal`, and `cm-modpack-util.sqlite-shm` from Tauri's application data directory. The app recreates the application database on the next launch. Existing alpha installations using `settings.sqlite` must be reset manually; the app does not silently migrate or rename that file.
 - Packwiz modpack files remain outside the database lifecycle and are not deleted by a database reset.
 

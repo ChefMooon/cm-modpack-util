@@ -46,6 +46,16 @@ import type {
   ReleaseWorkspaceObservationRecord,
   ReleaseWorkspaceEvidence,
   ReleaseWorkspaceActivityPage,
+  CleanupPlan,
+  CleanupRequest,
+  CleanupResult,
+  CleanupScope,
+  ImpactPreview,
+  LifecycleAction,
+  LifecycleRecordType,
+  LifecycleRequest,
+  LifecycleResult,
+  StorageReport,
 } from "./domain";
 
 export async function chooseModpackDirectory(): Promise<string | null> {
@@ -329,4 +339,28 @@ export function listenReleaseWorkspaceWatcherError(
   handler: (error: { workspace_id: string; message: string }) => void,
 ): Promise<UnlistenFn> {
   return listen<{ workspace_id: string; message: string }>("release-workspace-watcher-error", (event) => handler(event.payload));
+}
+
+export function previewLifecycleAction(
+  targetType: LifecycleRecordType,
+  targetId: string,
+  action: LifecycleAction,
+): Promise<ImpactPreview> {
+  return invoke("preview_lifecycle_action", { targetType, targetId, action });
+}
+
+export function applyLifecycleAction(request: LifecycleRequest): Promise<LifecycleResult> {
+  return invoke("apply_lifecycle_action", { request });
+}
+
+export function previewCleanup(scope: CleanupScope): Promise<CleanupPlan> {
+  return invoke("preview_cleanup", { scope });
+}
+
+export function executeCleanup(request: CleanupRequest): Promise<CleanupResult> {
+  return invoke("execute_cleanup", { request });
+}
+
+export function getStorageReport(): Promise<StorageReport> {
+  return invoke("get_storage_report");
 }
