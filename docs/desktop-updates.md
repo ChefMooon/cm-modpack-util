@@ -1,7 +1,7 @@
 # Desktop update release procedure
 
 CM Modpack Util publishes stable Windows x64 releases as NSIS installers.
-Release tags use the `v<semver>` form, such as `v0.0.10`. The application
+Release tags use the `v<semver>` form, such as `v0.0.12`. The application
 version in `src-tauri/tauri.conf.json` is authoritative and must match
 `package.json`, `src-tauri/Cargo.toml`, the tag, and the visible application
 version.
@@ -45,15 +45,29 @@ The workflow also uses GitHub's automatically provided `GITHUB_TOKEN` with
 8. Remove the temporary release, or retain it only if the release checklist
    explicitly records why it is safe to keep.
 
-The stable `releases/latest/download/latest.json` endpoint is used by the app
-only after the published temporary release rehearsal passes. Do not use a draft
-release to validate the public `latest` feed.
+The app uses the stable endpoint
+`https://github.com/ChefMooon/cm-modpack-util/releases/latest/download/latest.json`
+only after the published temporary release rehearsal passes and a stable
+release is published. Until then, keep the configured endpoint tag-specific.
+Do not use a draft release to validate the public `latest` feed.
 
 ## Stable release
 
 After the temporary rehearsal passes, update the authoritative version files,
 run the repository validation commands, push the matching `v<semver>` tag, and
-review the generated draft assets before publishing. Do not rotate or replace
-the updater key casually: installed applications trust the public key embedded
-at build time, so key replacement requires a staged update trusted by the old
-key.
+review the generated draft assets before publishing. Publish only after the
+NSIS installer, `.sig`, and `latest.json` have been checked. The published
+stable release must remain the newest non-prerelease GitHub release so the
+`releases/latest` endpoint resolves to the intended version.
+
+At runtime, startup and manual checks fetch release metadata only. The app
+shows the current version, available version, release date, and notes before
+the user selects **Download and install**. Installation never relaunches the
+running app: after a successful install the shared toast offers **Restart now**
+or **Restart later**. Failed, offline, malformed, unsigned, interrupted, and
+relaunch-failure states remain visible with a retry or continue-using-app
+action, and do not block local modpack workflows.
+
+Do not rotate or replace the updater key casually: installed applications trust
+the public key embedded at build time, so key replacement requires a staged
+update trusted by the old key.

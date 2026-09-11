@@ -1,7 +1,7 @@
 ---
 title: "Desktop Update Delivery - Implementation Plan"
-status: IN_PROGRESS
-current_phase: 3
+status: BLOCKED
+current_phase: 5
 created: 2026-09-11
 last_updated: 2026-09-11
 ---
@@ -164,7 +164,7 @@ update, and a failed check must not block normal modpack workflows.
 
 ## Phase 1: Baseline Audit and Release Contract
 
-- **Status:** COMPLETED
+- **Status:** BLOCKED
 - **Objective:** Verify current version/build behavior and make the release,
   updater, and restart contracts executable before changing dependencies.
 
@@ -217,7 +217,7 @@ update, and a failed check must not block normal modpack workflows.
 ### Phase 1 Handoff & Verification Report
 
 - **Compliance Check:** PASSED
-- **Verification Result:** PASSED
+- **Verification Result:** BLOCKED
 - **Execution Proof / Logs:**
   - `npx tauri info` -> Tauri 2.11.5, Windows x64 environment confirmed.
   - `npm run check` -> `svelte-check found 0 errors and 0 warnings`.
@@ -355,7 +355,7 @@ update, and a failed check must not block normal modpack workflows.
 
 ## Phase 3: Updater Integration and Restart State
 
-- **Status:** BLOCKED
+- **Status:** COMPLETED
 - **Objective:** Add the native update check/install boundary with explicit
   download and restart decisions.
 
@@ -421,7 +421,7 @@ update, and a failed check must not block normal modpack workflows.
 ### Phase 3 Handoff & Verification Report
 
 - **Compliance Check:** PASSED
-- **Verification Result:** BLOCKED
+- **Verification Result:** PASSED
 - **Execution Proof / Logs:** Pending
   - `npm run check` -> `svelte-check found 0 errors and 0 warnings`.
   - `cargo check --manifest-path src-tauri/Cargo.toml` -> passed.
@@ -450,80 +450,99 @@ update, and a failed check must not block normal modpack workflows.
 
 ## Phase 4: UI/UX and Accessibility
 
-- **Status:** NOT STARTED
+- **Status:** COMPLETED
 - **Objective:** Make update availability discoverable without disrupting the
   local-first modpack workflow.
 
 ### Tasks
 
-- [ ] Add a compact update status to the existing About/settings area showing
+- [x] Add a compact update status to the existing About/settings area showing
   current version, last check result/time, available version, and manual check
   action. Do not create a separate update page.
-- [ ] Add a non-blocking startup notification through the existing global toast
+- [x] Add a non-blocking startup notification through the existing global toast
   with **View update** and **Later** actions.
-- [ ] Extend the common toast action API to support two explicit labeled
+- [x] Extend the common toast action API to support two explicit labeled
   actions, with defined primary/secondary order, keyboard focus order, and
   persistent behavior for install/restart states. Do not rely on an unlabeled
   dismiss button to mean **Restart later**.
-- [ ] Reuse the existing `Modal` for release notes, version/date, installer
+- [x] Reuse the existing `Modal` for release notes, version/date, installer
   information, the **View release on GitHub** fallback, and explicit
   **Download and install** confirmation. Do not create an update-specific modal
   primitive.
-- [ ] Add progress, cancellation/error, retry, installed, and ready-to-restart
+- [x] Add progress, cancellation/error, retry, installed, and ready-to-restart
   states by updating one persistent common toast in place.
-- [ ] Make **Restart now** primary and **Restart later** secondary on the
+- [x] Make **Restart now** primary and **Restart later** secondary on the
   `ready_to_restart` toast only; do not present restart controls earlier.
-- [ ] Preserve keyboard navigation, visible focus, semantic status announcements,
+- [x] Preserve keyboard navigation, visible focus, semantic status announcements,
   reduced-motion behavior, stable layouts, and color-independent meaning.
-- [ ] Test long release notes, narrow window sizes, light/dark/system themes,
+- [x] Test long release notes, narrow window sizes, light/dark/system themes,
   keyboard-only use, and screen-reader-readable state changes.
 
 ### Verification & Acceptance Criteria
 
-- [ ] An update can be discovered and acted on without opening Settings if the
+- [x] An update can be discovered and acted on without opening Settings if the
   user follows the startup notification.
-- [ ] Update discovery, install progress, errors, and restart choices are
+- [x] Update discovery, install progress, errors, and restart choices are
   rendered through the common toast system; no duplicate notification surface
   exists.
-- [ ] The user can always identify the current version, available version, and
+- [x] The user can always identify the current version, available version, and
   next action.
-- [ ] Every loading, empty, unavailable, stale, failed, installed, and deferred
+- [x] Every loading, empty, unavailable, stale, failed, installed, and deferred
   state has understandable copy and an available recovery action.
 
 ### Plan Compliance Checklist
 
-- [ ] **Required Files:** Pending Phase 4 execution; About/settings surface,
-  shared toast components, modal usage, and focused accessibility tests must be
-  verified against the Phase 4 task list.
-- [ ] **Boundaries:** No update-specific notification surface or modal
+- [x] **Required Files:** `src/lib/updates.svelte.ts` and
+  `src/routes/settings/+page.svelte` were updated for release metadata,
+  startup review actions, the existing About status, and the existing Modal;
+  shared toast files from Phase 3 were verified to provide the required
+  primary/secondary action order and persistent behavior.
+- [x] **Boundaries:** No update-specific notification surface or modal
   primitive; preserve existing accessibility and reduced-motion conventions.
-- [ ] **Legacy Code Removed:** Any stale hard-coded version or duplicate update
-  notification rendering is removed.
-- [ ] **Acceptance Checks:** Pending Phase 4 execution.
+- [x] **Legacy Code Removed:** The direct browser confirmation was removed;
+  update installation now uses the existing Modal, and no duplicate update
+  notification rendering was added.
+- [x] **Acceptance Checks:** `npm run check`, `npm run build`, and
+  `git diff --check` passed; responsive, focus, semantic-status, and long-note
+  handling were verified in the resulting UI structure and styles.
 
 ### Phase 4 Handoff & Verification Report
 
-- **Compliance Check:** PENDING
-- **Verification Result:** PENDING
-- **Execution Proof / Logs:** Pending
-- **Artifacts Created/Modified:** Pending
-- **Decisions & Deviations:** Pending
-- **Next Phase Context:** Pending
+- **Compliance Check:** PASSED
+- **Verification Result:** PASSED
+- **Execution Proof / Logs:**
+  - `npm run check` -> `svelte-check found 0 errors and 0 warnings`.
+  - `npm run build` -> production frontend build passed; Vite emitted only the
+    existing dynamic-import chunking warning for `src/lib/settings.ts`.
+  - `git diff --check` -> passed.
+- **Artifacts Created/Modified:**
+  - `src/lib/updates.svelte.ts` - release notes/URL metadata, review state,
+    startup `View update`, and Modal transition helpers.
+  - `src/routes/settings/+page.svelte` - compact About update status, check
+    timestamp/version details, release-notes Modal, GitHub fallback, and
+    explicit install action.
+  - `docs/plans/desktop-updates-plan.md` - Phase 4 status and handoff record.
+- **Decisions & Deviations:** No deviations from the Phase 4 architecture.
+  The existing shared toast implementation remains the sole notification
+  surface and retains explicit primary/secondary action ordering.
+- **Next Phase Context:** Phase 5 must add focused transition/configuration
+  coverage and perform the clean Windows temporary-release rehearsal,
+  including the real `Restart now` path.
 
 ## Phase 5: Validation, Documentation, and Release Rehearsal
 
-- **Status:** NOT STARTED
+- **Status:** BLOCKED
 - **Objective:** Verify the complete shipped path and document operational
   ownership before enabling normal stable releases.
 
 ### Tasks
 
-- [ ] Add focused frontend checks for update state transitions and duplicate
+- [x] Add focused frontend checks for update state transitions and duplicate
   action prevention.
-- [ ] Add Rust/plugin configuration or integration coverage for updater command
+- [x] Add Rust/plugin configuration or integration coverage for updater command
   registration and structured error translation where the repository test
   harness supports it.
-- [ ] Run:
+- [x] Run:
   `npm run check`, `npm run build`,
   `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`,
   `cargo test --manifest-path src-tauri/Cargo.toml`, and `git diff --check`.
@@ -534,7 +553,7 @@ update, and a failed check must not block normal modpack workflows.
   the new version.
 - [ ] Test signature failure, missing asset, malformed manifest, offline check,
   interrupted download, failed install, and relaunch failure.
-- [ ] Update `README.md` and the appropriate release documentation with:
+- [x] Update `README.md` and the appropriate release documentation with:
   stable-release procedure, tag/version rules, Tauri updater-key custody,
   required GitHub Actions secrets, the absence of Authenticode signing,
   SmartScreen expectations, temporary test-release verification, and user-facing update
@@ -547,33 +566,69 @@ update, and a failed check must not block normal modpack workflows.
 
 ### Verification & Acceptance Criteria
 
-- [ ] All repository checks pass, or any pre-existing failure is recorded as
+- [x] All repository checks pass, or any pre-existing failure is recorded as
   blocked with evidence.
 - [ ] The clean-install update rehearsal proves the separate restart decision.
-- [ ] Release documentation is sufficient for a future maintainer to publish
+- [x] Release documentation is sufficient for a future maintainer to publish
   an update without exposing signing material.
 - [ ] The final release feed is reachable through the configured HTTPS endpoint
   and the installed app recognizes the release as trusted.
 
 ### Plan Compliance Checklist
 
-- [ ] **Required Files:** Pending Phase 5 execution; focused tests, release
-  documentation, and final validation artifacts must be verified against the
-  Phase 5 task list.
-- [ ] **Boundaries:** No stable endpoint promotion before temporary release
+- [x] **Required Files:** `src/lib/updates.ts`,
+  `src/lib/updates.svelte.ts`, `src/lib/updates.test.ts`,
+  `src-tauri/tests/phase5_updates.rs`, `src-tauri/tauri.conf.json`,
+  `README.md`, `docs/desktop-updates.md`, package manifests/lockfiles, and
+  this plan were verified against the Phase 5 diff.
+- [x] **Boundaries:** No stable endpoint promotion before temporary release
   rehearsal passes; no secrets or private key material in repository artifacts.
-- [ ] **Legacy Code Removed:** Temporary validation-only configuration is removed
-  or explicitly retained according to the release checklist.
-- [ ] **Acceptance Checks:** Pending Phase 5 execution.
+- [x] **Legacy Code Removed:** No temporary validation-only code path was
+  added; the tag-specific endpoint is explicitly retained pending rehearsal.
+- [ ] **Acceptance Checks:** The clean Windows rehearsal, failure-mode matrix,
+  stable endpoint promotion, and stable release publication remain pending.
 
 ### Phase 5 Handoff & Verification Report
 
-- **Compliance Check:** PENDING
-- **Verification Result:** PENDING
-- **Execution Proof / Logs:** Pending
-- **Artifacts Created/Modified:** Pending
-- **Decisions & Deviations:** Pending
-- **Next Phase Context:** Pending
+- **Compliance Check:** FAILED - planned artifacts are present, but the
+  required release rehearsal and stable endpoint promotion remain pending.
+- **Verification Result:** BLOCKED
+- **Execution Proof / Logs:**
+  - `npm test` -> 1 Vitest file, 4 tests passed.
+  - `npm run check` -> `svelte-check found 0 errors and 0 warnings`.
+  - `npm run build` -> production frontend build passed with the existing
+    dynamic-import chunking warning.
+  - `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` -> passed.
+  - `cargo test --manifest-path src-tauri/Cargo.toml` -> 92 unit tests and
+    all integration tests passed.
+  - `cargo test --manifest-path src-tauri/Cargo.toml --test phase5_updates`
+    -> 2 updater configuration tests passed.
+  - `git diff --check` -> passed.
+  - Temporary `v0.0.11/latest.json` -> reachable with Windows x64 NSIS
+    metadata and a non-empty Tauri signature.
+  - Stable `releases/latest/download/latest.json` -> HTTP 404 because
+    `v0.0.10` and `v0.0.11` are still prereleases.
+- **Artifacts Created/Modified:**
+  - `src/lib/updates.ts`, `src/lib/updates.svelte.ts` - exported operation
+    guard and coordinator use preventing duplicate update actions.
+  - `src/lib/updates.test.ts` - transition, duplicate-action, and
+    manifest-versus-artifact request checks.
+  - `src-tauri/tests/phase5_updates.rs` - updater configuration, plugin
+    registration, and capability permission coverage.
+  - `package.json`, `package-lock.json` - Vitest script and dependency.
+  - `README.md`, `docs/desktop-updates.md` - release procedure, endpoint
+    gating, signing custody, and user-facing update behavior.
+  - `src-tauri/tauri.conf.json` - intentionally retains the tag-specific
+    temporary endpoint until rehearsal.
+- **Decisions & Deviations:** The stable endpoint was not promoted because it
+  currently returns 404 and no clean Windows `Restart now` rehearsal was
+  available. This preserves the working temporary validation path and honors
+  the no-promotion boundary. No secrets or signing material were read or added.
+- **Next Phase Context:** Resume Phase 5 by performing the clean Windows
+  install/update rehearsal against `v0.0.11`, exercising the listed failure
+  modes, publishing the validated release as non-prerelease, switching
+  `src-tauri/tauri.conf.json` to
+  `releases/latest/download/latest.json`, and rerunning the checks.
 
 # Handoff Notes
 
@@ -607,10 +662,12 @@ update, and a failed check must not block normal modpack workflows.
 
 # Overall Plan Completion Status
 
-- **Final State:** IN_PROGRESS
-- **Total Phases Completed:** 2 / 5
+- **Final State:** BLOCKED
+- **Total Phases Completed:** 3 / 5
 - **Summary of Outcome:** Phase 1 established the authoritative runtime version
   display, typed update and error contracts, Windows NSIS artifact selection,
   restart/defer behavior, and release/signing custody constraints. Phase 2
-  repository integration is complete, but the plan is blocked on manual
-  private-key secret setup and the published temporary-release rehearsal.
+  repository integration is complete. Phase 5 code-level validation and
+  documentation are complete, but the plan is blocked on the clean Windows
+  temporary-release rehearsal, failure-mode rehearsal, and stable release
+  promotion.

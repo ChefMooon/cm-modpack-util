@@ -3,17 +3,20 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { saveSetting } from "./settings";
 import { dismiss, toast, update } from "../components/ui/toast/toast.svelte";
 import type { ToastAction } from "../components/ui/toast/types";
-import type { UpdateErrorCategory, UpdateState } from "./updates";
+import { canStartUpdateOperation, type UpdateErrorCategory, type UpdateOperation, type UpdateState } from "./updates";
 
 export type UpdateSnapshot = {
   state: UpdateState;
   currentVersion: string;
   availableVersion: string | null;
   releaseDate: string | null;
+  releaseNotes: string | null;
+  releaseUrl: string | null;
   lastCheckedAt: string | null;
   downloadedBytes: number;
   contentLength: number | null;
   error: { category: UpdateErrorCategory; message: string } | null;
+  detailsOpen: boolean;
 };
 
 const initialSnapshot: UpdateSnapshot = {
@@ -21,16 +24,19 @@ const initialSnapshot: UpdateSnapshot = {
   currentVersion: "",
   availableVersion: null,
   releaseDate: null,
+  releaseNotes: null,
+  releaseUrl: null,
   lastCheckedAt: null,
   downloadedBytes: 0,
   contentLength: null,
   error: null,
+  detailsOpen: false,
 };
 
 export const updateSnapshot = $state<UpdateSnapshot>({ ...initialSnapshot });
 
 let currentUpdate: Update | null = null;
-let operation: "check" | "install" | "restart" | null = null;
+let operation: UpdateOperation | null = null;
 let updateToastId: string | null = null;
 let deferredThisSession = false;
 
@@ -74,11 +80,11 @@ function laterAction(): ToastAction {
   };
 }
 
-function availableAction(): ToastAction {
+function viewUpdateAction(): ToastAction {
   return {
-    label: "Download and install",
+    label: "View update",
     dismiss: false,
-    onclick: () => beginInstall(),
+    onclick: () => openUpdateDetails(),
   };
 }
 
@@ -94,9 +100,9 @@ function showAvailableToast() {
   if (deferredThisSession) return;
   showToast({
     title: `Version ${updateSnapshot.availableVersion} is available`,
-    description: "Review the update before downloading and installing it.",
+    description: "Review the release notes before downloading and installing it.",
     duration: 0,
-    action: availableAction(),
+    action: viewUpdateAction(),
     secondaryAction: laterAction(),
   });
 }
@@ -120,7 +126,7 @@ function showFailure(category: UpdateErrorCategory) {
 }
 
 export async function checkForUpdates(notify = false): Promise<UpdateSnapshot> {
-  if (operation) return updateSnapshot;
+  if (!canStartUpdateOperation(operation, "check")) return updateSnapshot;
   operation = "check";
   updateSnapshot.error = null;
   setState("checking");
@@ -130,6 +136,9 @@ export async function checkForUpdates(notify = false): Promise<UpdateSnapshot> {
     if (!result) {
       currentUpdate = null;
       updateSnapshot.availableVersion = null;
+      updateSnapshot.releaseDate = null;
+      updateSnapshot.releaseNotes = null;
+      updateSnapshot.releaseUrl = null;
       setState("up_to_date");
       if (updateToastId) {
         dismiss(updateToastId);
@@ -142,6 +151,11 @@ export async function checkForUpdates(notify = false): Promise<UpdateSnapshot> {
     updateSnapshot.currentVersion = result.currentVersion;
     updateSnapshot.availableVersion = result.version;
     updateSnapshot.releaseDate = result.date ?? null;
+    updateSnapshot.releaseNotes = result.body ?? null;
+    updateSnapshot.releaseUrl =
+      typeof result.rawJson.url === "string"
+        ? result.rawJson.url
+        : "https://github.com/ChefMooon/cm-modpack-util/releases";
     setState("available");
 
     const settings = await import("./settings").then(({ loadSettings }) => loadSettings());
@@ -166,13 +180,10 @@ export async function checkForUpdates(notify = false): Promise<UpdateSnapshot> {
 }
 
 export async function beginInstall(): Promise<void> {
-  if (operation || !currentUpdate || updateSnapshot.state === "ready_to_restart") return;
-  if (typeof window !== "undefined" && !window.confirm("Download and install this update now?")) {
-    setState("available");
-    return;
-  }
+  if (!canStartUpdateOperation(operation, "install") || !currentUpdate || updateSnapshot.state === "ready_to_restart") return;
 
   operation = "install";
+  updateSnapshot.detailsOpen = false;
   updateSnapshot.error = null;
   updateSnapshot.downloadedBytes = 0;
   updateSnapshot.contentLength = null;
@@ -219,7 +230,7 @@ export async function beginInstall(): Promise<void> {
 }
 
 export async function restartNow(): Promise<void> {
-  if (operation || updateSnapshot.state !== "ready_to_restart") return;
+  if (!canStartUpdateOperation(operation, "restart") || updateSnapshot.state !== "ready_to_restart") return;
   operation = "restart";
   setState("restarting");
   try {
@@ -235,6 +246,30 @@ export function deferRestart() {
   if (updateSnapshot.state === "ready_to_restart") {
     deferredThisSession = true;
     setState("later");
+  }
+}
+
+export function openUpdateDetails() {
+  if (updateSnapshot.availableVersion) {
+    updateSnapshot.detailsOpen = true;
+    setState("download_confirm");
+  }
+}
+
+export function closeUpdateDetails() {
+  updateSnapshot.detailsOpen = false;
+  if (updateSnapshot.state === "download_confirm") setState("available");
+}
+
+export function deferUpdateReview() {
+  deferredThisSession = true;
+  updateSnapshot.detailsOpen = false;
+  if (updateSnapshot.state === "download_confirm" || updateSnapshot.state === "available") {
+    setState("later");
+  }
+  if (updateToastId) {
+    dismiss(updateToastId);
+    updateToastId = null;
   }
 }
 

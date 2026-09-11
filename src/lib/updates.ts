@@ -35,6 +35,8 @@ export type UpdateError = {
   action: UpdateErrorAction;
 };
 
+export type UpdateOperation = "check" | "install" | "restart";
+
 export type UpdateStateGuidance = {
   owner: "update_coordinator" | "shared_toast" | "native_runtime";
   meaning: string;
@@ -155,4 +157,11 @@ const allowedTransitions: Record<UpdateState, readonly UpdateState[]> = {
 
 export function canTransitionUpdateState(from: UpdateState, to: UpdateState): boolean {
   return allowedTransitions[from].includes(to);
+}
+
+export function canStartUpdateOperation(
+  activeOperation: UpdateOperation | null,
+  requestedOperation: UpdateOperation,
+): boolean {
+  return activeOperation === null;
 }

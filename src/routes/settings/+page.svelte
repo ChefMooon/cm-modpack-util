@@ -14,7 +14,8 @@
   import { loadSettings, resetStoredSettings, saveSetting } from "../../lib/settings";
   import { commandErrorMessage } from "../../lib/errors";
   import { appVersion, formatAppVersion, loadAppVersion } from "../../lib/appVersion.svelte";
-  import { checkForUpdates, updateSnapshot } from "../../lib/updates.svelte";
+  import { beginInstall, checkForUpdates, closeUpdateDetails, deferUpdateReview, openUpdateDetails, updateSnapshot } from "../../lib/updates.svelte";
+  import { openUrl } from "@tauri-apps/plugin-opener";
 
   let theme = $state<Theme>("system");
   let reducedMotion = $state(false);
@@ -134,6 +135,19 @@
   async function checkUpdates() {
     await checkForUpdates(true);
   }
+
+  function formatCheckTime(value: string | null) {
+    return value ? new Date(value).toLocaleString() : "Not checked yet";
+  }
+
+  async function viewRelease() {
+    if (!updateSnapshot.releaseUrl) return;
+    try {
+      await openUrl(updateSnapshot.releaseUrl);
+    } catch {
+      toast({ title: "Release page could not be opened", description: "Open the project releases page in your browser.", severity: "error" });
+    }
+  }
 </script>
 
 <svelte:head><title>Settings · CM Modpack Util</title></svelte:head>
@@ -174,11 +188,21 @@
       {/if}
       {#if search && !hasMatch("appearance.theme") && !hasMatch("accessibility.reducedMotion")}<p class="empty-state">No settings matched “{search}”. <Button variant="quiet" size="sm" type="button" onclick={() => (search = "")}>Clear search</Button></p>{/if}
 
-      <section id="about" class="settings-section" aria-labelledby="about-title"><p class="eyebrow">About</p><h2 id="about-title">CM Modpack Util</h2><div class="setting-card about-card"><p>A local-first foundation for registered modpacks.</p><p class="muted">Version {formatAppVersion(appVersion.value)}</p><div class="update-status"><div><h3>Updates</h3><p class="muted">{updateSnapshot.state === "up_to_date" ? "You are up to date." : updateSnapshot.availableVersion ? `Version ${updateSnapshot.availableVersion} is available.` : updateSnapshot.error?.message ?? "Check for the latest stable release."}</p></div><Button variant="secondary" size="sm" type="button" disabled={updateSnapshot.state === "checking"} onclick={checkUpdates}>{updateSnapshot.state === "checking" ? "Checking…" : "Check for updates"}</Button></div></div></section>
+      <section id="about" class="settings-section" aria-labelledby="about-title"><p class="eyebrow">About</p><h2 id="about-title">CM Modpack Util</h2><div class="setting-card about-card"><p>A local-first foundation for registered modpacks.</p><p class="muted">Current version {formatAppVersion(appVersion.value ?? updateSnapshot.currentVersion)}</p><div class="update-status" role="status" aria-live="polite"><div><h3>Updates</h3><p class="muted">{updateSnapshot.state === "up_to_date" ? "You are up to date." : updateSnapshot.availableVersion ? `Version ${updateSnapshot.availableVersion} is available.` : updateSnapshot.error?.message ?? "Check for the latest stable release."}</p><p class="muted">Last checked: {formatCheckTime(updateSnapshot.lastCheckedAt)}</p></div><div class="update-actions">{#if updateSnapshot.availableVersion}<Button variant="quiet" size="sm" type="button" onclick={openUpdateDetails}>View update</Button>{/if}<Button variant="secondary" size="sm" type="button" disabled={updateSnapshot.state === "checking" || updateSnapshot.state === "downloading" || updateSnapshot.state === "installing"} onclick={checkUpdates}>{updateSnapshot.state === "checking" ? "Checking…" : "Check for updates"}</Button></div></div></div></section>
       <section class="settings-section danger-section" aria-labelledby="reset-title"><p class="eyebrow">Advanced</p><h2 id="reset-title">Reset settings</h2><div class="setting-card reset-card"><div><h3>Restore defaults</h3><p>Remove all saved preferences from the local SQLite database.</p></div><Button variant="danger" type="button" disabled={resetPending} onclick={() => (showReset = true)}>Reset settings</Button></div>{#if resetMessage}<p class="status" role="status">{resetMessage}</p>{/if}</section>
     </div>
   </div>
 </AppShell>
+
+<Modal open={updateSnapshot.detailsOpen} title={`Update to ${updateSnapshot.availableVersion ?? "latest version"}`} onclose={closeUpdateDetails}>
+  <div class="update-details">
+    <p class="lede">A stable update is available for CM Modpack Util.</p>
+    <dl class="update-facts"><div><dt>Current version</dt><dd>{formatAppVersion(appVersion.value ?? updateSnapshot.currentVersion)}</dd></div><div><dt>Available version</dt><dd>{updateSnapshot.availableVersion ?? "Unavailable"}</dd></div><div><dt>Release date</dt><dd>{updateSnapshot.releaseDate ? new Date(updateSnapshot.releaseDate).toLocaleDateString() : "Not provided"}</dd></div></dl>
+    <section aria-labelledby="release-notes-title"><h3 id="release-notes-title">Release notes</h3>{#if updateSnapshot.releaseNotes}<div class="release-notes">{updateSnapshot.releaseNotes}</div>{:else}<p class="muted">No release notes were provided. Review the release page for details.</p>{/if}</section>
+    <p class="muted">The signed Windows installer will download only after you choose <strong>Download and install</strong>.</p>
+  </div>
+  <div class="modal-actions"><Button variant="ghost" type="button" onclick={viewRelease}>View release on GitHub</Button><Button variant="secondary" type="button" onclick={deferUpdateReview}>Later</Button><Button variant="primary" type="button" onclick={beginInstall}>Download and install</Button></div>
+</Modal>
 
 <Modal bind:open={showReset} title="Reset all settings?" onclose={() => (showReset = false)}>
   <p>This removes saved preferences and restores the default theme and accessibility settings. This action cannot be undone.</p>
@@ -188,6 +212,6 @@
 <style>
   .settings-header { display: flex; align-items: flex-start; gap: 34px; margin: 25px 0 24px; }.eyebrow { margin: 0 0 7px; color: var(--color-cyan); font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }h1, h2, h3 { margin: 0; }h1 { font-size: clamp(24px, 4vw, 36px); line-height: 1.04; }h2 { font-size: 20px; }h3 { font-size: 15px; }
   .search-wrap { width: 100%; margin-bottom: 32px; }.search-wrap label { display: block; margin-bottom: 8px; color: var(--color-text-muted); font-size: 12px; }.search-box { display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: var(--color-panel); }.search-box input { width: 100%; padding: 8px 0; border: 0; outline: 0; color: var(--color-ink); background: transparent; }.settings-layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 48px; }.sidebar { display: flex; flex-direction: column; gap: 4px; }.category { padding: 10px 12px; border-left: 2px solid transparent; color: var(--color-text-muted); text-decoration: none; }.category:hover, .category.active { border-left-color: var(--color-cyan); color: var(--color-ink); background: var(--color-panel-muted); }.detail-pane { min-width: 0; }.settings-section { margin-bottom: 48px; scroll-margin-top: 24px; }.settings-section > h2 { margin-bottom: 18px; }.setting-card { padding: 22px; border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: var(--color-panel); }.setting-copy p, .about-card p, .reset-card p { max-width: 620px; margin: 8px 0 20px; color: var(--color-text-muted); font-size: 13px; line-height: 1.55; }.about-card p { margin: 0; }.about-card .muted { margin-top: 8px; color: var(--color-text-subtle); }.setting-row, .reset-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; }.setting-row .setting-copy p, .reset-card p { margin-bottom: 0; }
-  .switch { display: flex; align-items: center; gap: 10px; color: var(--color-text-muted); cursor: pointer; }.switch input { position: absolute; opacity: 0; }.switch span { width: 42px; height: 24px; padding: 3px; border-radius: 20px; background: var(--color-border); }.switch span::after { display: block; width: 18px; height: 18px; border-radius: 50%; background: var(--color-text-muted); content: ""; transition: transform .15s; }.switch input:checked + span { background: var(--color-accent-strong); }.switch input:checked + span::after { background: var(--color-on-accent); transform: translateX(18px); }.switch input:focus-visible + span { box-shadow: var(--focus-ring); }.switch b { font-size: 12px; }.status, .empty-state { color: var(--color-text-muted); font-size: 12px; }.update-status { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--color-line); }.update-status p { margin: 5px 0 0; }.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
-  @media (max-width: 700px) { .settings-header { gap: 18px; flex-direction: column; margin: 17px 0; }.settings-layout { display: block; }.sidebar { flex-direction: row; margin-bottom: 32px; overflow-x: auto; }.setting-row, .reset-card { align-items: flex-start; flex-direction: column; } }
+  .switch { display: flex; align-items: center; gap: 10px; color: var(--color-text-muted); cursor: pointer; }.switch input { position: absolute; opacity: 0; }.switch span { width: 42px; height: 24px; padding: 3px; border-radius: 20px; background: var(--color-border); }.switch span::after { display: block; width: 18px; height: 18px; border-radius: 50%; background: var(--color-text-muted); content: ""; transition: transform .15s; }.switch input:checked + span { background: var(--color-accent-strong); }.switch input:checked + span::after { background: var(--color-on-accent); transform: translateX(18px); }.switch input:focus-visible + span { box-shadow: var(--focus-ring); }.switch b { font-size: 12px; }.status, .empty-state { color: var(--color-text-muted); font-size: 12px; }  .update-status { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--color-line); }.update-status p { margin: 5px 0 0; }.update-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }.modal-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 22px; }.update-details { color: var(--color-text-muted); }.update-details .lede { margin-top: 0; }.update-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 18px 0 24px; }.update-facts div { padding: 12px; border: 1px solid var(--color-line); border-radius: var(--radius-sm); }.update-facts dt { color: var(--color-text-subtle); font-size: 11px; }.update-facts dd { margin: 5px 0 0; color: var(--color-text); font-weight: 700; }.release-notes { max-height: 260px; overflow: auto; margin-top: 8px; padding: 12px; border: 1px solid var(--color-line); border-radius: var(--radius-sm); color: var(--color-text); white-space: pre-wrap; overflow-wrap: anywhere; }
+  @media (max-width: 700px) { .settings-header { gap: 18px; flex-direction: column; margin: 17px 0; }.settings-layout { display: block; }.sidebar { flex-direction: row; margin-bottom: 32px; overflow-x: auto; }.setting-row, .reset-card { align-items: flex-start; flex-direction: column; }.update-status { flex-direction: column; }.update-actions { justify-content: flex-start; }.update-facts { grid-template-columns: 1fr; } }
 </style>

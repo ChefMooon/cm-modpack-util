@@ -1,0 +1,43 @@
+import { describe, expect, it } from "vitest";
+import {
+  canStartUpdateOperation,
+  canTransitionUpdateState,
+} from "./updates";
+import { createUpdateRequestDouble } from "./updateTestDouble";
+
+describe("update state transitions", () => {
+  it("allows the explicit install and restart path", () => {
+    expect(canTransitionUpdateState("available", "download_confirm")).toBe(true);
+    expect(canTransitionUpdateState("download_confirm", "downloading")).toBe(true);
+    expect(canTransitionUpdateState("downloading", "installing")).toBe(true);
+    expect(canTransitionUpdateState("installing", "ready_to_restart")).toBe(true);
+    expect(canTransitionUpdateState("ready_to_restart", "restarting")).toBe(true);
+  });
+
+  it("does not allow installation or restart before their prerequisites", () => {
+    expect(canTransitionUpdateState("available", "installing")).toBe(false);
+    expect(canTransitionUpdateState("installing", "restarting")).toBe(false);
+    expect(canTransitionUpdateState("ready_to_restart", "downloading")).toBe(false);
+  });
+});
+
+describe("update operation guard", () => {
+  it("rejects every duplicate operation while one is active", () => {
+    expect(canStartUpdateOperation(null, "check")).toBe(true);
+    expect(canStartUpdateOperation("check", "check")).toBe(false);
+    expect(canStartUpdateOperation("check", "install")).toBe(false);
+    expect(canStartUpdateOperation("install", "restart")).toBe(false);
+  });
+});
+
+describe("update request boundary", () => {
+  it("keeps startup checks on metadata until install is explicitly requested", async () => {
+    const request = createUpdateRequestDouble();
+
+    await request.check();
+    expect(request.requests).toEqual(["manifest"]);
+
+    await request.downloadAndInstall();
+    expect(request.requests).toEqual(["manifest", "artifact"]);
+  });
+});
