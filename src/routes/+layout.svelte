@@ -5,6 +5,7 @@
   import "../app.css";
   import ToastViewport from "../components/ui/toast/ToastViewport.svelte";
   import { loadSettings } from "../lib/settings";
+  import { checkForUpdates } from "../lib/updates.svelte";
 
   let { children } = $props();
 
@@ -32,6 +33,7 @@
       }, 250);
     };
     try {
+      void checkForUpdates(true);
       void (async () => {
         const currentWindow = getCurrentWindow();
         const settings = await loadSettings();

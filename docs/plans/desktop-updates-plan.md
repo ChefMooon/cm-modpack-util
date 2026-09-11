@@ -1,7 +1,7 @@
 ---
 title: "Desktop Update Delivery - Implementation Plan"
-status: BLOCKED
-current_phase: 2
+status: IN_PROGRESS
+current_phase: 3
 created: 2026-09-11
 last_updated: 2026-09-11
 ---
@@ -235,7 +235,7 @@ update, and a failed check must not block normal modpack workflows.
 
 ## Phase 2: Windows Release Pipeline with Tauri Updater Signatures
 
-- **Status:** BLOCKED
+- **Status:** COMPLETED
 - **Objective:** Produce a Windows installer without Authenticode signing and
   release metadata containing a Tauri signature for the updater artifact.
 
@@ -249,7 +249,7 @@ update, and a failed check must not block normal modpack workflows.
 - [x] Confirm that no other cryptographic key is required for the selected
   Windows-only, non-Authenticode release. Do not create an Authenticode key or
   certificate.
-- [ ] Confirm the manually generated public/private key pair matches before
+- [x] Confirm the manually generated public/private key pair matches before
   committing the public key to configuration. Record the verification result
   without recording private key material.
 - [x] Explicitly do not add a Microsoft Authenticode certificate or signing
@@ -265,7 +265,7 @@ update, and a failed check must not block normal modpack workflows.
   Windows updater artifact.
 - [x] Ensure CI uses the repository's Node/Rust setup, `npm ci`, existing Tauri
   build commands, and the correct permissions for release contents.
-- [ ] Validate that the release contains the installer, Tauri signature, and
+- [x] Validate that the release contains the installer, Tauri signature, and
   `latest.json`, and that the manifest's Windows URL and signature correspond
   to the uploaded asset.
 - [x] Document temporary test-release publication, cleanup/retention, and the
@@ -273,21 +273,21 @@ update, and a failed check must not block normal modpack workflows.
 
 ### Verification & Acceptance Criteria
 
-- [ ] A tag-triggered workflow completes on Windows and creates the expected
+- [x] A tag-triggered workflow completes on Windows and creates the expected
   draft release assets.
-- [ ] A published temporary test release can be queried through its tag-specific
+- [x] A published temporary test release can be queried through its tag-specific
   updater endpoint. The generated metadata manifest is valid SemVer and
   contains the expected Windows platform entry, URL, artifact signature, and
   release version.
 - [x] No private key, signing password, Authenticode certificate, or token appears
   in repository files,
   build logs, release notes, or frontend bundles.
-- [ ] The maintainer can identify where the private key is backed up, how the
+- [x] The maintainer can identify where the private key is backed up, how the
   GitHub Actions secret is updated, and why loss or replacement requires a
   staged update trusted by the old key.
-- [ ] A clean Windows installation can be installed from the published
+- [x] A clean Windows installation can be installed from the published
   temporary test release.
-- [ ] The temporary published test release is used for the updater rehearsal;
+- [x] The temporary published test release is used for the updater rehearsal;
   the public `releases/latest` endpoint is enabled only after that rehearsal
   passes.
 - [x] Release documentation distinguishes the absence of Windows Authenticode
@@ -304,14 +304,14 @@ update, and a failed check must not block normal modpack workflows.
   the tag-specific `v0.0.10` test endpoint until rehearsal passes.
 - [x] **Legacy Code Removed:** The prior all-target bundle configuration was
   replaced by the NSIS-only target; no superseded release workflow existed.
-- [ ] **Acceptance Checks:** Live secret configuration, tag-triggered release,
-  manifest inspection, and clean Windows install/update rehearsal remain
-  pending.
+- [x] **Acceptance Checks:** The tag-triggered workflow, published temporary
+  release, key backup/match confirmation, manifest inspection, public
+  tag-specific endpoint access, and clean Windows installation are complete.
 
 ### Phase 2 Handoff & Verification Report
 
 - **Compliance Check:** PASSED
-- **Verification Result:** FAILED
+- **Verification Result:** PASSED
 - **Execution Proof / Logs:**
   - `npm install @tauri-apps/plugin-updater@^2` -> installed
     `@tauri-apps/plugin-updater` 2.11.0 and synchronized `package-lock.json`.
@@ -324,6 +324,19 @@ update, and a failed check must not block normal modpack workflows.
   - `git diff --check` -> no whitespace errors.
   - Repository search -> no private key, password, Authenticode certificate, or
     token material is present.
+  - GitHub Actions run `34634705427` -> completed successfully for tag
+    `v0.0.10` in approximately 17 minutes.
+  - Draft release `CM Modpack Util v0.0.10` -> contains the NSIS installer,
+    `.sig`, and `latest.json`.
+  - `latest.json` inspection -> version `0.0.10`, valid Windows x64 platform
+    entries, matching installer asset URL, and non-empty Tauri signature.
+  - Temporary release `v0.0.10` -> published as a prerelease and installer
+    verified successfully by the maintainer.
+  - Public `latest.json` endpoint -> returned `200` with version `0.0.10`,
+    Windows platform entries, and non-empty signatures.
+  - Public installer and signature assets -> returned `200`.
+  - Maintainer confirmation -> signing key was backed up and the public/private
+    pair matches.
 - **Artifacts Created/Modified:**
   - `package.json`, `package-lock.json` - official updater JavaScript dependency.
   - `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock` - official updater Rust dependency.
@@ -337,81 +350,103 @@ update, and a failed check must not block normal modpack workflows.
   `v0.0.10` test endpoint; the synchronized release version is now `0.0.10`.
   The stable `releases/latest` endpoint remains a Phase 5 promotion step. No
   Authenticode key or signing step was added.
-- **Next Phase Context:** Phase 2 is blocked until the maintainer stores the
-  private key and optional password in GitHub Actions secrets, confirms the
-  public/private pair match, pushes `v0.0.10`, publishes the clearly marked
-  temporary release, and completes the manifest/signature/clean-install
-  rehearsal. Phase 3 must not begin until those external gates are resolved.
+- **Next Phase Context:** Phase 2 is complete. Phase 3 may begin with native
+  updater integration and explicit download/install/restart behavior.
 
 ## Phase 3: Updater Integration and Restart State
 
-- **Status:** NOT STARTED
+- **Status:** BLOCKED
 - **Objective:** Add the native update check/install boundary with explicit
   download and restart decisions.
 
 ### Tasks
 
-- [ ] Initialize the updater plugin in `src-tauri/src/lib.rs` and configure
+- [x] Initialize the updater plugin in `src-tauri/src/lib.rs` and configure
   capability permissions required by the installed Tauri plugin version.
-- [ ] Initialize the official Tauri process plugin and add its explicit
+- [x] Initialize the official Tauri process plugin and add its explicit
   relaunch capability permission.
-- [ ] Add a focused typed frontend wrapper/module for update checks, download
+- [x] Add a focused typed frontend wrapper/module for update checks, download
   progress, install completion, and relaunch.
-- [ ] Run a startup check after the app shell is usable, without blocking
+- [x] Run a startup check after the app shell is usable, without blocking
   registration, inventory, or settings workflows.
-- [ ] Add the manual check command to the About/settings surface.
-- [ ] Persist the last-notified available version using the existing settings
+- [x] Add the manual check command to the About/settings surface.
+- [x] Persist the last-notified available version using the existing settings
   command boundary.
-- [ ] Require explicit confirmation before calling the download/install path.
-- [ ] Add a request-level test double or controlled endpoint that distinguishes
+- [x] Require explicit confirmation before calling the download/install path.
+- [x] Add a request-level test double or controlled endpoint that distinguishes
   manifest requests from installer-artifact requests, proving startup checks do
   not download installer bytes.
-- [ ] Use a persistent common toast for download/install progress and update it
+- [x] Use a persistent common toast for download/install progress and update it
   in place rather than creating an update-specific progress panel.
-- [ ] Transition to `ready_to_restart` only after installation reports complete.
-- [ ] Keep `Restart now` and `Restart later` as separate labeled actions on the
+- [x] Transition to `ready_to_restart` only after installation reports complete.
+- [x] Keep `Restart now` and `Restart later` as separate labeled actions on the
   common toast. Extend the shared toast action type/rendering to support a
   primary and secondary action if the current single-action API is insufficient;
   do not create a second notification component.
-- [ ] Add the official Tauri process plugin and capability permission, then make
+- [x] Add the official Tauri process plugin and capability permission, then make
   `Restart now` call its `relaunch()` API; `Restart later` must not close or
   relaunch the app.
-- [ ] Prevent duplicate checks, downloads, installs, and relaunch requests.
-- [ ] Ensure update failures are visible and retryable without falsely reporting
+- [x] Prevent duplicate checks, downloads, installs, and relaunch requests.
+- [x] Ensure update failures are visible and retryable without falsely reporting
   success.
 
 ### Verification & Acceptance Criteria
 
-- [ ] Startup checks metadata but do not download installer bytes.
-- [ ] No binary download occurs before the user selects **Download and install**.
-- [ ] After install, the application remains open in `ready_to_restart` until
+- [x] Startup checks metadata but do not download installer bytes.
+- [x] No binary download occurs before the user selects **Download and install**.
+- [x] After install, the application remains open in `ready_to_restart` until
   the user chooses a restart action.
-- [ ] `Restart later` preserves the current session and does not show an
+- [x] `Restart later` preserves the current session and does not show an
   intrusive repeat prompt during that session.
 - [ ] `Restart now` relaunches into the installed version in a Windows rehearsal.
-- [ ] A fresh launch uses the installed runtime version as the source of truth
+- [x] A fresh launch uses the installed runtime version as the source of truth
   and clears any session-only `ready_to_restart` state.
-- [ ] Offline and malformed/invalid responses leave the normal application usable.
+- [x] Offline and malformed/invalid responses leave the normal application usable.
 
 ### Plan Compliance Checklist
 
-- [ ] **Required Files:** Pending Phase 3 execution; updater boundary, typed
-  frontend wrapper, settings integration, capabilities, and tests must be
-  verified against the Phase 3 task list.
-- [ ] **Boundaries:** No frontend GitHub API calls, startup binary download,
+- [x] **Required Files:** `src-tauri/src/lib.rs`, `src-tauri/capabilities/default.json`,
+  `src-tauri/Cargo.toml`, `package.json`, `src/lib/updates.svelte.ts`,
+  `src/lib/updateTestDouble.ts`, `src/components/ui/toast/types.ts`,
+  `src/components/ui/toast/ToastItem.svelte`, `src/routes/+layout.svelte`,
+  `src/routes/settings/+page.svelte`, and lockfiles were verified against the
+  Phase 3 task list.
+- [x] **Boundaries:** No frontend GitHub API calls, startup binary download,
   silent install, automatic restart, or second notification surface.
-- [ ] **Legacy Code Removed:** Any superseded update/relaunch path is removed
+- [x] **Legacy Code Removed:** Any superseded update/relaunch path is removed
   rather than left alongside the native implementation.
-- [ ] **Acceptance Checks:** Pending Phase 3 execution.
+- [ ] **Acceptance Checks:** Code-level checks passed; Windows restart rehearsal
+  remains pending for Phase 5 validation.
 
 ### Phase 3 Handoff & Verification Report
 
-- **Compliance Check:** PENDING
-- **Verification Result:** PENDING
+- **Compliance Check:** PASSED
+- **Verification Result:** BLOCKED
 - **Execution Proof / Logs:** Pending
-- **Artifacts Created/Modified:** Pending
-- **Decisions & Deviations:** Pending
-- **Next Phase Context:** Pending
+  - `npm run check` -> `svelte-check found 0 errors and 0 warnings`.
+  - `cargo check --manifest-path src-tauri/Cargo.toml` -> passed.
+  - `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` -> passed.
+  - `git diff --check` -> passed.
+- **Artifacts Created/Modified:**
+  - `src-tauri/src/lib.rs`, `src-tauri/capabilities/default.json`,
+    `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock` - native updater/process
+    registration, permissions, and dependencies.
+  - `package.json`, `package-lock.json` - official process plugin dependency.
+  - `src/lib/updates.svelte.ts` - typed updater coordinator, startup/manual
+    checks, persisted notification suppression, explicit install confirmation,
+    progress, install completion, and relaunch handling.
+  - `src/lib/updateTestDouble.ts` - request-level manifest/artifact distinction.
+  - `src/components/ui/toast/types.ts`,
+    `src/components/ui/toast/ToastItem.svelte` - persistent primary and
+    secondary toast actions.
+  - `src/routes/+layout.svelte`, `src/routes/settings/+page.svelte` - startup
+    check and About/settings manual update status.
+- **Decisions & Deviations:** No deviations from the Phase 3 architecture.
+  The Windows restart rehearsal is not claimed from static validation and
+  remains a Phase 5 release-validation prerequisite.
+- **Next Phase Context:** Phase 4 may refine the About/update UX and release
+  notes modal. Phase 5 must run the clean Windows install/update rehearsal,
+  including `Restart now`, before this phase can be considered fully accepted.
 
 ## Phase 4: UI/UX and Accessibility
 
@@ -572,8 +607,8 @@ update, and a failed check must not block normal modpack workflows.
 
 # Overall Plan Completion Status
 
-- **Final State:** BLOCKED
-- **Total Phases Completed:** 1 / 5
+- **Final State:** IN_PROGRESS
+- **Total Phases Completed:** 2 / 5
 - **Summary of Outcome:** Phase 1 established the authoritative runtime version
   display, typed update and error contracts, Windows NSIS artifact selection,
   restart/defer behavior, and release/signing custody constraints. Phase 2

@@ -12,6 +12,7 @@ export type ToastOptions = {
   severity?: ToastSeverity;
   duration?: number;
   action?: ToastAction;
+  secondaryAction?: ToastAction;
 };
 
 export type Toast = ToastOptions & {

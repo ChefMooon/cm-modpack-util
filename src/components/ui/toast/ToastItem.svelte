@@ -26,19 +26,18 @@
     }
   }
 
-  function handleAction() {
-    if (!item.action) return;
+  function handleAction(action: NonNullable<Toast["action"]>) {
     try {
-      const result = item.action.onclick();
+      const result = action.onclick();
       if (result instanceof Promise) {
         void result.catch(() => undefined).finally(() => {
-          if (item.action?.dismiss !== false) dismiss(item.id);
+          if (action.dismiss !== false) dismiss(item.id);
         });
-      } else if (item.action.dismiss !== false) {
+      } else if (action.dismiss !== false) {
         dismiss(item.id);
       }
     } catch {
-      if (item.action.dismiss !== false) dismiss(item.id);
+      if (action.dismiss !== false) dismiss(item.id);
     }
   }
 </script>
@@ -61,7 +60,12 @@
   <div class="copy">
     <strong>{item.title}</strong>
     {#if item.description}<p>{item.description}</p>{/if}
-    {#if item.action}<Button class="toast-action" variant="quiet" size="sm" type="button" onclick={handleAction}>{item.action.label}</Button>{/if}
+    {#if item.action || item.secondaryAction}
+      <div class="toast-actions">
+        {#if item.action}<Button class="toast-action" variant="quiet" size="sm" type="button" onclick={() => handleAction(item.action!)}>{item.action.label}</Button>{/if}
+        {#if item.secondaryAction}<Button class="toast-action secondary" variant="ghost" size="sm" type="button" onclick={() => handleAction(item.secondaryAction!)}>{item.secondaryAction.label}</Button>{/if}
+      </div>
+    {/if}
   </div>
   <Tooltip text="Dismiss"><Button class="toast-dismiss" variant="ghost" size="icon" type="button" aria-label="Dismiss notification" onclick={() => dismiss(item.id)}>
     <XIcon size={17} weight="bold" aria-hidden="true" />
@@ -76,7 +80,9 @@
   .toast.error { --toast-accent: var(--color-danger); --toast-border: color-mix(in srgb, var(--color-danger) 48%, var(--color-border)); }
   .icon { flex: 0 0 auto; color: var(--toast-accent); }
   .copy { min-width: 0; flex: 1; }.copy strong { display: block; font-size: 13px; line-height: 1.35; }.copy p { margin: 4px 0 0; color: var(--color-text-muted); font-size: 12px; line-height: 1.45; }
-  :global(.toast-action) { align-self: flex-start; margin-top: 9px; min-height: 30px; padding: 0 4px; color: var(--toast-accent); }:global(.toast-action:hover) { color: var(--toast-accent); }
+  .toast-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+  :global(.toast-action) { min-height: 30px; padding: 0 4px; color: var(--toast-accent); }:global(.toast-action:hover) { color: var(--toast-accent); }
+  :global(.toast-action.secondary) { color: var(--color-text-muted); }
   :global(.toast-dismiss) { flex: 0 0 auto; margin: -3px -5px 0 0; }
   @media (prefers-reduced-motion: no-preference) { .toast { animation: toast-in .18s ease-out; } }
   @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
