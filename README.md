@@ -10,6 +10,8 @@ facts, changelog generation, Markdown export, data management, cleanup, and the
 Modpacks, Activity, Management, and Settings shell, including release workspaces.
 See
 [CHANGELOG.md](CHANGELOG.md) for the release history.
+Windows release and updater-key custody are documented in
+[docs/desktop-updates.md](docs/desktop-updates.md).
 
 ## Features
 

@@ -1,6 +1,6 @@
 {
   "name": "cm-modpack-util",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "A local-first desktop workspace for CM modpack projects.",
   "type": "module",
   "scripts": {
@@ -17,6 +17,7 @@
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-dialog": "^2.7.3",
     "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-updater": "^2.11.0",
     "@tauri-apps/plugin-window-state": "^2.4.1",
     "dompurify": "^3.4.15",
     "marked": "^18.0.12",

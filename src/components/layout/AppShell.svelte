@@ -1,15 +1,18 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import Header from "../header/Header.svelte";
+  import { appVersion, loadAppVersion } from "../../lib/appVersion.svelte";
 
   type ShellVariant = "standard" | "workspace";
 
   let { children, variant = "standard" }: { children: Snippet; variant?: ShellVariant } = $props();
+
+  loadAppVersion();
 </script>
 
 <main class="app-shell">
   <div class="app-content">
-    <Header />
+    <Header version={appVersion.value} />
   </div>
   <div class="app-content" class:workspace={variant === "workspace"}>
     {@render children()}

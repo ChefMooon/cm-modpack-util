@@ -1,7 +1,8 @@
 <script lang="ts">
   import { page } from "$app/state";
+  import { formatAppVersion } from "../../lib/appVersion.svelte";
 
-  export let version = "v0.0.7";
+  export let version: string | null = null;
 </script>
 
 <header class="site-header">
@@ -11,7 +12,7 @@
   </a>
 
   <nav class="navigation" aria-label="Main navigation">
-    <span class="version">{version}</span>
+    <span class="version">{formatAppVersion(version)}</span>
     <a href="/activity" class:active={page.url.pathname === "/activity"} aria-current={page.url.pathname === "/activity" ? "page" : undefined}>Activity</a>
     <a href="/management" class:active={page.url.pathname === "/management"} aria-current={page.url.pathname === "/management" ? "page" : undefined}>Management</a>
     <a href="/settings" class:active={page.url.pathname === "/settings"} data-sveltekit-reload aria-current={page.url.pathname === "/settings" ? "page" : undefined} aria-label="Application settings">Settings</a>
