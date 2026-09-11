@@ -47,7 +47,7 @@
     if (open) {
       returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       document.body.style.overflow = "hidden";
-      queueMicrotask(() => panel?.querySelector<HTMLElement>("button, [href], input")?.focus());
+      queueMicrotask(() => panel?.focus());
     }
     return () => {
       document.body.style.overflow = previousOverflow;
