@@ -14,8 +14,8 @@ Windows release and updater-key custody are documented in
 [docs/desktop-updates.md](docs/desktop-updates.md).
 The desktop updater checks stable GitHub Release metadata at startup and from
 Settings without downloading installer bytes. Installation requires explicit
-confirmation, and completion presents separate **Restart now** and
-**Restart later** actions.
+confirmation. Windows downloads first, then presents **Install and restart**
+or **Later** before launching the installer.
 
 ## Features
 

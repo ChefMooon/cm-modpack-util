@@ -1,7 +1,7 @@
 # Desktop update release procedure
 
 CM Modpack Util publishes stable Windows x64 releases as NSIS installers.
-Release tags use the `v<semver>` form, such as `v0.0.14`. The application
+Release tags use the `v<semver>` form, such as `v0.0.15`. The application
 version in `src-tauri/tauri.conf.json` is authoritative and must match
 `package.json`, `src-tauri/Cargo.toml`, the tag, and the visible application
 version.
@@ -33,16 +33,20 @@ The workflow also uses GitHub's automatically provided `GITHUB_TOKEN` with
 
 1. Confirm the version is synchronized across the authoritative Tauri config,
    `package.json`, and `src-tauri/Cargo.toml`.
-2. Confirm both signing secrets exist and are repository Actions secrets.
-3. Create and push a `v<semver>` tag.
-4. Let `.github/workflows/release.yml` create the draft release on Windows.
-5. Inspect the draft assets for the NSIS `*-setup.exe`, its `.sig`, and
+2. Update `RELEASE_NOTES.md` with the release body before committing and
+   tagging. The workflow copies this file into both the GitHub release body
+   and the updater manifest. Editing the GitHub draft afterward does not
+   change `latest.json`.
+3. Confirm both signing secrets exist and are repository Actions secrets.
+4. Create and push a `v<semver>` tag.
+5. Let `.github/workflows/release.yml` create the draft release on Windows.
+6. Inspect the draft assets for the NSIS `*-setup.exe`, its `.sig`, and
    `latest.json`. Confirm the manifest points to the uploaded NSIS asset and
    contains its signature.
-6. Manually publish the release with a clearly marked test-only description.
-7. Rehearse installation and updating from the tag-specific endpoint:
+7. Manually publish the release with a clearly marked test-only description.
+8. Rehearse installation and updating from the tag-specific endpoint:
    `https://github.com/ChefMooon/cm-modpack-util/releases/download/v0.0.10/latest.json`.
-8. Remove the temporary release, or retain it only if the release checklist
+9. Remove the temporary release, or retain it only if the release checklist
    explicitly records why it is safe to keep.
 
 The app uses the stable endpoint
@@ -62,11 +66,11 @@ stable release must remain the newest non-prerelease GitHub release so the
 
 At runtime, startup and manual checks fetch release metadata only. The app
 shows the current version, available version, release date, and notes before
-the user selects **Download and install**. Installation never relaunches the
-running app: after a successful install the shared toast offers **Restart now**
-or **Restart later**. Failed, offline, malformed, unsigned, interrupted, and
-relaunch-failure states remain visible with a retry or continue-using-app
-action, and do not block local modpack workflows.
+the user selects **Download update**. On Windows, the signed artifact is
+downloaded first; the shared toast then offers **Install and restart** or
+**Later** before the installer is launched. Failed, offline, malformed,
+unsigned, interrupted, and install-failure states remain visible with a retry
+or continue-using-app action, and do not block local modpack workflows.
 
 Do not rotate or replace the updater key casually: installed applications trust
 the public key embedded at build time, so key replacement requires a staged

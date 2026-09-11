@@ -3,7 +3,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { saveSetting } from "./settings";
 import { dismiss, toast, update } from "../components/ui/toast/toast.svelte";
 import type { ToastAction } from "../components/ui/toast/types";
-import { canStartUpdateOperation, type UpdateErrorCategory, type UpdateOperation, type UpdateState } from "./updates";
+import { canStartUpdateOperation, shouldNotifyAvailableUpdate, type UpdateErrorCategory, type UpdateOperation, type UpdateState } from "./updates";
 
 export type UpdateSnapshot = {
   state: UpdateState;
@@ -15,6 +15,7 @@ export type UpdateSnapshot = {
   lastCheckedAt: string | null;
   downloadedBytes: number;
   contentLength: number | null;
+  downloadReady: boolean;
   error: { category: UpdateErrorCategory; message: string } | null;
   detailsOpen: boolean;
 };
@@ -29,6 +30,7 @@ const initialSnapshot: UpdateSnapshot = {
   lastCheckedAt: null,
   downloadedBytes: 0,
   contentLength: null,
+  downloadReady: false,
   error: null,
   detailsOpen: false,
 };
@@ -72,6 +74,9 @@ function laterAction(): ToastAction {
     onclick: () => {
       deferredThisSession = true;
       setState("later");
+      if (updateSnapshot.availableVersion) {
+        void saveSetting("updates.lastDeferredVersion", updateSnapshot.availableVersion);
+      }
       if (updateToastId) {
         dismiss(updateToastId);
         updateToastId = null;
@@ -160,7 +165,8 @@ export async function checkForUpdates(notify = false): Promise<UpdateSnapshot> {
 
     const settings = await import("./settings").then(({ loadSettings }) => loadSettings());
     const lastNotified = settings["updates.lastNotifiedVersion"];
-    const shouldNotify = notify && lastNotified !== result.version;
+    const lastDeferred = settings["updates.lastDeferredVersion"];
+    const shouldNotify = shouldNotifyAvailableUpdate(notify, lastNotified, lastDeferred, result.version);
     if (shouldNotify) {
       await saveSetting("updates.lastNotifiedVersion", result.version);
       showAvailableToast();
@@ -179,7 +185,7 @@ export async function checkForUpdates(notify = false): Promise<UpdateSnapshot> {
   return updateSnapshot;
 }
 
-export async function beginInstall(): Promise<void> {
+export async function downloadUpdate(): Promise<void> {
   if (!canStartUpdateOperation(operation, "install") || !currentUpdate || updateSnapshot.state === "ready_to_restart") return;
 
   operation = "install";
@@ -187,12 +193,12 @@ export async function beginInstall(): Promise<void> {
   updateSnapshot.error = null;
   updateSnapshot.downloadedBytes = 0;
   updateSnapshot.contentLength = null;
+  updateSnapshot.downloadReady = false;
   setState("downloading");
   showToast({
     title: "Downloading update",
     description: "The verified installer will be downloaded before installation.",
     duration: 0,
-    secondaryAction: laterAction(),
   });
   try {
     await currentUpdate.download((event: DownloadEvent) => {
@@ -207,21 +213,37 @@ export async function beginInstall(): Promise<void> {
           : `Downloaded ${updateSnapshot.downloadedBytes} bytes`,
       });
     });
-    setState("installing");
-    update(updateToastId ?? "", { title: "Installing update", description: "Installation is in progress." });
-    await currentUpdate.install({ restartAfterInstall: false });
-    setState("ready_to_restart");
+    updateSnapshot.downloadReady = true;
+    setState("install_confirm");
     showToast({
-      title: "Update ready to restart",
-      description: "The update is installed. Restart when you are ready.",
+      title: "Update ready to install",
+      description: "Install and restart now, or keep working and install it later.",
       duration: 0,
       action: {
-        label: "Restart now",
+        label: "Install and restart",
         dismiss: false,
-        onclick: () => restartNow(),
+        onclick: () => installAndRestart(),
       },
       secondaryAction: laterAction(),
     });
+  } catch (error) {
+    showFailure(errorCategory(error) === "manifest_failure" ? "install_failure" : errorCategory(error));
+  } finally {
+    operation = null;
+  }
+}
+
+export async function installAndRestart(): Promise<void> {
+  if (!canStartUpdateOperation(operation, "install") || !currentUpdate || !updateSnapshot.downloadReady) return;
+  operation = "install";
+  setState("installing");
+  showToast({
+    title: "Installing update",
+    description: "The app will close and restart into the installed version.",
+    duration: 0,
+  });
+  try {
+    await currentUpdate.install({ restartAfterInstall: true });
   } catch (error) {
     showFailure(errorCategory(error) === "manifest_failure" ? "install_failure" : errorCategory(error));
   } finally {
@@ -235,7 +257,7 @@ export async function restartNow(): Promise<void> {
   setState("restarting");
   try {
     await relaunch();
-  } catch (error) {
+  } catch {
     showFailure("relaunch_failure");
   } finally {
     operation = null;
@@ -270,6 +292,9 @@ export function deferUpdateReview() {
   if (updateToastId) {
     dismiss(updateToastId);
     updateToastId = null;
+  }
+  if (updateSnapshot.availableVersion) {
+    void saveSetting("updates.lastDeferredVersion", updateSnapshot.availableVersion);
   }
 }
 

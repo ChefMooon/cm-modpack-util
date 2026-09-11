@@ -41,6 +41,14 @@ jobs:
             throw "Version mismatch: tauri=$configVersion package=$packageVersion cargo=$cargoVersion tag=$tagVersion"
           }
 
+      - name: Load release notes
+        id: release-notes
+        shell: pwsh
+        run: |
+          "body<<RELEASE_NOTES" >> $env:GITHUB_OUTPUT
+          Get-Content RELEASE_NOTES.md -Raw >> $env:GITHUB_OUTPUT
+          "RELEASE_NOTES" >> $env:GITHUB_OUTPUT
+
       - name: Build and publish draft release
         uses: tauri-apps/tauri-action@v1
         env:
@@ -50,12 +58,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: CM Modpack Util ${{ github.ref_name }}
-          releaseBody: |
-            Windows NSIS installer and Tauri updater artifacts.
-
-            This release uses Tauri updater signatures for update integrity.
-            The installer is not Microsoft Authenticode signed, so Windows
-            SmartScreen or unknown-publisher warnings may still appear.
+          releaseBody: ${{ steps.release-notes.outputs.body }}
           releaseDraft: true
           prerelease: false
           uploadUpdaterJson: true

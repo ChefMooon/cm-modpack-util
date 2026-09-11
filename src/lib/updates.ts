@@ -5,6 +5,7 @@ export type UpdateState =
   | "available"
   | "download_confirm"
   | "downloading"
+  | "install_confirm"
   | "installing"
   | "ready_to_restart"
   | "restarting"
@@ -68,6 +69,11 @@ export const updateStateGuidance: Record<UpdateState, UpdateStateGuidance> = {
     owner: "shared_toast",
     meaning: "The user must explicitly approve downloading and installing the update.",
     retryAction: "retry_download",
+  },
+  install_confirm: {
+    owner: "shared_toast",
+    meaning: "The update is downloaded and will install only after explicit restart confirmation.",
+    retryAction: "retry_install",
   },
   downloading: {
     owner: "native_runtime",
@@ -146,7 +152,8 @@ const allowedTransitions: Record<UpdateState, readonly UpdateState[]> = {
   up_to_date: ["checking", "idle"],
   available: ["download_confirm", "checking", "later", "idle"],
   download_confirm: ["downloading", "available", "later"],
-  downloading: ["installing", "available", "failed"],
+  downloading: ["install_confirm", "available", "failed"],
+  install_confirm: ["installing", "later"],
   installing: ["ready_to_restart", "failed"],
   ready_to_restart: ["restarting", "later"],
   restarting: ["idle", "failed"],
@@ -164,4 +171,13 @@ export function canStartUpdateOperation(
   requestedOperation: UpdateOperation,
 ): boolean {
   return activeOperation === null;
+}
+
+export function shouldNotifyAvailableUpdate(
+  notify: boolean,
+  lastNotifiedVersion: string | undefined,
+  lastDeferredVersion: string | undefined,
+  availableVersion: string,
+): boolean {
+  return notify && lastNotifiedVersion !== availableVersion && lastDeferredVersion !== availableVersion;
 }
