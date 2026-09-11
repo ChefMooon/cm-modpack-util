@@ -15,7 +15,7 @@ fn updater_configuration_keeps_windows_release_contract() {
     )
     .unwrap();
 
-    assert_eq!(config["version"], "0.0.13");
+    assert_eq!(config["version"], "0.0.14");
     assert_eq!(config["bundle"]["targets"][0], "nsis");
     assert_eq!(config["bundle"]["createUpdaterArtifacts"], true);
     assert_eq!(

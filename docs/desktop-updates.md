@@ -1,7 +1,7 @@
 # Desktop update release procedure
 
 CM Modpack Util publishes stable Windows x64 releases as NSIS installers.
-Release tags use the `v<semver>` form, such as `v0.0.13`. The application
+Release tags use the `v<semver>` form, such as `v0.0.14`. The application
 version in `src-tauri/tauri.conf.json` is authoritative and must match
 `package.json`, `src-tauri/Cargo.toml`, the tag, and the visible application
 version.
