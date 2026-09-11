@@ -56,7 +56,6 @@
   } from "../lib/domain";
   import {
     chooseModpackDirectory,
-    disconnectModpack,
     listModpacks,
     getModpackInventory,
     getModpackOverview,
@@ -1169,24 +1168,8 @@
     }
   }
 
-  async function changeLifecycle(
-    modpack: ModpackRecord,
-    action: "archive" | "restore" | "disconnect",
-  ) {
-    if (action !== "disconnect") {
-      window.location.assign(`/management?target=${encodeURIComponent(modpack.id)}&action=${action}`);
-      return;
-    }
-    busy = true;
-    try {
-      const result =
-        await disconnectModpack(modpack.id);
-      replace(result);
-    } catch (cause) {
-      error = commandErrorMessage(cause);
-    } finally {
-      busy = false;
-    }
+  function changeLifecycle(modpack: ModpackRecord, action: "archive" | "restore") {
+    window.location.assign(`/management?target=${encodeURIComponent(modpack.id)}&action=${action}`);
   }
 
   async function beginReconnect(modpack: ModpackRecord) {

@@ -78,8 +78,8 @@ Make local Packwiz projects discoverable and safely registerable.
 - Canonicalize project paths and reject duplicate registrations.
 - Store application-owned project metadata such as display name, theme, tags,
   favorite state, description, and lifecycle status.
-- Support opening, editing, archiving, restoring, disconnecting, and reconnecting
-  projects without deleting external files.
+- Support opening, editing, archiving, restoring, and reconnecting projects without
+  deleting external files; retain unavailable projects as disconnected records.
 - Record refresh timestamps and derived project facts.
 
 **Exit gate:** A valid project can be registered and reopened offline, invalid

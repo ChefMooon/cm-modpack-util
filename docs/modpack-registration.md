@@ -35,7 +35,7 @@ The per-modpack theme is an application-owned identity color. New modpacks start
 - **Archived:** retained but visually separated and restorable.
 - **Disconnected:** retained with its application identity and history when the external directory is unavailable.
 
-Reconnect always requires an explicit directory selection and a fresh validation pass. Disconnecting, archiving, or removing an application relationship never deletes the external directory or its Git data.
+Reconnect always requires an explicit directory selection and a fresh validation pass. Archiving or removing an application relationship never deletes the external directory or its Git data. Disconnected is a recovery state for an unavailable directory rather than a manual organization action.
 
 ## Refresh and Offline Behavior
 

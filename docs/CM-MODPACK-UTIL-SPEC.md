@@ -383,7 +383,7 @@ update or release flow.
 The supported current-alpha management paths include:
 
 - Editing modpack metadata, tags, pins, notes, workspace metadata, release fields, and changelog revisions.
-- Archiving, restoring, disconnecting, and reconnecting modpacks without deleting their external directories.
+- Archiving, restoring, and reconnecting modpacks without deleting their external directories; unavailable directories remain recoverable as disconnected records.
 - Resuming or explicitly abandoning release workspaces while preserving snapshot and workspace history.
 - Exporting and revisiting changelog artifacts without replacing the stored generated result.
 - Retaining unavailable export destinations and provider failures as visible history.
