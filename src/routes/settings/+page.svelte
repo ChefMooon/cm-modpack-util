@@ -3,7 +3,7 @@
   import ThemeSelect from "../../components/settings/ThemeSelect.svelte";
   import { settingDefinitions, type Theme } from "../../components/settings/types/settings";
   import { onMount } from "svelte";
-  import Header from "../../components/header/Header.svelte";
+  import AppShell from "../../components/layout/AppShell.svelte";
   import MagnifyingGlassIcon from "phosphor-svelte/lib/MagnifyingGlassIcon";
   import XIcon from "phosphor-svelte/lib/XIcon";
   import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
@@ -117,8 +117,7 @@
 
 <svelte:head><title>Settings · CM Modpack Util</title></svelte:head>
 
-<main class="settings-shell">
-  <Header />
+<AppShell>
 
   <header class="settings-header">
     <div><p class="eyebrow">Preferences</p><h1>Settings</h1></div>
@@ -158,7 +157,7 @@
       <section class="settings-section danger-section" aria-labelledby="reset-title"><p class="eyebrow">Advanced</p><h2 id="reset-title">Reset settings</h2><div class="setting-card reset-card"><div><h3>Restore defaults</h3><p>Remove all saved preferences from the local SQLite database.</p></div><Button variant="danger" type="button" disabled={resetPending} onclick={() => (showReset = true)}>Reset settings</Button></div>{#if resetMessage}<p class="status" role="status">{resetMessage}</p>{/if}</section>
     </div>
   </div>
-</main>
+</AppShell>
 
 <Modal bind:open={showReset} title="Reset all settings?" onclose={() => (showReset = false)}>
   <p>This removes saved preferences and restores the default theme and accessibility settings. This action cannot be undone.</p>
@@ -166,8 +165,8 @@
 </Modal>
 
 <style>
-  .settings-shell { max-width: 1060px; min-height: 100vh; margin: 0 auto; padding: 0 42px 32px; }.settings-header { display: flex; align-items: flex-start; gap: 34px; margin: 32px 0 28px; }.eyebrow { margin: 0 0 10px; color: var(--color-cyan); font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }h1, h2, h3 { margin: 0; }h1 { font-size: 24px; }h2 { font-size: 20px; }h3 { font-size: 15px; }
+  .settings-header { display: flex; align-items: flex-start; gap: 34px; margin: 32px 0 28px; }.eyebrow { margin: 0 0 10px; color: var(--color-cyan); font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }h1, h2, h3 { margin: 0; }h1 { font-size: 24px; }h2 { font-size: 20px; }h3 { font-size: 15px; }
   .search-wrap { width: 100%; margin-bottom: 32px; }.search-wrap label { display: block; margin-bottom: 8px; color: var(--color-text-muted); font-size: 12px; }.search-box { display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: var(--color-panel); }.search-box input { width: 100%; padding: 8px 0; border: 0; outline: 0; color: var(--color-ink); background: transparent; }.settings-layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 48px; }.sidebar { display: flex; flex-direction: column; gap: 4px; }.category { padding: 10px 12px; border-left: 2px solid transparent; color: var(--color-text-muted); text-decoration: none; }.category:hover, .category.active { border-left-color: var(--color-cyan); color: var(--color-ink); background: var(--color-panel-muted); }.detail-pane { min-width: 0; }.settings-section { margin-bottom: 48px; scroll-margin-top: 24px; }.settings-section > h2 { margin-bottom: 18px; }.setting-card { padding: 22px; border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: var(--color-panel); }.setting-copy p, .about-card p, .reset-card p { max-width: 620px; margin: 8px 0 20px; color: var(--color-text-muted); font-size: 13px; line-height: 1.55; }.about-card p { margin: 0; }.about-card .muted { margin-top: 8px; color: var(--color-text-subtle); }.setting-row, .reset-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; }.setting-row .setting-copy p, .reset-card p { margin-bottom: 0; }
   .switch { display: flex; align-items: center; gap: 10px; color: var(--color-text-muted); cursor: pointer; }.switch input { position: absolute; opacity: 0; }.switch span { width: 42px; height: 24px; padding: 3px; border-radius: 20px; background: var(--color-border); }.switch span::after { display: block; width: 18px; height: 18px; border-radius: 50%; background: var(--color-text-muted); content: ""; transition: transform .15s; }.switch input:checked + span { background: var(--color-accent-strong); }.switch input:checked + span::after { background: var(--color-on-accent); transform: translateX(18px); }.switch input:focus-visible + span { box-shadow: var(--focus-ring); }.switch b { font-size: 12px; }.status, .empty-state { color: var(--color-text-muted); font-size: 12px; }.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
-  @media (max-width: 700px) { .settings-shell { padding: 0 20px 22px; }.settings-header { gap: 18px; flex-direction: column; margin: 24px 0; }.settings-layout { display: block; }.sidebar { flex-direction: row; margin-bottom: 32px; overflow-x: auto; }.setting-row, .reset-card { align-items: flex-start; flex-direction: column; } }
+  @media (max-width: 700px) { .settings-header { gap: 18px; flex-direction: column; margin: 24px 0; }.settings-layout { display: block; }.sidebar { flex-direction: row; margin-bottom: 32px; overflow-x: auto; }.setting-row, .reset-card { align-items: flex-start; flex-direction: column; } }
 </style>

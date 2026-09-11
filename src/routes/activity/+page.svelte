@@ -1,6 +1,6 @@
 <script lang="ts">
   import ClockCounterClockwiseIcon from "phosphor-svelte/lib/ClockCounterClockwiseIcon";
-  import Header from "../../components/header/Header.svelte";
+  import AppShell from "../../components/layout/AppShell.svelte";
   import { onMount } from "svelte";
   import { getModpackOperationHistory, listModpacks, listModpackSnapshots } from "../../lib/modpacks";
   import type { OperationAttempt, ModpackRecord, SnapshotRecord } from "../../lib/domain";
@@ -39,8 +39,7 @@
   <meta name="description" content="Review CM Modpack Util activity." />
 </svelte:head>
 
-<main class="activity-shell">
-  <Header />
+<AppShell>
   <section class="page-heading" aria-labelledby="activity-title">
     <p class="eyebrow">Activity</p>
     <h1 id="activity-title">Operation history</h1>
@@ -80,15 +79,14 @@
       {/each}
     </section>
   {/if}
-</main>
+</AppShell>
 
 <style>
-  .activity-shell { min-height: 100vh; padding: 0 42px 42px; background: var(--color-bg); }
   .page-heading, .empty-state { max-width: 1060px; margin-right: auto; margin-left: auto; }.page-heading { margin-top: 58px; margin-bottom: 34px; }.eyebrow { margin: 0 0 10px; color: var(--color-accent-strong); font: 700 10px var(--font-mono); letter-spacing: .12em; text-transform: uppercase; }h1, h2 { margin: 0; }h1 { font-size: clamp(28px, 5vw, 44px); line-height: 1.05; }.page-heading > p:last-child { margin: 14px 0 0; color: var(--color-text-muted); font-size: 15px; line-height: 1.55; }
   .empty-state { display: grid; justify-items: center; padding: 72px 28px; border: 1px solid var(--color-border); background: var(--color-surface); box-shadow: 5px 5px 0 var(--color-text); text-align: center; }.empty-icon { display: grid; width: 68px; height: 68px; margin-bottom: 24px; place-items: center; border: 1px solid var(--color-accent); color: var(--color-accent-strong); background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface)); }.empty-state h2 { margin-bottom: 12px; font-size: 20px; }.empty-state > p:last-child { max-width: 580px; margin: 0; color: var(--color-text-muted); line-height: 1.6; }
   .snapshot-list { max-width: 1060px; margin: 0 auto; }.snapshot-list h2 { margin-bottom: 14px; }.snapshot-item { display: flex; justify-content: space-between; gap: 16px; padding: 16px; border-top: 1px solid var(--color-border); background: var(--color-surface); }.snapshot-item div { display: flex; gap: 12px; }.snapshot-item span, .snapshot-item p, .snapshot-item small { color: var(--color-text-muted); }.snapshot-item p { margin: 0; font-family: var(--font-mono); font-size: 12px; }
   .snapshot-summary, .snapshot-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }.snapshot-summary span { text-transform: capitalize; }.snapshot-meta { font-size: 12px; }.snapshot-item a { color: var(--color-accent-strong); font-size: 12px; }.review-link { font-weight: 700; }.error-state { max-width: 1060px; margin: 0 auto 18px; padding: 14px 16px; border-left: 3px solid var(--color-danger); background: var(--color-surface); }.error-state p { display: inline; margin: 0 16px 0 0; }.error-state button { border: 0; color: var(--color-accent-strong); background: transparent; font: inherit; font-weight: 700; cursor: pointer; }
     [data-outcome="complete"] { color: var(--color-success); }
     .operation-item [data-outcome="failed"], .operation-item [data-outcome="partial"], .operation-item [data-outcome="cancelled"], .operation-item [data-outcome="indeterminate"] { color: var(--color-danger); }
-  @media (max-width: 700px) { .activity-shell { padding: 0 20px 28px; }.page-heading { margin-top: 36px; }.empty-state { padding: 52px 20px; } }
+  @media (max-width: 700px) { .page-heading { margin-top: 36px; }.empty-state { padding: 52px 20px; } }
 </style>

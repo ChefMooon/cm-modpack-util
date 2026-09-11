@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { page } from "$app/state";
+
   export let version = "v0.0.7";
 </script>
 
@@ -10,9 +12,9 @@
 
   <nav class="navigation" aria-label="Main navigation">
     <span class="version">{version}</span>
-    <a href="/activity">Activity</a>
-    <a href="/management">Management</a>
-    <a href="/settings" data-sveltekit-reload aria-label="Application settings">Settings</a>
+    <a href="/activity" class:active={page.url.pathname === "/activity"} aria-current={page.url.pathname === "/activity" ? "page" : undefined}>Activity</a>
+    <a href="/management" class:active={page.url.pathname === "/management"} aria-current={page.url.pathname === "/management" ? "page" : undefined}>Management</a>
+    <a href="/settings" class:active={page.url.pathname === "/settings"} data-sveltekit-reload aria-current={page.url.pathname === "/settings" ? "page" : undefined} aria-label="Application settings">Settings</a>
   </nav>
 </header>
 
@@ -25,7 +27,9 @@
     align-items: center;
     justify-content: space-between;
     gap: 20px;
+    width: 100%;
     min-height: 78px;
+    margin: 0 auto;
     border-bottom: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
     background: color-mix(in srgb, var(--color-bg) 92%, transparent);
     backdrop-filter: blur(14px);
@@ -73,12 +77,22 @@
   }
 
   .navigation a {
+    min-width: 80px;
+    padding: 10px 2px 8px;
+    border-bottom: 3px solid transparent;
     color: var(--color-text-muted);
+    text-align: center;
     text-decoration: none;
   }
 
-  .navigation a:hover {
+  .navigation a:hover,
+  .navigation a.active {
     color: var(--color-accent-strong);
+  }
+
+  .navigation a.active {
+    border-bottom-color: var(--color-accent-strong);
+    font-weight: 650;
   }
 
   @media (max-width: 600px) {

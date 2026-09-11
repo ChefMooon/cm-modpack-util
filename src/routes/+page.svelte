@@ -14,7 +14,7 @@
   import CaretDoubleLeftIcon from "phosphor-svelte/lib/CaretDoubleLeftIcon";
   import CaretDoubleRightIcon from "phosphor-svelte/lib/CaretDoubleRightIcon";
   import DotsThreeIcon from "phosphor-svelte/lib/DotsThreeIcon";
-  import Header from "../components/header/Header.svelte";
+  import AppShell from "../components/layout/AppShell.svelte";
   import Button from "../components/ui/Button.svelte";
   import Modal from "../components/ui/Modal.svelte";
   import Tooltip from "../components/ui/Tooltip.svelte";
@@ -1289,8 +1289,7 @@
   />
 </svelte:head>
 
-<main class="modpacks-shell">
-  <Header />
+<AppShell variant="workspace">
   <section class="hero" aria-labelledby="modpacks-title">
     <div>
       <p class="eyebrow">Modpacks</p>
@@ -1451,7 +1450,7 @@
       </div>
     </section>
   {/if}
-</main>
+</AppShell>
 
 <SnapshotReviewModal
   open={showReviewModal}
@@ -1694,11 +1693,6 @@
 >
 
 <style>
-  .modpacks-shell {
-    min-height: 100vh;
-    padding: 0 42px 42px;
-    background: var(--color-bg);
-  }
   .workspace {
     display: grid;
     grid-template-columns: minmax(240px, var(--list-width)) 28px minmax(0, 1fr);
@@ -2046,9 +2040,6 @@
     margin-top: 24px;
   }
   @media (max-width: 700px) {
-    .modpacks-shell {
-      padding: 0 20px 28px;
-    }
     .hero {
       align-items: flex-start;
       flex-direction: column;
