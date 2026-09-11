@@ -12,7 +12,7 @@
     <span class="version">{version}</span>
     <a href="/activity">Activity</a>
     <a href="/management">Management</a>
-    <a href="/settings">Settings</a>
+    <a href="/settings" data-sveltekit-reload aria-label="Application settings">Settings</a>
   </nav>
 </header>
 
