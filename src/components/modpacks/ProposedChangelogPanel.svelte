@@ -166,8 +166,15 @@
 
   {#if changelogBusy && changelogProgress}
     <div class="generation-progress" role="status" aria-live="polite">
-      <div><strong>Generating changelog</strong><span>{changelogProgress.message}</span></div>
-      <span class="progress-count">{changelogProgress.completed} / {changelogProgress.total}</span>
+      <div class="generation-progress-copy"><strong>Generating changelog</strong><span>{changelogProgress.message}</span></div>
+      <div class="generation-progress-meter">
+        {#if changelogProgress.total > 0}
+          <progress max={changelogProgress.total} value={Math.min(Math.max(changelogProgress.completed, 0), changelogProgress.total)} aria-label="Changelog generation progress"></progress>
+        {:else}
+          <progress class="indeterminate" max="1" aria-label="Changelog generation progress"></progress>
+        {/if}
+        <span class="progress-count">{changelogProgress.completed} / {changelogProgress.total}</span>
+      </div>
       {#if changelogProgress.cancellable && oncancel}<Button variant="danger" size="sm" type="button" onclick={oncancel}>Cancel</Button>{/if}
     </div>
   {/if}
@@ -253,8 +260,9 @@
 
 <style>
   .changelog-panel { display:grid; gap:12px; }
-  .generation-progress { display:flex; align-items:center; gap:12px; padding:10px 12px; border-left:3px solid var(--color-accent-strong); background:var(--color-surface-raised); }
-  .generation-progress > div { display:grid; gap:3px; min-width:0; flex:1; }.generation-progress span { color:var(--color-text-muted); font:11px var(--font-mono); }.progress-count { white-space:nowrap; }
+  .generation-progress { display:grid; grid-template-columns:minmax(0,1fr) minmax(180px,280px) auto; align-items:center; gap:12px; padding:10px 12px; border-left:3px solid var(--color-accent-strong); background:var(--color-surface-raised); }
+  .generation-progress-copy,.generation-progress-meter { display:grid; gap:5px; min-width:0; }.generation-progress span { color:var(--color-text-muted); font:11px var(--font-mono); }.generation-progress-meter { grid-template-columns:minmax(0,1fr) auto; align-items:center; }.progress-count { white-space:nowrap; }
+  .generation-progress progress { width:100%; height:8px; accent-color:var(--color-accent-strong); }.generation-progress progress.indeterminate { appearance:none; overflow:hidden; background:var(--color-border); }.generation-progress progress.indeterminate::-webkit-progress-bar { background:var(--color-border); }.generation-progress progress.indeterminate::-webkit-progress-value { width:40%; background:var(--color-accent-strong); animation:progress-indeterminate 1.4s ease-in-out infinite; }.generation-progress progress.indeterminate::-moz-progress-bar { width:40%; background:var(--color-accent-strong); animation:progress-indeterminate 1.4s ease-in-out infinite; }
   .panel-heading,.artifact-heading,.editor-heading,.editor-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; }
   h3,h4,p { margin:0; }
   .panel-actions,.editor-footer { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
@@ -294,5 +302,7 @@
   .markdown-preview :global(p) { margin:0 0 10px; line-height:1.6; }
   .markdown-preview :global(li) { margin-left:20px; line-height:1.6; }
   .confirm-actions { display:flex; justify-content:flex-end; gap:12px; margin-top:20px; }
-  @media (max-width:640px) { .panel-heading,.artifact-heading,.editor-heading { align-items:flex-start; flex-direction:column; }.panel-actions { width:100%; }.editor-footer { align-items:flex-start; flex-direction:column; }.editor-footer :global(.button) { align-self:flex-end; }.revision-copy small { white-space:normal; } }
+  @keyframes progress-indeterminate { from { transform:translateX(-150%); } to { transform:translateX(250%); } }
+  @media (prefers-reduced-motion:reduce) { .generation-progress progress.indeterminate::-webkit-progress-value,.generation-progress progress.indeterminate::-moz-progress-bar { animation:none; } }
+  @media (max-width:640px) { .panel-heading,.artifact-heading,.editor-heading { align-items:flex-start; flex-direction:column; }.panel-actions { width:100%; }.editor-footer { align-items:flex-start; flex-direction:column; }.editor-footer :global(.button) { align-self:flex-end; }.revision-copy small { white-space:normal; }.generation-progress { grid-template-columns:1fr; }.generation-progress-meter { grid-template-columns:minmax(0,1fr) auto; } }
 </style>
