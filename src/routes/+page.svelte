@@ -54,6 +54,8 @@
     ReleaseWorkspaceActivity,
     ReleaseWorkspaceObservation,
     ReleaseWorkspaceWatcherStatus,
+    LifecycleAction,
+    LifecycleRecordType,
   } from "../lib/domain";
   import {
     chooseModpackDirectory,
@@ -217,12 +219,12 @@
     void loadModpacks();
     void hydrateDiscoveryEvents();
     const closeModpackMenus = (event: PointerEvent) => {
-      if (event.target instanceof Element && event.target.closest(".modpack-menu")) return;
-      document.querySelectorAll<HTMLDetailsElement>(".modpack-menu[open]").forEach((menu) => { menu.open = false; });
+      if (event.target instanceof Element && event.target.closest(".quick-action-menu")) return;
+      document.querySelectorAll<HTMLDetailsElement>(".quick-action-menu[open]").forEach((menu) => { menu.open = false; });
     };
     const handleModpackMenuKeydown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      document.querySelectorAll<HTMLDetailsElement>(".modpack-menu[open]").forEach((menu) => { menu.open = false; });
+      document.querySelectorAll<HTMLDetailsElement>(".quick-action-menu[open]").forEach((menu) => { menu.open = false; });
     };
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       if (!settingsDirty()) return;
@@ -514,6 +516,10 @@
 
   function openRelease(release: ReleaseRecord) {
     toast({ title: "Historical release", description: `${release.metadata.name} is read-only evidence.` });
+  }
+
+  function openVersionAction(type: LifecycleRecordType, id: string, action: LifecycleAction) {
+    window.location.assign(`/management?target=${encodeURIComponent(id)}&type=${encodeURIComponent(type)}&action=${encodeURIComponent(action)}`);
   }
 
   async function openWorkspace(workspace: ReleaseWorkspace) {
@@ -1450,6 +1456,7 @@
             onopen={openSnapshot}
             onopenrelease={openRelease}
             onopenworkspace={openWorkspace}
+            onaction={openVersionAction}
             snapshotStatus={snapshotStatus}
           />
         {:else}

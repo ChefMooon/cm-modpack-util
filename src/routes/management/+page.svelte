@@ -45,9 +45,11 @@
       await loadManagement();
       const params = new URLSearchParams(window.location.search);
       const target = params.get("target");
+      const type = params.get("type");
       const action = params.get("action");
-      if (target && (action === "archive" || action === "restore")) {
-        await openPreview("modpack", target, action);
+      const supportedTypes: LifecycleRecordType[] = ["modpack", "snapshot", "release_workspace", "release"];
+      if (target && type && supportedTypes.includes(type as LifecycleRecordType) && (action === "archive" || action === "restore" || action === "detach")) {
+        await openPreview(type as LifecycleRecordType, target, action);
       }
     })();
   });
