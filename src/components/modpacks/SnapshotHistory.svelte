@@ -72,6 +72,17 @@
 
   const matchesStatus = (status: ReleaseStatusFilter) => statusFilter === "all" || statusFilter === status;
 
+  function timestampDate(value: string): Date | null {
+    const numericValue = Number(value);
+    const date = Number.isFinite(numericValue) ? new Date(numericValue * 1000) : new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function formatTimestamp(value: string): string {
+    const date = timestampDate(value);
+    return date ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date) : value;
+  }
+
   const visibleSnapshots = $derived(filter === "releases" ? [] : snapshots);
   const visibleReleases = $derived(filter === "snapshots" ? [] : releases.filter((release) => filter !== "releases" || matchesStatus(releaseStatusGroup(release.metadata.publication_status))));
   const visibleWorkspaces = $derived(filter === "snapshots" ? [] : workspaces.filter((workspace) => filter !== "releases" || matchesStatus(workspaceStatusGroup(workspace.lifecycle))));
@@ -128,11 +139,11 @@
         </article>
       {/each}
       {#each visibleSnapshots as snapshot (snapshot.id)}
-        <article class="snapshot-row">
+        <article class="snapshot-row snapshot-review-row">
           <span><strong>{snapshot.label ?? "Snapshot review"}</strong><small>{snapshot.id}</small></span>
           <span><b>Lifecycle</b>{snapshot.lifecycle}</span>
           <span><b>Status</b>{snapshotStatus(snapshot)}</span>
-          <span><b>Created</b>{snapshot.created_at}</span>
+          <span><b>Created</b><time datetime={timestampDate(snapshot.created_at)?.toISOString()} title={snapshot.created_at}>{formatTimestamp(snapshot.created_at)}</time></span>
           <span><b>Candidates</b>{snapshot.candidates.length}</span>
           <span class="snapshot-action"><button class="open-action" type="button" onclick={() => onopen(snapshot)}>Open review</button></span>
           <QuickActionMenu inline label={`More actions for ${snapshot.label ?? snapshot.id}`}>
@@ -157,10 +168,12 @@
   .version-filters button:disabled,.status-filters button:disabled { cursor:not-allowed; opacity:.6; }
   .snapshot-list { display:grid; gap:1px; margin:16px 24px 24px; border:1px solid var(--color-border); background:var(--color-border); }
   .snapshot-row { position:relative; display:grid; grid-template-columns:minmax(0,1.5fr) repeat(4,minmax(0,1fr)) minmax(82px,auto) 36px; gap:14px; align-items:center; box-sizing:border-box; width:100%; padding:14px; border:0; border-bottom:1px solid var(--color-border); color:var(--color-text-muted); background:var(--color-surface); text-align:left; }
+  .snapshot-review-row { grid-template-columns:minmax(0,1.35fr) minmax(82px,.85fr) minmax(65px,.7fr) minmax(122px,1.2fr) minmax(60px,.65fr) minmax(82px,auto) 36px; }
   .snapshot-row:last-child { border-bottom:0; }
   .snapshot-row > span { display:grid; gap:5px; min-width:0; font-size:11px; }
   .snapshot-row strong { overflow-wrap:anywhere; color:var(--color-text); }
   .snapshot-row small,.snapshot-row b { color:var(--color-text-subtle); font:10px var(--font-mono); text-transform:uppercase; }
+  .snapshot-review-row time { white-space:nowrap; }
   .snapshot-action { min-width:0; overflow:hidden; font:700 11px var(--font-mono); white-space:nowrap; text-overflow:ellipsis; }
   .open-action { max-width:100%; overflow:hidden; padding:0; border:0; color:var(--modpack-theme-color, var(--color-accent-strong)); background:transparent; font:inherit; white-space:nowrap; text-overflow:ellipsis; cursor:pointer; }
   .open-action:hover { text-decoration:underline; }
@@ -171,6 +184,6 @@
   .workspace-row { box-shadow: inset 4px 0 0 var(--color-warning); }
   .snapshot-row:focus-visible,.version-filters button:focus-visible,.status-filters button:focus-visible,.open-action:focus-visible { outline:none; box-shadow:var(--focus-ring); }
   @keyframes spin { to { transform:rotate(360deg); } }
-  @media (max-width:820px) { .version-filters,.status-filters { padding-inline:18px; flex-wrap:wrap; }.snapshot-list { margin-inline:18px; }.snapshot-row { grid-template-columns:1fr 1fr 36px; gap:10px; }.snapshot-row > span:first-child,.snapshot-action { grid-column:1 / -1; }.snapshot-row :global(.quick-action-menu) { grid-column:3; grid-row:1; } }
+  @media (max-width:820px) { .version-filters,.status-filters { padding-inline:18px; flex-wrap:wrap; }.snapshot-list { margin-inline:18px; }.snapshot-row,.snapshot-review-row { grid-template-columns:1fr 1fr 36px; gap:10px; }.snapshot-row > span:first-child,.snapshot-action { grid-column:1 / -1; }.snapshot-review-row > span:nth-child(4) { grid-column:1 / -1; }.snapshot-row :global(.quick-action-menu) { grid-column:3; grid-row:1; } }
   @media (prefers-reduced-motion:reduce) { .loader { animation:none; } }
 </style>
