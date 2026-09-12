@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import AppShell from "../../components/layout/AppShell.svelte";
   import Button from "../../components/ui/Button.svelte";
   import Modal from "../../components/ui/Modal.svelte";
   import CleanupPanel from "../../components/management/CleanupPanel.svelte";
@@ -153,7 +152,6 @@
   <meta name="description" content="Manage application-owned records and removable data safely." />
 </svelte:head>
 
-<AppShell>
   <section class="page-heading" aria-labelledby="management-title">
     <p class="eyebrow">Management</p>
     <h1 id="management-title">Data management and cleanup</h1>
@@ -174,8 +172,6 @@
       {#if modpacks.length === 0}<p class="empty" role="status">No registered application records are available.</p>{:else}<div class="record-list">{#each modpacks as modpack (modpack.id)}<article class="record"><div><h3>{modpack.application.display_name}</h3><p>{modpackLabel(modpack)}</p><small>{modpack.id}</small></div><div class="record-actions">{#if modpack.application.lifecycle === "archived"}<Button variant="secondary" size="sm" type="button" disabled={busy} onclick={() => openPreview("modpack", modpack.id, "restore")}>Preview restore</Button>{:else}<Button variant="secondary" size="sm" type="button" disabled={busy} onclick={() => openPreview("modpack", modpack.id, "archive")}>Preview archive</Button>{/if}<Button variant="ghost" size="sm" type="button" disabled={busy} onclick={() => openPreview("modpack", modpack.id, "detach")}>Preview detach</Button></div></article>{/each}</div>{/if}
     </section>
   {/if}
-</AppShell>
-
 <Modal open={preview !== null} title="Review management action" size="wide" onclose={() => { preview = null; previewTarget = null; }}>
   {#if preview}<ImpactPreview preview={preview} {confirmation} busy={busy} onconfirmationchange={(value) => (confirmation = value)} onconfirm={applyPreview} oncancel={() => { preview = null; previewTarget = null; }} />{/if}
 </Modal>

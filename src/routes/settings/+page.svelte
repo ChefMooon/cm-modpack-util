@@ -3,7 +3,6 @@
   import ThemeSelect from "../../components/settings/ThemeSelect.svelte";
   import { settingDefinitions, type Theme } from "../../components/settings/types/settings";
   import { onMount } from "svelte";
-  import AppShell from "../../components/layout/AppShell.svelte";
   import MagnifyingGlassIcon from "phosphor-svelte/lib/MagnifyingGlassIcon";
   import XIcon from "phosphor-svelte/lib/XIcon";
   import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
@@ -152,8 +151,6 @@
 
 <svelte:head><title>Settings · CM Modpack Util</title></svelte:head>
 
-<AppShell>
-
   <header class="settings-header">
     <div><p class="eyebrow">Preferences</p><h1>Settings</h1></div>
   </header>
@@ -192,8 +189,6 @@
       <section class="settings-section danger-section" aria-labelledby="reset-title"><p class="eyebrow">Advanced</p><h2 id="reset-title">Reset settings</h2><div class="setting-card reset-card"><div><h3>Restore defaults</h3><p>Remove all saved preferences from the local SQLite database.</p></div><Button variant="danger" type="button" disabled={resetPending} onclick={() => (showReset = true)}>Reset settings</Button></div>{#if resetMessage}<p class="status" role="status">{resetMessage}</p>{/if}</section>
     </div>
   </div>
-</AppShell>
-
 <Modal open={updateSnapshot.detailsOpen} title={`Update to ${updateSnapshot.availableVersion ?? "latest version"}`} onclose={closeUpdateDetails}>
   <div class="update-details">
     <p class="lede">A stable update is available for CM Modpack Util.</p>

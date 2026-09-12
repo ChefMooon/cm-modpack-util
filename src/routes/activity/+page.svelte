@@ -1,6 +1,5 @@
 <script lang="ts">
   import ClockCounterClockwiseIcon from "phosphor-svelte/lib/ClockCounterClockwiseIcon";
-  import AppShell from "../../components/layout/AppShell.svelte";
   import { onMount } from "svelte";
   import { getModpackOperationHistory, listModpacks, listModpackSnapshots } from "../../lib/modpacks";
   import type { OperationAttempt, ModpackRecord, SnapshotRecord } from "../../lib/domain";
@@ -10,24 +9,37 @@
   let modpacks = $state<ModpackRecord[]>([]);
   let loading = $state(true);
   let error = $state("");
+  let historyRequest = 0;
 
   async function loadHistory() {
+    const requestId = ++historyRequest;
     loading = true;
     error = "";
     try {
-      modpacks = await listModpacks();
-      const results = await Promise.all(modpacks.map((modpack) => listModpackSnapshots(modpack.id)));
-      snapshots = results.flat().sort((left, right) => right.created_at.localeCompare(left.created_at));
-      const operationResults = await Promise.all(modpacks.map((modpack) => getModpackOperationHistory(modpack.id)));
+      const nextModpacks = await listModpacks();
+      if (requestId !== historyRequest) return;
+      modpacks = nextModpacks;
+      const [snapshotResults, operationResults] = await Promise.all([
+        Promise.all(modpacks.map((modpack) => listModpackSnapshots(modpack.id))),
+        Promise.all(modpacks.map((modpack) => getModpackOperationHistory(modpack.id))),
+      ]);
+      if (requestId !== historyRequest) return;
+      snapshots = snapshotResults.flat().sort((left, right) => right.created_at.localeCompare(left.created_at));
       operations = operationResults.flat().sort((left, right) => right.created_at.localeCompare(left.created_at));
     } catch (cause) {
+      if (requestId !== historyRequest) return;
       error = cause instanceof Error ? cause.message : "Snapshot history could not be loaded.";
     } finally {
-      loading = false;
+      if (requestId === historyRequest) loading = false;
     }
   }
 
-  onMount(() => void loadHistory());
+  onMount(() => {
+    void loadHistory();
+    return () => {
+      historyRequest += 1;
+    };
+  });
 
   function modpackName(modpackId: string) {
     return modpacks.find((modpack) => modpack.id === modpackId)?.application.display_name ?? modpackId;
@@ -39,7 +51,6 @@
   <meta name="description" content="Review CM Modpack Util activity." />
 </svelte:head>
 
-<AppShell>
   <section class="page-heading" aria-labelledby="activity-title">
     <p class="eyebrow">Activity</p>
     <h1 id="activity-title">Operation history</h1>
@@ -79,8 +90,6 @@
       {/each}
     </section>
   {/if}
-</AppShell>
-
 <style>
   .page-heading, .empty-state { max-width: 1060px; margin-right: auto; margin-left: auto; }.page-heading { margin-top: 25px; margin-bottom: 24px; }.eyebrow { margin: 0 0 7px; color: var(--color-accent-strong); font: 700 10px var(--font-mono); letter-spacing: .12em; text-transform: uppercase; }h1, h2 { margin: 0; }h1 { font-size: clamp(24px, 4vw, 36px); line-height: 1.04; }.page-heading > p:last-child { margin: 10px 0 0; color: var(--color-text-muted); font-size: 13px; line-height: 1.45; }
   .empty-state { display: grid; justify-items: center; padding: 72px 28px; border: 1px solid var(--color-border); background: var(--color-surface); box-shadow: 5px 5px 0 var(--color-text); text-align: center; }.empty-icon { display: grid; width: 68px; height: 68px; margin-bottom: 24px; place-items: center; border: 1px solid var(--color-accent); color: var(--color-accent-strong); background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface)); }.empty-state h2 { margin-bottom: 12px; font-size: 20px; }.empty-state > p:last-child { max-width: 580px; margin: 0; color: var(--color-text-muted); line-height: 1.6; }

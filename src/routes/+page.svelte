@@ -14,7 +14,6 @@
   import CaretDoubleLeftIcon from "phosphor-svelte/lib/CaretDoubleLeftIcon";
   import CaretDoubleRightIcon from "phosphor-svelte/lib/CaretDoubleRightIcon";
   import DotsThreeIcon from "phosphor-svelte/lib/DotsThreeIcon";
-  import AppShell from "../components/layout/AppShell.svelte";
   import Button from "../components/ui/Button.svelte";
   import MarkdownView from "../components/ui/MarkdownView.svelte";
   import Modal from "../components/ui/Modal.svelte";
@@ -1338,7 +1337,6 @@
   />
 </svelte:head>
 
-<AppShell variant="workspace">
   <section class="hero" aria-labelledby="modpacks-title">
     <div>
       <p class="eyebrow">Modpacks</p>
@@ -1500,8 +1498,6 @@
       </div>
     </section>
   {/if}
-</AppShell>
-
 <SnapshotReviewModal
   open={showReviewModal}
   onclose={() => (showReviewModal = false)}

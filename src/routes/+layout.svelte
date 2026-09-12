@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { page } from "$app/state";
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { saveWindowState, StateFlags } from "@tauri-apps/plugin-window-state";
   import "../app.css";
+  import AppShell from "../components/layout/AppShell.svelte";
   import ToastViewport from "../components/ui/toast/ToastViewport.svelte";
   import { loadSettings } from "../lib/settings";
   import { checkForUpdates } from "../lib/updates.svelte";
@@ -59,4 +61,6 @@
 </script>
 
 <ToastViewport />
-{@render children()}
+<AppShell variant={page.url.pathname === "/" ? "workspace" : "standard"}>
+  {@render children()}
+</AppShell>

@@ -15,7 +15,7 @@
     <span class="version">{formatAppVersion(version)}</span>
     <a href="/activity" class:active={page.url.pathname === "/activity"} aria-current={page.url.pathname === "/activity" ? "page" : undefined}>Activity</a>
     <a href="/management" class:active={page.url.pathname === "/management"} aria-current={page.url.pathname === "/management" ? "page" : undefined}>Management</a>
-    <a href="/settings" class:active={page.url.pathname === "/settings"} data-sveltekit-reload aria-current={page.url.pathname === "/settings" ? "page" : undefined} aria-label="Application settings">Settings</a>
+    <a href="/settings" class:active={page.url.pathname === "/settings"} aria-current={page.url.pathname === "/settings" ? "page" : undefined} aria-label="Application settings">Settings</a>
   </nav>
 </header>
 
