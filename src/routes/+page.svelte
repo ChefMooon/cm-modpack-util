@@ -16,6 +16,7 @@
   import DotsThreeIcon from "phosphor-svelte/lib/DotsThreeIcon";
   import AppShell from "../components/layout/AppShell.svelte";
   import Button from "../components/ui/Button.svelte";
+  import MarkdownView from "../components/ui/MarkdownView.svelte";
   import Modal from "../components/ui/Modal.svelte";
   import Tooltip from "../components/ui/Tooltip.svelte";
   import SnapshotReviewModal from "../components/modpacks/SnapshotReviewModal.svelte";
@@ -1564,7 +1565,7 @@
   {#if workspaceChangelogRevision}
     <p class="lede">This promotes the selected proposed revision to final and freezes it. It cannot be edited after finalization.</p>
     <p><strong>Proposed revision</strong></p>
-    <pre class="finalize-preview">{workspaceChangelogRevision.content}</pre>
+    <MarkdownView value={workspaceChangelogRevision.content} defaultView="rendered" maxHeight="min(58vh, 560px)" />
   {/if}
   <div class="modal-actions"><Button variant="quiet" type="button" onclick={() => (showWorkspaceFinalizeConfirmation = false)}>Cancel</Button><Button variant="primary" type="button" disabled={workspaceBusy} loading={workspaceBusy} onclick={confirmFinalizeWorkspace}>Promote and finalize</Button></div>
 </Modal>
