@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "CM Modpack Util",
+  "productName": "CM-Modpack-Util",
   "version": "0.0.16",
   "identifier": "com.cm.modpackutil",
   "build": {
