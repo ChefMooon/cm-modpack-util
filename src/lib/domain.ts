@@ -252,7 +252,8 @@ export type ActivityEventType =
   | "refresh_failed"
   | "metadata_changed"
   | "lifecycle_changed"
-  | "snapshot_created";
+  | "snapshot_created"
+  | "release_published";
 
 export type ActivityRecord = {
   event_type: ActivityEventType;

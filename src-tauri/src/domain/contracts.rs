@@ -170,6 +170,7 @@ pub enum ActivityEventType {
     MetadataChanged,
     LifecycleChanged,
     SnapshotCreated,
+    ReleasePublished,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

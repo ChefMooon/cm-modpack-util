@@ -1183,6 +1183,16 @@ pub(crate) fn update_release_workspace_lifecycle(
         )
         .with_details(error.to_string())
     })?;
+    let modpack_id: String = transaction
+        .query_row(
+            "SELECT modpack_id FROM release_workspaces WHERE id = ?1",
+            [workspace_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| {
+            CommandError::new("workspace_not_found", "Release workspace is not available")
+                .with_details(error.to_string())
+        })?;
     let changed = transaction
         .execute(
             "UPDATE release_workspaces SET lifecycle = ?1, publication_status = CASE WHEN ?1 IN ('published', 'withdrawn') THEN ?1 ELSE publication_status END, updated_at = ?2 WHERE id = ?3",
@@ -1202,6 +1212,42 @@ pub(crate) fn update_release_workspace_lifecycle(
         ));
     }
     transaction.execute("INSERT INTO release_workspace_activity (workspace_id, event_type, occurred_at, message) VALUES (?1, 'workspace_transition', ?2, ?3)", params![workspace_id, now, message]).map_err(|error| CommandError::new("database_write_failed", "Workspace activity could not be saved").with_details(error.to_string()))?;
+    let project_event = match lifecycle {
+        crate::domain::ReleaseWorkspaceLifecycle::Published => Some("release_published"),
+        _ => None,
+    };
+    if let Some(event_type) = project_event {
+        let activity_message = format!("{message} ({workspace_id})");
+        transaction
+            .execute(
+                "INSERT INTO modpack_activity (modpack_id, event_type, occurred_at, message) VALUES (?1, ?2, ?3, ?4)",
+                params![modpack_id, event_type, now, activity_message],
+            )
+            .map_err(|error| {
+                CommandError::new(
+                    "database_write_failed",
+                    "Project release activity could not be saved",
+                )
+                .with_details(error.to_string())
+            })?;
+    }
+    if matches!(
+        lifecycle,
+        crate::domain::ReleaseWorkspaceLifecycle::Withdrawn
+    ) {
+        transaction
+            .execute(
+                "DELETE FROM modpack_activity WHERE modpack_id = ?1 AND event_type = 'release_published' AND message = ?2",
+                params![modpack_id, format!("Release workspace published ({workspace_id})")],
+            )
+            .map_err(|error| {
+                CommandError::new(
+                    "database_write_failed",
+                    "Published release activity could not be removed",
+                )
+                .with_details(error.to_string())
+            })?;
+    }
     transaction.commit().map_err(|error| {
         CommandError::new(
             "database_write_failed",
@@ -4443,6 +4489,64 @@ mod tests {
             activity[0].event_type,
             crate::domain::ActivityEventType::SnapshotCreated
         );
+    }
+
+    #[test]
+    fn release_publication_lifecycle_is_project_activity() {
+        let database = initialize(Path::new(":memory:")).expect("database should initialize");
+        let connection = database
+            .0
+            .lock()
+            .expect("database lock should be available");
+        connection
+            .execute(
+                "INSERT INTO modpacks (id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+                params!["modpack-test", ".", "{}", "{}", "[]", "2026-09-06T00:00:00Z"],
+            )
+            .expect("test project should be inserted");
+        connection
+            .execute(
+                "INSERT INTO release_workspaces (id, modpack_id, name, lifecycle, evidence_status, publication_status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+                params!["workspace-test", "modpack-test", "Release", "finalized", "complete", "draft", "2026-09-06T00:00:00Z"],
+            )
+            .expect("test release workspace should be inserted");
+        drop(connection);
+
+        super::update_release_workspace_lifecycle(
+            &database,
+            "workspace-test",
+            crate::domain::ReleaseWorkspaceLifecycle::Published,
+            "Release workspace published",
+        )
+        .expect("publication should be saved");
+        let connection = database
+            .0
+            .lock()
+            .expect("database lock should be available");
+        let activity = super::read_activity(&connection, "modpack-test")
+            .expect("project activity should be readable");
+        assert_eq!(activity.len(), 1);
+        assert_eq!(
+            activity[0].event_type,
+            crate::domain::ActivityEventType::ReleasePublished
+        );
+        drop(connection);
+
+        super::update_release_workspace_lifecycle(
+            &database,
+            "workspace-test",
+            crate::domain::ReleaseWorkspaceLifecycle::Withdrawn,
+            "Release workspace withdrawn",
+        )
+        .expect("withdrawal should be saved");
+
+        let connection = database
+            .0
+            .lock()
+            .expect("database lock should be available");
+        let activity = super::read_activity(&connection, "modpack-test")
+            .expect("project activity should be readable");
+        assert!(activity.is_empty());
     }
 
     #[test]
