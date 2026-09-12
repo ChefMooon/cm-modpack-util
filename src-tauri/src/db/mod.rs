@@ -1211,6 +1211,99 @@ pub(crate) fn update_release_workspace_lifecycle(
             "Release workspace is not available",
         ));
     }
+    if matches!(
+        lifecycle,
+        crate::domain::ReleaseWorkspaceLifecycle::Published
+    ) {
+        let (
+            name,
+            version,
+            description,
+            notes,
+            final_capture_json,
+            source_snapshot_id,
+            final_changelog_revision_id,
+        ): (
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ) = transaction
+            .query_row(
+                "SELECT name, version, description, notes, final_capture_json, source_snapshot_id, final_changelog_revision_id FROM release_workspaces WHERE id = ?1",
+                [workspace_id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                    ))
+                },
+            )
+            .map_err(|error| {
+                CommandError::new(
+                    "database_read_failed",
+                    "Finalized release metadata could not be read",
+                )
+                .with_details(error.to_string())
+            })?;
+        if let Some(capture_json) = final_capture_json {
+            let release_id = unique_id("release");
+            transaction
+                .execute(
+                    "INSERT INTO releases (id, modpack_id, name, version, description, notes, publication_status, capture_json, created_at, updated_at) SELECT ?1, modpack_id, ?2, ?3, ?4, ?5, 'published', ?6, ?7, ?7 FROM release_workspaces WHERE id = ?8",
+                    params![
+                        release_id,
+                        name,
+                        version,
+                        description,
+                        notes,
+                        capture_json,
+                        now,
+                        workspace_id
+                    ],
+                )
+                .map_err(|error| {
+                    CommandError::new("database_write_failed", "Published release could not be saved")
+                        .with_details(error.to_string())
+                })?;
+            if let Some(snapshot_id) = source_snapshot_id {
+                transaction
+                    .execute(
+                        "INSERT INTO release_snapshots (release_id, snapshot_id) VALUES (?1, ?2)",
+                        params![release_id, snapshot_id],
+                    )
+                    .map_err(|error| {
+                        CommandError::new(
+                            "database_write_failed",
+                            "Published release baseline could not be linked",
+                        )
+                        .with_details(error.to_string())
+                    })?;
+            }
+            if let Some(revision_id) = final_changelog_revision_id {
+                transaction
+                    .execute(
+                        "INSERT INTO release_changelog_artifacts (release_id, artifact_id) SELECT ?1, artifact_id FROM changelog_revisions WHERE id = ?2",
+                        params![release_id, revision_id],
+                    )
+                    .map_err(|error| {
+                        CommandError::new(
+                            "database_write_failed",
+                            "Published release changelog could not be linked",
+                        )
+                        .with_details(error.to_string())
+                    })?;
+            }
+        }
+    }
     transaction.execute("INSERT INTO release_workspace_activity (workspace_id, event_type, occurred_at, message) VALUES (?1, 'workspace_transition', ?2, ?3)", params![workspace_id, now, message]).map_err(|error| CommandError::new("database_write_failed", "Workspace activity could not be saved").with_details(error.to_string()))?;
     let project_event = match lifecycle {
         crate::domain::ReleaseWorkspaceLifecycle::Published => Some("release_published"),

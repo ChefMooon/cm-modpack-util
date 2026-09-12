@@ -181,6 +181,7 @@
   let workspaceActivityError = $state("");
   let releaseCreationModpack = $state<ModpackRecord | null>(null);
   let releaseBaselineChoice = $state<string | null>(null);
+  let releaseMetadataDraft = $state({ name: "New release", version: "", description: "", notes: "" });
   let releaseBaselineModalOpen = $state(false);
   let workspaceBusy = $state(false);
   let workspaceError = $state("");
@@ -481,7 +482,30 @@
     await loadReleases(modpack.id);
     releaseCreationModpack = modpack;
     releaseBaselineChoice = null;
+    releaseMetadataDraft = {
+      name: `${modpack.application.display_name} release`,
+      version: modpack.packwiz.version === "unavailable" ? "" : (modpack.packwiz.version.observed ?? ""),
+      description: modpack.application.description ?? "",
+      notes: "",
+    };
     releaseBaselineModalOpen = true;
+  }
+
+  function bumpReleaseVersion(part: "major" | "minor" | "patch") {
+    const match = releaseMetadataDraft.version.trim().match(/^(\d+)\.(\d+)\.(\d+)$/);
+    if (!match) return;
+    let [major, minor, patch] = match.slice(1).map(Number);
+    if (part === "major") {
+      major += 1;
+      minor = 0;
+      patch = 0;
+    } else if (part === "minor") {
+      minor += 1;
+      patch = 0;
+    } else {
+      patch += 1;
+    }
+    releaseMetadataDraft.version = `${major}.${minor}.${patch}`;
   }
 
   async function confirmReleaseCreation() {
@@ -495,7 +519,13 @@
         modpack_id: modpack.id,
         snapshot_id: null,
         baseline_release_id: releaseBaselineChoice,
-        metadata: { name: "New release", version: null, description: null, notes: null, publication_status: "draft" },
+        metadata: {
+          name: releaseMetadataDraft.name.trim(),
+          version: releaseMetadataDraft.version.trim() || null,
+          description: releaseMetadataDraft.description.trim() || null,
+          notes: releaseMetadataDraft.notes.trim() || null,
+          publication_status: "draft",
+        },
       });
       discoverySnapshot = null;
       discoverySnapshotId = null;
@@ -1517,9 +1547,13 @@
 />
 
 <Modal bind:open={releaseBaselineModalOpen} title="Choose release baseline" onclose={() => (releaseBaselineModalOpen = false)}>
-  <p class="lede">Every release captures an immutable comparison baseline when it is created.</p>
+  <p class="lede">Every release captures an immutable comparison baseline when it is created. The release value is stored with the published evidence.</p>
+  <label class="field"><span>Release name</span><input bind:value={releaseMetadataDraft.name} required /></label>
+  <label class="field"><span>Release value</span><input bind:value={releaseMetadataDraft.version} placeholder="0.1.0" /><small class="field-help">Current modpack version: {releaseCreationModpack?.packwiz.version === "unavailable" ? "Unavailable" : (releaseCreationModpack?.packwiz.version.observed ?? "Unavailable")}</small><div class="version-bumps" aria-label="Version bump shortcuts"><Button variant="quiet" size="sm" type="button" disabled={!releaseMetadataDraft.version.match(/^\d+\.\d+\.\d+$/)} onclick={() => bumpReleaseVersion("major")}>Major</Button><Button variant="quiet" size="sm" type="button" disabled={!releaseMetadataDraft.version.match(/^\d+\.\d+\.\d+$/)} onclick={() => bumpReleaseVersion("minor")}>Minor</Button><Button variant="quiet" size="sm" type="button" disabled={!releaseMetadataDraft.version.match(/^\d+\.\d+\.\d+$/)} onclick={() => bumpReleaseVersion("patch")}>Bug fix</Button></div></label>
+  <label class="field"><span>Description</span><textarea bind:value={releaseMetadataDraft.description} rows="2"></textarea></label>
+  <label class="field"><span>Notes</span><textarea bind:value={releaseMetadataDraft.notes} rows="2"></textarea></label>
   <label class="field"><span>Baseline source</span><select bind:value={releaseBaselineChoice}><option value={null}>Current project state</option>{#each releases as release (release.id)}<option value={release.id}>{release.metadata.name}{release.metadata.version ? ` · ${release.metadata.version}` : ""}</option>{/each}</select></label>
-  <div class="modal-actions"><Button variant="quiet" type="button" onclick={() => (releaseBaselineModalOpen = false)}>Cancel</Button><Button variant="primary" type="button" disabled={workspaceBusy} loading={workspaceBusy} onclick={confirmReleaseCreation}>Create release workspace</Button></div>
+  <div class="modal-actions"><Button variant="quiet" type="button" onclick={() => (releaseBaselineModalOpen = false)}>Cancel</Button><Button variant="primary" type="button" disabled={workspaceBusy || !releaseMetadataDraft.name.trim()} loading={workspaceBusy} onclick={confirmReleaseCreation}>Create release workspace</Button></div>
 </Modal>
 
 <ReleaseReviewModal
@@ -2010,6 +2044,15 @@
     color: var(--color-text);
     background: var(--color-bg);
     font: inherit;
+  }
+  .field-help {
+    color: var(--color-text-muted);
+    font: 11px var(--font-mono);
+  }
+  .version-bumps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
   }
   .field textarea {
     min-height: 72px;
