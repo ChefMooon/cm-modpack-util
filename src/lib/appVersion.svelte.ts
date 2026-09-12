@@ -1,4 +1,5 @@
 import { getVersion } from "@tauri-apps/api/app";
+import packageJson from "../../package.json";
 
 export type AppVersionStatus = "loading" | "available" | "unavailable";
 
@@ -6,8 +7,8 @@ export const appVersion = $state<{
   value: string | null;
   status: AppVersionStatus;
 }>({
-  value: null,
-  status: "loading",
+  value: packageJson.version,
+  status: "available",
 });
 
 let loadRequest: Promise<string | null> | undefined;
@@ -26,9 +27,9 @@ export function loadAppVersion(): Promise<string | null> {
       return version;
     })
     .catch(() => {
-      appVersion.value = null;
-      appVersion.status = "unavailable";
-      return null;
+      appVersion.value = packageJson.version;
+      appVersion.status = "available";
+      return packageJson.version;
     });
 
   return loadRequest;
