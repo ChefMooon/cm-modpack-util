@@ -731,6 +731,15 @@ mod tests {
         assert_eq!(projection.3, "resolve_recovery");
 
         let projection = project_workspace_state(
+            &ReleaseWorkspaceLifecycle::Provisional,
+            &ReleaseWorkspaceEvidenceStatus::Unverified,
+            &candidates,
+        );
+        assert_eq!(projection.0, ReleaseWorkspacePhase::Verify);
+        assert_eq!(projection.1.as_deref(), Some("verification_required"));
+        assert_eq!(projection.3, "verify_result");
+
+        let projection = project_workspace_state(
             &ReleaseWorkspaceLifecycle::ReadyToFinalize,
             &ReleaseWorkspaceEvidenceStatus::Baseline,
             &candidates,

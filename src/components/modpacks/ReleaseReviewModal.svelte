@@ -33,6 +33,7 @@
     onrebase,
     onfinalize,
     onpublish,
+    onwithdraw,
     ongenerateChangelog,
     oncreateBlankChangelog,
     onselectChangelog,
@@ -76,6 +77,7 @@
     onrebase: () => void | Promise<void>;
     onfinalize: () => void | Promise<void>;
     onpublish: () => void | Promise<void>;
+    onwithdraw: () => void | Promise<void>;
     ongenerateChangelog: () => void | Promise<void>;
     oncreateBlankChangelog: () => void | Promise<void>;
     onselectChangelog: (revisionId: string) => void | Promise<void>;
@@ -96,6 +98,7 @@
   type ReviewTab = "evidence" | "changelog" | "coordination";
   const reviewTabs: ReviewTab[] = ["evidence", "changelog", "coordination"];
   let showAbandon = $state(false);
+  let showWithdraw = $state(false);
   let activeTab = $state<ReviewTab>("evidence");
   let previousWorkspaceId = $state<string | null>(null);
   let wasOpen = $state(false);
@@ -165,6 +168,7 @@
       <div class="state"><strong>{workspace.lifecycle.replaceAll("_", " ")}</strong><span>{workspace.evidence_freshness} evidence</span></div>
     </header>
     {#if workspace.blocking_reason}<div class="blocking" role="alert"><strong>Action required</strong><span>{workspace.blocking_reason.replaceAll("_", " ")}</span></div>{/if}
+    {#if workspace.lifecycle === "draft" && !workspace.candidates.length}<div class="blocking"><strong>No update candidates</strong><span>Discover updates to add candidates, or rebase the release baseline if the current project is already the intended starting point. A release with no changed result cannot be finalized.</span></div>{:else if workspace.lifecycle === "draft" && !workspace.candidates.some((candidate) => candidate.decision === "selected")}<div class="blocking"><strong>Select an update to continue</strong><span>Choose at least one candidate in Release evidence, or use Discover updates, rebase the baseline, or abandon this review.</span></div>{:else if workspace.lifecycle === "provisional"}<div class="blocking"><strong>Verification required</strong><span>Review the fresh evidence and resolve any recovery outcome before finalization becomes available.</span></div>{/if}
     <div class="facts" role="status"><span><b>Baseline</b>{workspace.baseline_origin.replaceAll("_", " ")}</span><span><b>Source</b>{workspace.source_snapshot_id ?? workspace.baseline_release_id ?? "Current project"}</span><span><b>Evidence</b>{workspace.evidence_status}</span><span><b>Publication</b>{workspace.publication_status}</span><span><b>Activity</b>{workspace.activity_count}</span><div class="observer-fact"><b>Observer</b><span class:watching={watcherStatus === "observing"} class:watch-error={watcherStatus === "error"} class="watch-status" role="status" aria-live="polite">{watcherStatusLabel(watcherStatus)}</span><div class="watch-actions"><Button size="sm" variant="quiet" type="button" disabled={busy || terminalLifecycles.includes(workspace.lifecycle) || watcherStatus === "starting" || watcherStatus === "observing"} loading={watcherStatus === "starting"} onclick={onstartWatcher}>Observe files</Button><Button size="sm" variant="quiet" type="button" disabled={busy || terminalLifecycles.includes(workspace.lifecycle) || watcherStatus === "stopped" || watcherStatus === "stopping" || watcherStatus === "error"} loading={watcherStatus === "stopping"} onclick={onstopWatcher}>Stop observing</Button></div></div></div>
     <div class="review-tabs" role="tablist" aria-label="Release review sections">
       <button class:active={activeTab === "evidence"} id="evidence-tab" role="tab" aria-selected={activeTab === "evidence"} aria-controls="evidence-panel" tabindex={activeTab === "evidence" ? 0 : -1} onclick={() => selectTab("evidence")} onkeydown={(event) => handleTabKeydown(event, "evidence")}>Release evidence</button>
@@ -183,11 +187,12 @@
     </div>
   {/if}
   {#snippet footer()}
-    {#if workspace}<div class="actions"><Button variant="quiet" type="button" onclick={onclose}>Keep Release Review open</Button>{#if workspace.source_snapshot_id && !["finalized", "published", "withdrawn", "abandoned"].includes(workspace.lifecycle)}<Button variant="quiet" type="button" disabled={busy} onclick={onunlinkSnapshot}>Unlink snapshot</Button>{/if}{#if !["finalized", "published", "withdrawn", "abandoned"].includes(workspace.lifecycle)}<Button variant="quiet" type="button" disabled={busy} onclick={onrebase}>Rebase from current files</Button>{/if}{#if ["draft", "recovery_required"].includes(workspace.lifecycle) && workspace.candidates.some((candidate) => candidate.decision === "selected")}<Button variant="primary" type="button" disabled={busy} loading={busy} onclick={onapply}>Apply selected updates</Button>{/if}{#if workspace.lifecycle === "ready_to_finalize" || workspace.lifecycle === "provisional"}<Button variant="primary" type="button" disabled={busy || !selectedChangelogRevision} loading={busy} onclick={onfinalize}>Finalize validated release</Button>{/if}{#if workspace.lifecycle === "finalized"}<Button variant="primary" type="button" disabled={busy} loading={busy} onclick={onpublish}>Publish read-only record</Button>{/if}{#if !["finalized", "published", "withdrawn", "abandoned"].includes(workspace.lifecycle)}<Button variant="danger" type="button" disabled={busy} onclick={() => (showAbandon = true)}>Abandon Release Review</Button>{/if}</div>{/if}
+    {#if workspace}<div class="actions"><Button variant="quiet" type="button" onclick={onclose}>Keep Release Review open</Button>{#if workspace.source_snapshot_id && !["finalized", "published", "withdrawn", "abandoned"].includes(workspace.lifecycle)}<Button variant="quiet" type="button" disabled={busy} onclick={onunlinkSnapshot}>Unlink snapshot</Button>{/if}{#if !["finalized", "published", "withdrawn", "abandoned"].includes(workspace.lifecycle)}<Button variant="quiet" type="button" disabled={busy} onclick={onrebase}>Rebase from current files</Button>{/if}{#if ["draft", "recovery_required"].includes(workspace.lifecycle) && workspace.candidates.some((candidate) => candidate.decision === "selected")}<Button variant="primary" type="button" disabled={busy} loading={busy} onclick={onapply}>Apply selected updates</Button>{/if}{#if workspace.lifecycle === "ready_to_finalize"}<Button variant="primary" type="button" disabled={busy || !selectedChangelogRevision} loading={busy} onclick={onfinalize}>Finalize validated release</Button>{/if}{#if workspace.lifecycle === "finalized"}<Button variant="primary" type="button" disabled={busy} loading={busy} onclick={onpublish}>Publish read-only record</Button>{/if}{#if workspace.lifecycle === "published"}<Button variant="danger" type="button" disabled={busy} onclick={() => (showWithdraw = true)}>Withdraw release</Button>{/if}{#if !["finalized", "published", "withdrawn", "abandoned"].includes(workspace.lifecycle)}<Button variant="danger" type="button" disabled={busy} onclick={() => (showAbandon = true)}>Abandon Release Review</Button>{/if}</div>{/if}
   {/snippet}
 </Modal>
 
 <Modal bind:open={showAbandon} title="Abandon Release Review" onclose={() => (showAbandon = false)}><p class="lede">Abandoning preserves the snapshot, decisions, and activity history. It does not revert Packwiz files.</p><div class="actions"><Button variant="quiet" type="button" onclick={() => (showAbandon = false)}>Keep Release Review open</Button><Button variant="danger" type="button" loading={busy} onclick={() => { showAbandon = false; void onabandon(); }}>Abandon</Button></div></Modal>
+<Modal bind:open={showWithdraw} title="Withdraw published release" onclose={() => (showWithdraw = false)}><p class="lede">Withdrawal keeps the captured release and publication history, but marks it as no longer published. This cannot be undone from the release review.</p><div class="actions"><Button variant="quiet" type="button" onclick={() => (showWithdraw = false)}>Keep published</Button><Button variant="danger" type="button" loading={busy} onclick={() => { showWithdraw = false; void onwithdraw(); }}>Withdraw release</Button></div></Modal>
 
 <style>
   .lede,.muted { color:var(--color-text-muted); line-height:1.6; }

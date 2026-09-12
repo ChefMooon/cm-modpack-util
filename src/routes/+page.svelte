@@ -104,6 +104,7 @@
     rebaseReleaseWorkspace,
     finalizeReleaseWorkspace,
     publishReleaseWorkspace,
+    withdrawReleaseWorkspace,
     startReleaseWorkspaceWatcher,
     stopReleaseWorkspaceWatcher,
     reconcileReleaseWorkspaceWatchers,
@@ -846,6 +847,17 @@
     } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceBusy = false; }
   }
 
+  async function withdrawWorkspace() {
+    if (!workspaceRecord) return;
+    workspaceBusy = true;
+    try {
+      await stopWorkspaceWatcher(workspaceRecord.id);
+      workspaceRecord = await withdrawReleaseWorkspace({ workspace_id: workspaceRecord.id });
+      await refreshWorkspace();
+      if (focusedModpack) await loadSnapshots(focusedModpack);
+    } catch (cause) { workspaceError = commandErrorMessage(cause); } finally { workspaceBusy = false; }
+  }
+
   function settingsDirty() {
     if (!editing || !metadataDraft) return false;
     return JSON.stringify({ ...metadataDraft, tags: tagsText.split(",").map((tag) => tag.trim()).filter(Boolean) }) !== JSON.stringify(editing.application);
@@ -1530,6 +1542,7 @@
   onrebase={requestRebaseWorkspace}
   onfinalize={finalizeWorkspace}
   onpublish={publishWorkspace}
+  onwithdraw={withdrawWorkspace}
   ongenerateChangelog={generateWorkspaceChangelog}
   oncreateBlankChangelog={createWorkspaceBlankChangelog}
   onselectChangelog={selectWorkspaceChangelog}

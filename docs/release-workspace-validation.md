@@ -12,8 +12,10 @@ The release workspace watcher is Rust-owned and uses `notify` to observe only th
 8. Start an app-owned apply, edit a relevant file during the operation, and confirm the activity records overlap and the workspace remains blocked for explicit resolution.
 9. Abandon a workspace and confirm Packwiz files are unchanged, history remains visible, and a later snapshot can start a new workspace.
 10. Finalize a validated changed result, confirm observation stops at `ready_to_finalize`/finalized, publish it, close and reopen the app, and confirm the historical record remains read-only and does not restart a watcher.
-11. Generate a proposed workspace changelog after an external edit. Confirm the proposal includes a clearly labeled externally observed section and does not describe the external edit as applied by CM Modpack Util.
-12. Open a workspace with more than ten activity records. Confirm the history is collapsed by default, the newest ten records show readable timestamps, and `Show more history` appends older records without duplicates.
-13. Collapse the activity history while observing files. Confirm the observer status and `Observe files`/`Stop observing` controls remain visible in the evidence metadata area and watcher behavior is unchanged.
+11. Reopen the published record, use the visible `Withdraw release` action, confirm the warning, and verify it becomes withdrawn, preserves the captured evidence and activity history, remains read-only, and does not restart observation. Confirm withdrawal is rejected for any non-published lifecycle.
+12. Open a draft with no candidates and a draft with candidates but none selected. Confirm the workspace explains why Apply is unavailable and offers discovery, rebase, or abandonment without implying that a no-op can be finalized.
+13. Generate a proposed workspace changelog after an external edit. Confirm the proposal includes a clearly labeled externally observed section and does not describe the external edit as applied by CM Modpack Util.
+14. Open a workspace with more than ten activity records. Confirm the history is collapsed by default, the newest ten records show readable timestamps, and `Show more history` appends older records without duplicates.
+15. Collapse the activity history while observing files. Confirm the observer status and `Observe files`/`Stop observing` controls remain visible in the evidence metadata area and watcher behavior is unchanged.
 
 Record the desktop build, fixture/project path, lifecycle transitions, observed event payloads, and any native timing limitation with the release validation evidence.
