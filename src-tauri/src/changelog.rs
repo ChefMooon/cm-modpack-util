@@ -6,8 +6,9 @@ use crate::domain::{
     ChangelogArtifact, ChangelogContentStatus, ChangelogEntryResult, ChangelogGenerationRequest,
     ChangelogGenerationStatus, ChangelogRetrievalStatus, ChangelogSourceKind,
     ChangelogVersionResult, CommandError, Evidence, LocalEntryIdentity, ModrinthProjectIdentity,
-    ModrinthVersionIdentity, ProviderMatchConfidence, ProviderMatchEvidence, SnapshotLifecycle,
-    SnapshotRecord, UpdateCandidate, VersionAssociationEvidence,
+    ModrinthVersionIdentity, ProviderMatchConfidence, ProviderMatchEvidence,
+    ReleaseCandidateDecision, SnapshotDecision, SnapshotLifecycle, SnapshotRecord, UpdateCandidate,
+    VersionAssociationEvidence,
 };
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -491,6 +492,22 @@ fn source_allowed(snapshot: &SnapshotRecord, source: &ChangelogSourceKind) -> bo
             ChangelogSourceKind::ReleaseWorkspaceEvidence
         )
     )
+}
+
+fn selected_snapshot_candidates(snapshot: &SnapshotRecord) -> Vec<UpdateCandidate> {
+    snapshot
+        .candidates
+        .iter()
+        .filter(|record| {
+            snapshot
+                .decisions
+                .iter()
+                .rev()
+                .find(|decision| decision.candidate_id == record.id)
+                .is_some_and(|decision| decision.decision == SnapshotDecision::Selected)
+        })
+        .map(|record| record.candidate.clone())
+        .collect()
 }
 
 fn external_observation_notes(
@@ -1273,8 +1290,30 @@ pub fn generate_changelog(
     runtime: State<'_, ChangelogRuntime>,
     request: ChangelogGenerationRequest,
 ) -> Result<ChangelogArtifact, CommandError> {
-    let candidates: Vec<UpdateCandidate> = if let Some(snapshot_id) = request.snapshot_id.as_deref()
-    {
+    let candidates: Vec<UpdateCandidate> = if matches!(
+        request.source,
+        ChangelogSourceKind::ReleaseWorkspaceEvidence
+    ) {
+        let Some(workspace_id) = request.release_workspace_id.as_deref() else {
+            return Err(CommandError::new(
+                "changelog_source_unavailable",
+                "The release workspace cannot generate a changelog",
+            ));
+        };
+        let workspace = db::load_release_workspace_inner(&database, workspace_id)?;
+        if workspace.modpack_id != request.modpack_id {
+            return Err(CommandError::new(
+                "changelog_source_unavailable",
+                "The release workspace cannot generate a changelog",
+            ));
+        }
+        workspace
+            .candidates
+            .into_iter()
+            .filter(|record| record.decision == ReleaseCandidateDecision::Selected)
+            .map(|record| record.candidate)
+            .collect()
+    } else if let Some(snapshot_id) = request.snapshot_id.as_deref() {
         let snapshot = db::load_snapshot(&database, snapshot_id)?;
         if snapshot.modpack_id != request.modpack_id || !source_allowed(&snapshot, &request.source)
         {
@@ -1283,11 +1322,7 @@ pub fn generate_changelog(
                 "The selected snapshot cannot generate a changelog",
             ));
         }
-        snapshot
-            .candidates
-            .into_iter()
-            .map(|record| record.candidate)
-            .collect()
+        selected_snapshot_candidates(&snapshot)
     } else if let Some(workspace_id) = request.release_workspace_id.as_deref() {
         let workspace = db::load_release_workspace_inner(&database, workspace_id)?;
         if workspace.modpack_id != request.modpack_id
