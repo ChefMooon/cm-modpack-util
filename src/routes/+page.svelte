@@ -1561,13 +1561,15 @@
   pinningEntry={pinningEntry}
 />
 
-<Modal bind:open={showWorkspaceFinalizeConfirmation} title="Finalize proposed changelog" onclose={() => (showWorkspaceFinalizeConfirmation = false)}>
+<Modal bind:open={showWorkspaceFinalizeConfirmation} size="wide" title="Finalize proposed changelog" onclose={() => (showWorkspaceFinalizeConfirmation = false)}>
   {#if workspaceChangelogRevision}
     <p class="lede">This promotes the selected proposed revision to final and freezes it. It cannot be edited after finalization.</p>
-    <p><strong>Proposed revision</strong></p>
+    <p class="finalize-heading"><strong>Proposed revision</strong><span>Revision {workspaceChangelogRevision.id}</span></p>
     <MarkdownView value={workspaceChangelogRevision.content} defaultView="rendered" maxHeight="min(58vh, 560px)" />
   {/if}
-  <div class="modal-actions"><Button variant="quiet" type="button" onclick={() => (showWorkspaceFinalizeConfirmation = false)}>Cancel</Button><Button variant="primary" type="button" disabled={workspaceBusy} loading={workspaceBusy} onclick={confirmFinalizeWorkspace}>Promote and finalize</Button></div>
+  {#snippet footer()}
+    <div class="modal-actions"><Button variant="quiet" type="button" disabled={workspaceBusy} onclick={() => (showWorkspaceFinalizeConfirmation = false)}>Cancel</Button><Button variant="primary" type="button" disabled={workspaceBusy} loading={workspaceBusy} onclick={confirmFinalizeWorkspace}>Promote and finalize</Button></div>
+  {/snippet}
 </Modal>
 
 <Modal open={workspaceResetAction !== null} title={workspaceResetAction === "unlink" ? "Unlink discovery snapshot" : "Rebase release baseline"} onclose={() => (workspaceResetAction = null)}>
@@ -2052,6 +2054,17 @@
     justify-content: flex-end;
     gap: 10px;
     margin-top: 24px;
+  }
+  .finalize-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .finalize-heading span {
+    color: var(--color-text-muted);
+    font: 11px var(--font-mono);
   }
   @media (max-width: 700px) {
     .hero {

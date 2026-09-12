@@ -156,7 +156,7 @@ fn observe(app: &AppHandle, workspace_id: &str, root: &Path, paths: &[PathBuf]) 
     let first = fingerprint::collect(root);
     thread::sleep(STABILITY_DELAY);
     let second = fingerprint::collect(root);
-    let (freshness, blocking_reason, observed_fingerprint) = match (first, second) {
+    let (freshness, fingerprint_changed, observed_fingerprint) = match (first, second) {
         (Ok(before), Ok(after)) => {
             let comparison = fingerprint::compare(before, after);
             let returned_to_baseline = workspace
@@ -169,23 +169,25 @@ fn observe(app: &AppHandle, workspace_id: &str, root: &Path, paths: &[PathBuf]) 
             if comparison.unchanged && returned_to_baseline {
                 (
                     ReleaseWorkspaceEvidenceFreshness::Current,
-                    None,
+                    false,
                     Some(comparison.after),
                 )
             } else {
                 (
                     ReleaseWorkspaceEvidenceFreshness::Stale,
-                    Some("external_change_detected".to_string()),
+                    true,
                     Some(comparison.after),
                 )
             }
         }
-        _ => (
-            ReleaseWorkspaceEvidenceFreshness::Unavailable,
-            Some("external_evidence_unavailable".to_string()),
-            None,
-        ),
+        _ => (ReleaseWorkspaceEvidenceFreshness::Unavailable, false, None),
     };
+    let blocking_reason = observation_blocking_reason(
+        fingerprint_changed,
+        overlapped_operation,
+        observed_fingerprint.is_some(),
+    )
+    .map(str::to_string);
     let observation = ReleaseWorkspaceObservation {
         workspace_id: workspace_id.to_string(),
         changed_scope: scope,
@@ -208,6 +210,24 @@ fn matches_baseline(
     baseline
         .map(|baseline| fingerprint::compare(baseline.clone(), observed.clone()).unchanged)
         .unwrap_or(false)
+}
+
+fn observation_blocking_reason(
+    fingerprint_changed: bool,
+    overlapped_operation: bool,
+    fingerprint_available: bool,
+) -> Option<&'static str> {
+    if fingerprint_changed {
+        Some(if overlapped_operation {
+            "app_owned_apply_overlap"
+        } else {
+            "external_change_detected"
+        })
+    } else if !fingerprint_available {
+        Some("external_evidence_unavailable")
+    } else {
+        None
+    }
 }
 
 fn relevant_path(root: &Path, path: &Path) -> bool {
@@ -327,7 +347,9 @@ pub fn reconcile_release_workspace_watchers(
 
 #[cfg(test)]
 mod tests {
-    use super::{matches_baseline, relevant_path, watch_scope, watchable};
+    use super::{
+        matches_baseline, observation_blocking_reason, relevant_path, watch_scope, watchable,
+    };
     use crate::domain::{FingerprintEntry, ModpackFingerprint, ReleaseWorkspaceLifecycle};
     use std::path::Path;
 
@@ -373,5 +395,22 @@ mod tests {
         };
         assert!(matches_baseline(Some(&baseline), &baseline));
         assert!(!matches_baseline(None, &baseline));
+    }
+
+    #[test]
+    fn distinguishes_app_owned_overlap_from_external_change() {
+        assert_eq!(
+            observation_blocking_reason(true, true, true),
+            Some("app_owned_apply_overlap")
+        );
+        assert_eq!(
+            observation_blocking_reason(true, false, true),
+            Some("external_change_detected")
+        );
+        assert_eq!(
+            observation_blocking_reason(false, true, false),
+            Some("external_evidence_unavailable")
+        );
+        assert_eq!(observation_blocking_reason(false, true, true), None);
     }
 }

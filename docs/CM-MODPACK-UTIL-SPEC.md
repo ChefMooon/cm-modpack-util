@@ -205,9 +205,13 @@ dirty-Git modpacks may proceed after acknowledgement. A clean Git tree is
 reported as stronger recovery evidence, not as a guarantee that rollback is
 automatic or complete.
 
-The live modpack fingerprint must still match the persisted workspace baseline
-before an apply begins. A mismatch blocks the operation and requires an
-explicit rebase or a new snapshot; it must not silently refresh the baseline.
+The live modpack fingerprint must normally match the persisted workspace
+baseline before an apply begins. When the fingerprint differs, the application
+may reconcile a selected candidate that is already present at its proposed
+target version, provided the current inventory differs only for selected
+candidates. This records the result as verified without silently refreshing the
+baseline. Unrelated or ambiguous changes remain blocked and require an explicit
+rebase or a new snapshot.
 
 While an editable workspace is open, Rust may observe only the Packwiz-relevant
 fingerprint boundary: `pack.toml`, the referenced index, indexed `*.pw.toml`
@@ -523,9 +527,11 @@ Workspace lifecycle, evidence status, and publication status are separate. The
 user-facing phases are review, apply, resolve, verify, finalize, and publish.
 The backend may retain more detailed diagnostics, but the frontend must expose
 the current phase, blocking reason, evidence freshness, and primary next
-action. Applying requires a live fingerprint match to the immutable baseline.
-Partial, failed, cancelled, stale, external-change, and recovery states remain
-visible and retryable where safe.
+action. Applying normally requires a live fingerprint match to the immutable
+baseline; a selected update already matching its target may be reconciled as
+verified when no unrelated inventory changes are present. Partial, failed,
+cancelled, stale, external-change, and recovery states remain visible and
+retryable where safe.
 
 Workspace activity is stored with precise UTC epoch timestamps and is presented
 newest first in the release review. The review loads ten activity records at a

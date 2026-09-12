@@ -5,7 +5,7 @@ The release workspace watcher is Rust-owned and uses `notify` to observe only th
 1. Check for updates, open a reviewable snapshot, and choose `Start Release Review`.
 2. Confirm the workspace appears in Versions and resumes after closing and reopening the app.
 3. Start a second release workspace for the same modpack from another snapshot or current project state. Confirm both editable workspaces remain independently visible and resumable.
-4. Edit `pack.toml`, the referenced index, an indexed `*.pw.toml`, or a file under a fingerprint-covered content root from a terminal. Confirm the workspace records the changed scope as external evidence, remains usable without an acknowledgement or rebase action, and preserves candidate decisions and snapshot provenance.
+4. Edit `pack.toml`, the referenced index, an indexed `*.pw.toml`, or a file under a fingerprint-covered content root from a terminal. Confirm the workspace records the changed scope as external evidence, preserves candidate decisions and snapshot provenance, and explains that a selected candidate already matching its target can be verified by **Apply selected updates** while unrelated or ambiguous changes remain blocked.
 5. Use `Unlink snapshot` on an editable workspace. Confirm the source link disappears while the detached snapshot-derived baseline remains visible and immutable.
 6. Use `Rebase from current files` explicitly. Confirm the workspace records a new current-project baseline, clears prior snapshot/release provenance, returns to draft review, and does not mutate Packwiz files.
 7. Edit an irrelevant file in the registered directory. Confirm no workspace observation is emitted.

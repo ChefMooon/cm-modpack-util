@@ -240,6 +240,19 @@ pub fn persist_apply_attempt(
         )
         .with_details(error.to_string())
     })?;
+    let persisted_candidate_id: Option<String> = transaction
+        .query_row(
+            "SELECT source_snapshot_candidate_id FROM release_workspace_candidate_sources WHERE id = ?1",
+            [candidate_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| {
+            CommandError::new(
+                "candidate_source_not_found",
+                "Selected apply candidate source could not be resolved",
+            )
+            .with_details(error.to_string())
+        })?;
     transaction
         .execute(
             "INSERT INTO operation_attempts (id, modpack_id, workspace_id, snapshot_id, predecessor_id, kind, status, outcome, recovery_json, process_json, before_fingerprint_json, after_fingerprint_json, verification_json, error_json, created_at, finished_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
@@ -266,7 +279,7 @@ pub fn persist_apply_attempt(
     transaction
         .execute(
             "INSERT INTO operation_candidates (operation_id, candidate_id, entry_id, decision, outcome, observed_json) VALUES (?1, ?2, ?3, 'selected', ?5, ?4)",
-            params![attempt.id, candidate_id, entry_id, observed_json, serialize(&candidate_outcome, "candidate outcome")?.trim_matches('"').to_string()],
+            params![attempt.id, persisted_candidate_id, entry_id, observed_json, serialize(&candidate_outcome, "candidate outcome")?.trim_matches('"').to_string()],
         )
         .map_err(|error| CommandError::new("database_write_failed", "Apply target could not be saved").with_details(error.to_string()))?;
     transaction.commit().map_err(|error| {
@@ -689,7 +702,7 @@ fn enrich_workspace(
     mut workspace: crate::domain::ReleaseWorkspace,
 ) -> Result<crate::domain::ReleaseWorkspace, CommandError> {
     workspace.candidates = connection
-        .prepare("SELECT candidates.id, candidates.source_candidate_id, sources.candidate_json, candidates.decision, candidates.note, candidates.recorded_at FROM release_workspace_candidates candidates JOIN release_workspace_candidate_sources sources ON sources.id = candidates.source_candidate_id WHERE candidates.workspace_id = ?1 ORDER BY candidates.id")
+        .prepare("SELECT candidates.id, candidates.source_candidate_id, sources.candidate_json, candidates.decision, candidates.note, candidates.recorded_at FROM release_workspace_candidates candidates JOIN release_workspace_candidate_sources sources ON sources.id = candidates.source_candidate_id WHERE candidates.workspace_id = ?1 AND candidates.id = (SELECT MAX(latest.id) FROM release_workspace_candidates latest WHERE latest.workspace_id = candidates.workspace_id AND latest.source_candidate_id = candidates.source_candidate_id) ORDER BY sources.rowid")
         .map_err(|error| CommandError::new("database_read_failed", "Workspace candidates could not be read").with_details(error.to_string()))?
         .query_map([&workspace.id], |row| {
             let decision: String = row.get(3)?;
@@ -3924,7 +3937,11 @@ pub fn reset_settings(state: State<'_, Database>) -> Result<(), CommandError> {
 
 #[cfg(test)]
 mod tests {
-    use super::initialize;
+    use super::{initialize, persist_apply_attempt};
+    use crate::domain::{
+        GitStatusObservation, GitWorkingTreeState, OperationAttempt, OperationKind,
+        OperationOutcome, OperationStatus, RecoveryObservation, ReleaseCandidateOutcome,
+    };
     use rusqlite::params;
     use std::path::Path;
 
@@ -4113,6 +4130,162 @@ mod tests {
         assert!(loaded.final_capture.is_none());
         assert!(loaded.final_changelog_revision_id.is_none());
         assert!(loaded.finalization_receipt.is_none());
+    }
+
+    #[test]
+    fn workspace_loading_projects_latest_candidate_decision_only() {
+        let database = initialize(Path::new(":memory:")).expect("database should initialize");
+        let connection = database
+            .0
+            .lock()
+            .expect("database lock should be available");
+        connection
+            .execute(
+                "INSERT INTO modpacks (id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at) VALUES ('project', '.', '{}', '{}', '[]', '0', '0')",
+                [],
+            )
+            .expect("project should be insertable");
+        connection
+            .execute(
+                "INSERT INTO release_workspaces (id, modpack_id, name, lifecycle, evidence_status, publication_status, created_at, updated_at) VALUES ('workspace', 'project', 'Release', 'draft', 'baseline', 'draft', '0', '0')",
+                [],
+            )
+            .expect("workspace should be insertable");
+        let candidate = crate::discovery::pipeline::parse_candidates("example: 1.0 -> 1.1")
+            .pop()
+            .expect("fixture candidate should parse");
+        let candidate_json = serde_json::to_string(&candidate).expect("candidate should serialize");
+        connection
+            .execute(
+                "INSERT INTO release_workspace_candidate_sources (id, workspace_id, candidate_json, observed_at) VALUES ('source', 'workspace', ?1, '0')",
+                params![candidate_json],
+            )
+            .expect("candidate source should be insertable");
+        connection
+            .execute(
+                "INSERT INTO release_workspace_candidates (workspace_id, source_candidate_id, decision, recorded_at) VALUES ('workspace', 'source', 'undecided', '1')",
+                [],
+            )
+            .expect("initial candidate decision should be insertable");
+        connection
+            .execute(
+                "INSERT INTO release_workspace_candidates (workspace_id, source_candidate_id, decision, recorded_at) VALUES ('workspace', 'source', 'selected', '2')",
+                [],
+            )
+            .expect("updated candidate decision should be insertable");
+        connection
+            .execute(
+                "INSERT INTO release_workspace_candidate_sources (id, workspace_id, candidate_json, observed_at) VALUES ('source-2', 'workspace', ?1, '0')",
+                params![serde_json::to_string(&candidate).expect("candidate should serialize")],
+            )
+            .expect("second candidate source should be insertable");
+        connection
+            .execute(
+                "INSERT INTO release_workspace_candidates (workspace_id, source_candidate_id, decision, recorded_at) VALUES ('workspace', 'source-2', 'undecided', '3')",
+                [],
+            )
+            .expect("second candidate decision should be insertable");
+        drop(connection);
+
+        let loaded = super::load_release_workspace_inner(&database, "workspace")
+            .expect("workspace should load after a decision change");
+        assert_eq!(loaded.candidates.len(), 2);
+        assert_eq!(
+            loaded.candidates[0].decision,
+            crate::domain::ReleaseCandidateDecision::Selected
+        );
+        assert_eq!(loaded.candidates[0].source_candidate_id, "source");
+        assert_eq!(loaded.candidates[1].source_candidate_id, "source-2");
+    }
+
+    #[test]
+    fn apply_evidence_resolves_workspace_candidate_to_snapshot_candidate() {
+        let database = initialize(Path::new(":memory:")).expect("database should initialize");
+        let connection = database
+            .0
+            .lock()
+            .expect("database lock should be available");
+        connection
+            .execute(
+                "INSERT INTO modpacks (id, canonical_path, application_json, packwiz_json, validation_json, created_at, updated_at) VALUES ('project', '.', '{}', '{}', '[]', '0', '0')",
+                [],
+            )
+            .expect("project should be insertable");
+        connection
+            .execute(
+                "INSERT INTO snapshots (id, modpack_id, lifecycle, outcome, result_json, created_at, updated_at) VALUES ('snapshot', 'project', 'reviewable', 'normal', '{}', '0', '0')",
+                [],
+            )
+            .expect("snapshot should be insertable");
+        connection
+            .execute(
+                "INSERT INTO snapshot_candidates (id, snapshot_id, candidate_json, observed_at) VALUES ('snapshot-candidate', 'snapshot', '{}', '0')",
+                [],
+            )
+            .expect("snapshot candidate should be insertable");
+        connection
+            .execute(
+                "INSERT INTO release_workspaces (id, modpack_id, source_snapshot_id, name, lifecycle, evidence_status, publication_status, created_at, updated_at) VALUES ('workspace', 'project', 'snapshot', 'Release', 'draft', 'baseline', 'draft', '0', '0')",
+                [],
+            )
+            .expect("workspace should be insertable");
+        connection
+            .execute(
+                "INSERT INTO release_workspace_candidate_sources (id, workspace_id, source_snapshot_candidate_id, candidate_json, observed_at) VALUES ('workspace:snapshot-candidate', 'workspace', 'snapshot-candidate', '{}', '0')",
+                [],
+            )
+            .expect("workspace candidate source should be insertable");
+        drop(connection);
+
+        let attempt = OperationAttempt {
+            id: "operation-1".into(),
+            modpack_id: "project".into(),
+            workspace_id: Some("workspace".into()),
+            snapshot_id: Some("snapshot".into()),
+            predecessor_id: None,
+            kind: OperationKind::Apply,
+            status: OperationStatus::Succeeded,
+            outcome: Some(OperationOutcome::Complete),
+            recovery: RecoveryObservation {
+                git: GitStatusObservation {
+                    state: GitWorkingTreeState::Unavailable,
+                    repository_root: None,
+                    merge_or_rebase_in_progress: false,
+                },
+                recovery_available: false,
+                warning_category: None,
+                diagnostic: None,
+            },
+            process: None,
+            before_fingerprint: None,
+            after_fingerprint: None,
+            verification: None,
+            error: None,
+            created_at: "0".into(),
+            finished_at: Some("1".into()),
+        };
+        persist_apply_attempt(
+            &database,
+            &attempt,
+            "workspace:snapshot-candidate",
+            "entry",
+            "{}",
+            ReleaseCandidateOutcome::Applied,
+        )
+        .expect("apply evidence should resolve the snapshot candidate foreign key");
+
+        let connection = database
+            .0
+            .lock()
+            .expect("database lock should be available");
+        let persisted: String = connection
+            .query_row(
+                "SELECT candidate_id FROM operation_candidates WHERE operation_id = 'operation-1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("apply target should be persisted");
+        assert_eq!(persisted, "snapshot-candidate");
     }
 
     #[test]

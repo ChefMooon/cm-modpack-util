@@ -2,9 +2,11 @@ use super::{compatibility, fingerprint, operations::DiscoveryRuntime, process};
 use crate::db::{self, Database};
 use crate::domain::{
     ApplyOperationReport, ApplyOperationRequest, ApplyOperationSummary, CancellationState,
-    CommandError, Evidence, OperationAttempt, OperationKind, OperationOutcome, OperationStatus,
-    OperationVerification, PinOperationRequest, RecoveryObservation, ReleaseCandidateOutcome,
+    CapturedEntry, CommandError, Evidence, InventoryEntry, OperationAttempt, OperationKind,
+    OperationOutcome, OperationStatus, OperationVerification, PinOperationRequest,
+    RecoveryObservation, ReleaseCandidateOutcome,
 };
+use std::collections::HashSet;
 use std::path::Path;
 use tauri::State;
 
@@ -302,8 +304,29 @@ fn run_apply_operation(
         )
         .with_details(error)
     })?;
-    let comparison = fingerprint::compare(before_snapshot, current);
+    let comparison = fingerprint::compare(before_snapshot.clone(), current);
     if !comparison.comparable || !comparison.unchanged {
+        let inventory = crate::domain::inventory::read_inventory(&project_root)?;
+        if selected_updates_reconcile(
+            database,
+            &request.workspace_id,
+            &request.candidate_ids,
+            &workspace,
+            &inventory,
+        )? {
+            db::update_release_workspace_lifecycle(
+                database,
+                &request.workspace_id,
+                crate::domain::ReleaseWorkspaceLifecycle::ReadyToFinalize,
+                "Selected updates were already applied and verified in the current project",
+            )?;
+            return Ok(ApplyOperationReport {
+                snapshot_id: request.snapshot_id,
+                summary,
+                attempts: Vec::new(),
+                outcome: OperationOutcome::Complete,
+            });
+        }
         db::update_release_workspace_lifecycle(
             database,
             &request.workspace_id,
@@ -554,7 +577,58 @@ fn run_apply_operation(
         }
     }
     runtime.clear_operation_cancellation(&request.operation_id);
-    let outcome = classify_operation_outcome(cancelled, succeeded, request.candidate_ids.len());
+    let mut outcome = classify_operation_outcome(cancelled, succeeded, request.candidate_ids.len());
+    let final_inventory = match crate::domain::inventory::read_inventory(&project_root) {
+        Ok(inventory) => inventory,
+        Err(error) => {
+            db::update_release_workspace_lifecycle(
+                database,
+                &request.workspace_id,
+                crate::domain::ReleaseWorkspaceLifecycle::RecoveryRequired,
+                "Apply completed but final inventory verification was unavailable",
+            )?;
+            db::finish_release_workspace_operation(
+                database,
+                &request.operation_id,
+                &OperationOutcome::Indeterminate,
+            )?;
+            return Err(error);
+        }
+    };
+    let final_fingerprint = match fingerprint::collect(&project_root) {
+        Ok(fingerprint) => fingerprint,
+        Err(error) => {
+            db::update_release_workspace_lifecycle(
+                database,
+                &request.workspace_id,
+                crate::domain::ReleaseWorkspaceLifecycle::RecoveryRequired,
+                "Apply completed but final fingerprint verification was unavailable",
+            )?;
+            db::finish_release_workspace_operation(
+                database,
+                &request.operation_id,
+                &OperationOutcome::Indeterminate,
+            )?;
+            return Err(CommandError::new(
+                "project_changed",
+                "Project changed or could not be fingerprinted after apply",
+            )
+            .with_details(error));
+        }
+    };
+    let final_comparison = fingerprint::compare(before_snapshot, final_fingerprint);
+    let unexpected_overlap = !final_comparison.comparable
+        || (!final_comparison.unchanged
+            && !selected_updates_reconcile(
+                database,
+                &request.workspace_id,
+                &request.candidate_ids,
+                &workspace,
+                &final_inventory,
+            )?);
+    if unexpected_overlap {
+        outcome = OperationOutcome::Indeterminate;
+    }
     let lifecycle = if matches!(outcome, OperationOutcome::Complete) {
         crate::domain::ReleaseWorkspaceLifecycle::ReadyToFinalize
     } else {
@@ -573,6 +647,100 @@ fn run_apply_operation(
         attempts,
         outcome,
     })
+}
+
+fn matching_inventory_entry<'a>(
+    inventory: &'a [InventoryEntry],
+    candidate: &crate::domain::UpdateCandidate,
+) -> Option<&'a InventoryEntry> {
+    let Evidence::Observed(path) = &candidate.local_path else {
+        return None;
+    };
+    let expected_path = Path::new(path).canonicalize().ok()?;
+    inventory.iter().find(|entry| {
+        Path::new(&entry.metadata_path).canonicalize().ok().as_ref() == Some(&expected_path)
+    })
+}
+
+fn candidate_target_matches(
+    candidate: &crate::domain::UpdateCandidate,
+    entry: &InventoryEntry,
+) -> bool {
+    let Evidence::Observed(available_artifact) = &candidate.available_version else {
+        return false;
+    };
+    let observed_version = match &entry.version {
+        Evidence::Observed(version) => Some(version.as_str()),
+        _ => None,
+    };
+    let observed_filename =
+        crate::domain::inventory::metadata_filename(Path::new(&entry.metadata_path)).ok();
+    observed_filename.as_deref() == Some(available_artifact)
+        || observed_version.is_some_and(|version| {
+            available_artifact
+                .strip_suffix(".jar")
+                .is_some_and(|artifact| artifact.ends_with(version))
+        })
+}
+
+fn selected_updates_reconcile(
+    database: &Database,
+    workspace_id: &str,
+    candidate_ids: &[String],
+    workspace: &crate::domain::ReleaseWorkspace,
+    inventory: &[InventoryEntry],
+) -> Result<bool, CommandError> {
+    let mut selected_local_ids = HashSet::new();
+    for candidate_id in candidate_ids {
+        let candidate_json = db::candidate_source_json(database, workspace_id, candidate_id)?;
+        let candidate: crate::domain::UpdateCandidate = serde_json::from_str(&candidate_json)
+            .map_err(|error| {
+                CommandError::new(
+                    "candidate_not_found",
+                    "Selected candidate evidence is invalid",
+                )
+                .with_details(error.to_string())
+            })?;
+        let Some(entry) = matching_inventory_entry(inventory, &candidate) else {
+            return Ok(false);
+        };
+        if !candidate_target_matches(&candidate, entry) {
+            return Ok(false);
+        }
+        selected_local_ids.insert(entry.local_id.clone());
+    }
+    let Some(capture) = workspace.baseline_capture.as_ref() else {
+        return Ok(false);
+    };
+    let unrelated_inventory_change = capture.state.entries.iter().any(|baseline| {
+        let current_entry = inventory
+            .iter()
+            .find(|entry| entry.local_id == baseline.local_id);
+        current_entry
+            .map(|entry| {
+                !selected_local_ids.contains(&entry.local_id)
+                    && !inventory_matches_capture(entry, baseline)
+            })
+            .unwrap_or(true)
+    }) || inventory.iter().any(|entry| {
+        !capture
+            .state
+            .entries
+            .iter()
+            .any(|baseline| baseline.local_id == entry.local_id)
+    });
+    Ok(!unrelated_inventory_change)
+}
+
+fn inventory_matches_capture(entry: &InventoryEntry, baseline: &CapturedEntry) -> bool {
+    entry.local_id == baseline.local_id
+        && entry.metadata_path == baseline.metadata_path
+        && entry.name == baseline.name
+        && entry.version == baseline.version
+        && entry.provider == baseline.provider
+        && entry.side == baseline.side
+        && entry.source_url == baseline.source_url
+        && entry.pin == baseline.pin
 }
 
 fn recovery_observation(root: &Path) -> RecoveryObservation {
