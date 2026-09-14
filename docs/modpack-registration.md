@@ -26,6 +26,24 @@ Missing optional top-level values are shown as unavailable. Malformed TOML, miss
 
 Application-owned metadata is stored in SQLite separately from Packwiz observations. It includes display name, icon, theme, tags, favorite state, description, and lifecycle.
 
+### Application-owned tag editing
+
+Registration review and the focused modpack **Settings** tab use the same
+structured Tags editor. Existing tags are shown as individually removable
+values, and the text input stays available for the next tag. Press **Enter** or
+type a comma to add a tag; spaces are valid inside a tag. A pasted or typed
+comma-separated value commits each complete segment and leaves an unfinished
+trailing segment in the input for continued editing.
+
+Before tags are sent to the application metadata command, values are trimmed,
+blank values are discarded, and duplicates are compared case-insensitively.
+The first-entered spelling is preserved. Duplicate entries are ignored and
+reported with a polite status message; they are not persisted. Removing a tag
+changes only that value. Settings saves remain grouped: a failed save keeps the
+draft, while a successful save reloads the normalized tag array. Formatting-only
+differences in legacy casing or duplicate values do not make Settings appear
+dirty.
+
 The per-modpack theme is an application-owned identity color. New modpacks start with the neutral Cyan palette entry. Users can choose from eight named palette colors or provide a validated six-digit hex color in the registration review and Settings tab. The selected color is shown as a named swatch in the modpack list and may accent local modpack identity surfaces; it does not change the global application theme or any Packwiz file. Older missing or unrecognized theme values remain readable and display with the neutral fallback until replaced.
 
 ## Lifecycle

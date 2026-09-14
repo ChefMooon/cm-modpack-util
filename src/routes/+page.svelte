@@ -24,6 +24,7 @@
   import SnapshotHistory from "../components/modpacks/SnapshotHistory.svelte";
   import ModpackColorSelect from "../components/modpacks/ModpackColorSelect.svelte";
   import ModpackSettings from "../components/modpacks/ModpackSettings.svelte";
+  import TagEditor from "../components/modpacks/TagEditor.svelte";
   import ModpackList from "../components/modpacks/ModpackList.svelte";
   import ModpackSummary from "../components/modpacks/ModpackSummary.svelte";
   import { useToast } from "../components/ui/toast/toast.svelte";
@@ -117,6 +118,7 @@
     getReleaseWorkspaceEvidence,
   } from "../lib/modpacks";
   import { getModpackTheme } from "../lib/modpackTheme";
+  import { normalizeTags, tagsEqual } from "../lib/tags";
 
   let modpacks = $state<ModpackRecord[]>([]);
   type DetailTab = "summary" | "versions" | "settings";
@@ -136,7 +138,7 @@
   let reconnecting = $state<ModpackRecord | null>(null);
   let editing = $state<ModpackRecord | null>(null);
   let metadataDraft = $state<ApplicationModpackMetadata | null>(null);
-  let tagsText = $state("");
+  let registrationTags = $state<string[]>([]);
   let showPreview = $state(false);
   let showReconnect = $state(false);
   let showArchived = $state(false);
@@ -333,7 +335,8 @@
     try {
       selected = await previewModpack(path);
       previewPath = path;
-      tagsText = selected.application_defaults.tags.join(", ");
+      registrationTags = normalizeTags(selected.application_defaults.tags);
+      selected.application_defaults.tags = [...registrationTags];
       showPreview = true;
     } catch (cause) {
       error = commandErrorMessage(cause);
@@ -346,8 +349,10 @@
     if (!selected) return;
     busy = true;
     try {
-      selected.application_defaults.tags = tagsText.split(",").map((tag) => tag.trim()).filter(Boolean);
-      await registerModpack(previewPath, selected.application_defaults);
+      await registerModpack(previewPath, {
+        ...selected.application_defaults,
+        tags: normalizeTags(registrationTags),
+      });
       showPreview = false;
       selected = null;
       await loadModpacks();
@@ -896,7 +901,9 @@
 
   function settingsDirty() {
     if (!editing || !metadataDraft) return false;
-    return JSON.stringify({ ...metadataDraft, tags: tagsText.split(",").map((tag) => tag.trim()).filter(Boolean) }) !== JSON.stringify(editing.application);
+    const { tags: draftTags, ...draftWithoutTags } = metadataDraft;
+    const { tags: existingTags, ...existingWithoutTags } = editing.application;
+    return JSON.stringify(draftWithoutTags) !== JSON.stringify(existingWithoutTags) || !tagsEqual(draftTags, existingTags);
   }
 
   function canLeaveSettings() {
@@ -1182,9 +1189,8 @@
     editing = modpack;
     metadataDraft = {
       ...modpack.application,
-      tags: [...modpack.application.tags],
+      tags: normalizeTags(modpack.application.tags),
     };
-    tagsText = modpack.application.tags.join(", ");
   }
 
   function openSettings(modpack: ModpackRecord) {
@@ -1200,14 +1206,13 @@
     try {
       const updated = await updateModpackMetadata(editing.id, {
         ...metadataDraft,
-        tags: tagsText.split(",").map((tag) => tag.trim()).filter(Boolean),
+        tags: normalizeTags(metadataDraft.tags),
       });
       replace(updated);
       focusedModpack = updated;
       inspected = updated;
       editing = updated;
-      metadataDraft = { ...updated.application, tags: [...updated.application.tags] };
-      tagsText = updated.application.tags.join(", ");
+      metadataDraft = { ...updated.application, tags: normalizeTags(updated.application.tags) };
       toast({ title: "Modpack details updated", severity: "success" });
     } catch (cause) {
       error = commandErrorMessage(cause);
@@ -1492,7 +1497,6 @@
         {:else}
           <ModpackSettings
             metadataDraft={metadataDraft}
-            bind:tagsText
             busy={busy}
             onsave={saveMetadata}
           />
@@ -1677,13 +1681,7 @@
         /></label
       >
       <ModpackColorSelect bind:value={selected.application_defaults.theme} />
-      <label class="field wide"
-        >Tags<input
-          value={tagsText}
-          placeholder="client, favorite"
-          oninput={(event) => (tagsText = event.currentTarget.value)}
-        /></label
-      >
+      <div class="field wide"><TagEditor bind:value={registrationTags} label="Tags" description="Keep tags short and specific for this modpack." inputId="registration-tags" disabled={busy} /></div>
       <label class="field wide"
         >Description<textarea
           rows="3"

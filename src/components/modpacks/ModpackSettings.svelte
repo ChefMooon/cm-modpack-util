@@ -1,16 +1,15 @@
 <script lang="ts">
   import Button from "../ui/Button.svelte";
   import ModpackColorSelect from "./ModpackColorSelect.svelte";
+  import TagEditor from "./TagEditor.svelte";
   import type { ApplicationModpackMetadata } from "../../lib/domain";
 
   let {
     metadataDraft,
-    tagsText = $bindable(""),
     busy,
     onsave,
   }: {
     metadataDraft: ApplicationModpackMetadata | null;
-    tagsText?: string;
     busy: boolean;
     onsave: () => void | Promise<void>;
   } = $props();
@@ -22,7 +21,7 @@
     <div class="owned-fields">
       <label class="field">Display name<input bind:value={metadataDraft.display_name} /></label>
       <ModpackColorSelect bind:value={metadataDraft.theme} />
-      <label class="field wide">Tags<input value={tagsText} placeholder="client, favorite" oninput={(event) => (tagsText = event.currentTarget.value)} /></label>
+      <div class="wide"><TagEditor bind:value={metadataDraft.tags} label="Tags" description="Keep tags short and specific for this modpack." inputId="settings-tags" disabled={busy} /></div>
       <label class="field wide">Description<textarea rows="4" value={metadataDraft.description ?? ""} oninput={(event) => (metadataDraft!.description = event.currentTarget.value || null)}></textarea></label>
       <label class="favorite"><input type="checkbox" bind:checked={metadataDraft.favorite} /> Favorite modpack</label>
     </div>
