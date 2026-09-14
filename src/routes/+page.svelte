@@ -1444,9 +1444,11 @@
         style={`--modpack-theme-color: ${focusedModpackTheme.color}; --modpack-theme-foreground: ${focusedModpackTheme.foreground};`}
       >
         <div class="detail-tabs" role="tablist" aria-label="Modpack details">
-          <button class:active={activeTab === "summary"} id="summary-tab" role="tab" aria-selected={activeTab === "summary"} aria-controls="summary-panel" tabindex={activeTab === "summary" ? 0 : -1} onclick={() => { if (activeTab !== "summary" && canLeaveSettings()) activeTab = "summary"; }}>Summary</button>
-          <button class:active={activeTab === "versions"} id="versions-tab" role="tab" aria-selected={activeTab === "versions"} aria-controls="versions-panel" tabindex={activeTab === "versions" ? 0 : -1} onclick={() => { if (activeTab !== "versions" && canLeaveSettings()) activeTab = "versions"; }}>Versions</button>
-          <button class:active={activeTab === "settings"} id="settings-tab" role="tab" aria-selected={activeTab === "settings"} aria-controls="settings-panel" tabindex={activeTab === "settings" ? 0 : -1} onclick={() => { if (activeTab !== "settings" && canLeaveSettings()) { if (focusedModpack && (!metadataDraft || editing?.id !== focusedModpack.id)) beginEdit(focusedModpack); activeTab = "settings"; } }}>Settings</button>
+          {#if focusedModpack}
+            <button class:active={activeTab === "summary"} id="summary-tab" role="tab" aria-selected={activeTab === "summary"} aria-controls="summary-panel" tabindex={activeTab === "summary" ? 0 : -1} onclick={() => { if (activeTab !== "summary" && canLeaveSettings()) activeTab = "summary"; }}>Summary</button>
+            <button class:active={activeTab === "versions"} id="versions-tab" role="tab" aria-selected={activeTab === "versions"} aria-controls="versions-panel" tabindex={activeTab === "versions" ? 0 : -1} onclick={() => { if (activeTab !== "versions" && canLeaveSettings()) activeTab = "versions"; }}>Versions</button>
+            <button class:active={activeTab === "settings"} id="settings-tab" role="tab" aria-selected={activeTab === "settings"} aria-controls="settings-panel" tabindex={activeTab === "settings" ? 0 : -1} onclick={() => { if (activeTab !== "settings" && canLeaveSettings()) { if (focusedModpack && (!metadataDraft || editing?.id !== focusedModpack.id)) beginEdit(focusedModpack); activeTab = "settings"; } }}>Settings</button>
+          {/if}
         </div>
         {#if !focusedModpack}
           <section class="detail-empty" role="status"><p class="eyebrow">No focused modpack</p><h2>Select a modpack to begin</h2><p>Choose a modpack card to load its local evidence and modpack tools.</p></section>
@@ -1852,6 +1854,7 @@
     z-index: 1;
     display: flex;
     gap: 4px;
+    min-height: 53px;
     padding: 12px 18px 0;
     border-bottom: 1px solid var(--color-border);
     background: var(--color-bg);
