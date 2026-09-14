@@ -1221,6 +1221,25 @@
     }
   }
 
+  async function toggleFavorite(modpack: ModpackRecord) {
+    try {
+      const updated = await updateModpackMetadata(modpack.id, {
+        ...modpack.application,
+        favorite: !modpack.application.favorite,
+      });
+      replace(updated);
+      if (focusedModpack?.id === updated.id) focusedModpack = updated;
+      if (inspected?.id === updated.id) inspected = updated;
+      toast({
+        title: updated.application.favorite ? "Added to favorites" : "Removed from favorites",
+        severity: "success",
+      });
+    } catch (cause) {
+      error = commandErrorMessage(cause);
+      toast({ title: "Favorite could not be updated", description: error, severity: "error" });
+    }
+  }
+
   function changeLifecycle(modpack: ModpackRecord, action: "archive" | "restore") {
     window.location.assign(`/management?target=${encodeURIComponent(modpack.id)}&action=${action}`);
   }
@@ -1422,6 +1441,7 @@
           onedit={openSettings}
           oncreaterelease={openReleaseCreation}
           onlifecycle={changeLifecycle}
+          ontogglefavorite={toggleFavorite}
           observed={observed}
           freshnessLabel={freshnessLabel}
           freshnessTitle={freshnessTitle}
