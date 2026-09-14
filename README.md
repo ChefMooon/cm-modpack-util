@@ -31,6 +31,8 @@ or **Later** before launching the installer.
   observations.
 - [Data management and cleanup](#data-management-and-cleanup) for
   application-owned records, provider cache, and export observations.
+- [Application data transfer](#application-data-transfer) for portable,
+  versioned application-owned recovery and transfer bundles.
 - [Settings and accessibility](#basic-settings) for startup behavior, theme,
   reduced motion, and preference reset.
 
@@ -87,6 +89,33 @@ Cleanup is scoped to eligible, unreferenced provider-cache rows and obsolete
 export records. Protected references, orphaned records, unavailable export
 destinations, and partial outcomes remain explicit rather than being treated as
 successful deletion.
+
+## Application data transfer
+
+Management can export application-owned state as a versioned
+`cm-modpack-util-data` bundle. The first supported format is canonical UTF-8
+JSON, optionally gzip-compressed, with SHA-256 integrity metadata covering the
+uncompressed payload. Bundles include settings, registered modpack metadata and
+observations, snapshots, decisions, notes, releases, release workspaces,
+operation/history records, changelog artifacts and revisions, and durable
+changelog export records.
+
+Import validates the format, version, integrity hash, resource limits, and
+compatibility before showing a deterministic preview. It merges only selected
+non-conflicting records in one transaction; identical records, same-ID
+conflicts, same-path conflicts, dependent-record skips, unavailable paths, and
+no-op imports remain explicit. Unavailable modpack paths stay disconnected,
+generated integer keys are remapped locally, and imported lifecycle/history
+records are evidence only. Supported operating-system settings effects must
+succeed before the database commit or the complete import is rejected.
+
+The bundle is application-data recovery and transfer, not a Packwiz project
+backup. Packwiz project directories and files remain authoritative and are
+never copied, rewritten, or reconnected. Provider-response cache, Git
+metadata/history, and external changelog destination files are excluded;
+stored changelog export records remain included, but their destination files
+are never read or modified. Import can be cancelled through preview and before
+commit; an active transaction runs to completion.
 
 ## Current compatibility and data boundaries
 
@@ -183,7 +212,8 @@ All of these settings can be reset from the Advanced section of the Settings pag
 ## Alpha database behavior
 
 - The local SQLite database is initialized with the current schema only when it is empty. Existing databases must contain the current schema compatibility sentinel.
-- There is no migration, backup, or in-app database rebuild workflow in alpha.
+- There is no database migration, replacement, or in-app database rebuild
+  workflow in alpha. Application-data bundles are not raw database backups.
 - The v0.0.9 schema compatibility sentinel is version 4. Existing version-3 alpha databases are intentionally incompatible and must be reset manually using the stop-app/delete-database procedure below; the app does not migrate or rewrite them.
 - When a clean reset is needed during development, stop the app and delete `cm-modpack-util.sqlite`, `cm-modpack-util.sqlite-wal`, and `cm-modpack-util.sqlite-shm` from Tauri's application data directory. The app recreates the application database on the next launch. Existing alpha installations using `settings.sqlite` must be reset manually; the app does not silently migrate or rename that file.
 - Packwiz modpack files remain outside the database lifecycle and are not deleted by a database reset.

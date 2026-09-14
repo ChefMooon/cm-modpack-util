@@ -392,6 +392,27 @@ The supported current-alpha management paths include:
 - Exporting and revisiting changelog artifacts without replacing the stored generated result.
 - Retaining unavailable export destinations and provider failures as visible history.
 
+The Management page also provides application-data export and previewed merge
+import. The version-1 `cm-modpack-util-data` bundle is canonical UTF-8 JSON or
+gzip-compressed JSON with SHA-256 integrity metadata over the uncompressed
+payload. It contains application-owned settings, registered modpack metadata
+and observations, snapshots, decisions, notes, releases, release workspaces,
+operation/history records, changelog artifacts and revisions, and durable
+changelog export records. Provider-response cache, Packwiz project files, Git
+metadata/history, and external changelog destination files are excluded;
+external projects remain authoritative and destination files are never copied
+or modified.
+
+Import is validated and previewed before a non-replacing merge. Only selected
+non-conflicting records are committed atomically. Same-ID and same-path
+conflicts, dependent-record skips, unavailable paths, identical records, and
+no-op results remain visible. Generated integer keys are remapped locally,
+unavailable paths remain disconnected, and imported lifecycle or cleanup
+history is immutable evidence rather than authorization for new actions.
+Supported operating-system effects are applied before commit; any failure
+rejects the complete import. Cancellation is available through preview and
+before commit, while an active transaction runs to completion.
+
 Future cleanup operations must preserve referential integrity. Removing a
 modpack from the application must not delete its external directory, Git
 repository, Git history, or user-created export files. Permanent deletion of a

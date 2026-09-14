@@ -518,6 +518,7 @@ dependencies = [
 name = "cm-modpack-util"
 version = "0.0.16"
 dependencies = [
+ "flate2",
  "notify",
  "reqwest 0.12.28",
  "rusqlite",

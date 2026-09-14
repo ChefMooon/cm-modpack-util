@@ -31,15 +31,19 @@
 
 <section class="cleanup-card" aria-labelledby="cleanup-title">
   <div class="section-heading"><div><p class="eyebrow">Cleanup</p><h2 id="cleanup-title">Remove eligible application records</h2></div><span class="scope-label">Preview first</span></div>
-  <p class="description">Only unreferenced provider-cache rows and obsolete export records can be physically removed. External destination files stay untouched.</p>
-  <label class="scope" for="cleanup-scope">Cleanup scope
-    <select id="cleanup-scope" value={scope} onchange={(event) => onscopechange(event.currentTarget.value as CleanupScope)}>
-      <option value="provider_cache">Provider cache</option>
-      <option value="obsolete_exports">Obsolete exports</option>
-      <option value="provider_cache_and_obsolete_exports">Both eligible categories</option>
-    </select>
-  </label>
-  <div class="actions"><Button variant="secondary" type="button" loading={busy} onclick={onpreview}>Preview cleanup</Button>{#if plan}<Button variant="danger" type="button" disabled={!plan.removable_bytes || plan.blocked_reasons.length > 0} loading={busy} onclick={onexecute}>Run scoped cleanup</Button>{/if}</div>
+  <div class="cleanup-controls">
+    <p class="description">Only unreferenced provider-cache rows and obsolete export records can be physically removed. External destination files stay untouched.</p>
+    <div>
+      <label class="scope" for="cleanup-scope">Cleanup scope
+        <select id="cleanup-scope" value={scope} onchange={(event) => onscopechange(event.currentTarget.value as CleanupScope)}>
+          <option value="provider_cache">Provider cache</option>
+          <option value="obsolete_exports">Obsolete exports</option>
+          <option value="provider_cache_and_obsolete_exports">Both eligible categories</option>
+        </select>
+      </label>
+      <div class="actions"><Button variant="secondary" type="button" loading={busy} onclick={onpreview}>Preview cleanup</Button>{#if plan}<Button variant="danger" type="button" disabled={!plan.removable_bytes || plan.blocked_reasons.length > 0} loading={busy} onclick={onexecute}>Run scoped cleanup</Button>{/if}</div>
+    </div>
+  </div>
   {#if plan}
     <div class="plan-summary" role="status"><strong>{plan.candidates.filter((candidate) => !candidate.protected).length} removable records</strong><span>{formatBytes(plan.removable_bytes)}</span><span>{plan.protected_count} protected</span></div>
     {#if plan.blocked_reasons.length}<div class="blocked" role="alert">{#each plan.blocked_reasons as reason}<p>{reason}</p>{/each}</div>{/if}
@@ -55,8 +59,9 @@
   .eyebrow { margin:0 0 8px; color:var(--color-accent-strong); font:700 10px var(--font-mono); letter-spacing:.12em; text-transform:uppercase; }
   .cleanup-card h2 { margin:0; font-size:20px; overflow-wrap:anywhere; }
   .scope-label { flex:0 0 auto; color:var(--color-info); font:700 11px var(--font-mono); }
+  .cleanup-controls { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(280px,.8fr); gap:18px; align-items:end; }
   .description { color:var(--color-text-muted); font-size:13px; line-height:1.5; }
-  .scope { display:grid; gap:7px; margin:18px 0; color:var(--color-text-muted); font:11px var(--font-mono); }
+  .scope { display:grid; gap:7px; margin:0 0 14px; color:var(--color-text-muted); font:11px var(--font-mono); }
   .scope select { width:100%; min-width:0; min-height:40px; padding:0 10px; border:1px solid var(--color-border); color:var(--color-text); background:var(--color-bg); font:inherit; }
   .actions { display:flex; gap:10px; flex-wrap:wrap; }
   .plan-summary { display:flex; flex-wrap:wrap; gap:14px; margin-top:18px; padding:12px; color:var(--color-text-muted); background:var(--color-surface-raised); font-size:12px; }
@@ -76,6 +81,8 @@
   .result strong { margin-right:12px; text-transform:capitalize; }
   @media (max-width:600px) {
     .cleanup-card { padding:16px; }
+    .cleanup-controls { grid-template-columns:1fr; gap:0; }
+    .scope { margin-top:18px; }
     .section-heading { flex-direction:column; }
     .candidate-list li { grid-template-columns:1fr; }
     .candidate-action { align-items:flex-start; justify-content:flex-start; flex-direction:column; }

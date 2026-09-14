@@ -2,6 +2,7 @@ pub mod capture;
 pub mod changelog;
 pub mod comparison;
 mod contracts;
+pub mod data_transfer;
 pub mod inventory;
 pub mod lifecycle;
 pub mod provenance;
@@ -33,6 +34,14 @@ pub use contracts::{
     SnapshotLifecycle, SnapshotNoteRecord, SnapshotNoteScope, SnapshotRecheckRecord,
     SnapshotRecord, TrustedPageLink, UpdateCandidate, ValidationResult, ValidationSeverity,
     VersionChangeKind, VersionEvidence,
+};
+pub use data_transfer::{
+    canonical_json_bytes, canonicalize, sha256_hex, DataTransferApplication,
+    DataTransferCompression, DataTransferEnvelope, DataTransferExportResult,
+    DataTransferImportRequest, DataTransferImportResult, DataTransferPayload, DataTransferPreview,
+    DataTransferRecord, DataTransferRecordPreview, DataTransferRecordStatus, DATA_BUNDLE_FORMAT,
+    DATA_BUNDLE_VERSION, DATA_TRANSFER_MAX_COMPRESSED_BYTES, DATA_TRANSFER_MAX_DECOMPRESSED_BYTES,
+    DATA_TRANSFER_MAX_NESTING, DATA_TRANSFER_MAX_RECORDS, DATA_TRANSFER_MAX_STRING_BYTES,
 };
 pub use lifecycle::{
     action_is_supported, confirmation_phrase, preview_fingerprint, validate_confirmation,
