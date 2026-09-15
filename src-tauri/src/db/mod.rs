@@ -463,7 +463,7 @@ pub fn initialize(path: &std::path::Path) -> Result<Database, rusqlite::Error> {
             [],
             |row| row.get(0),
         )?;
-        if version != "4" {
+        if version != "1" {
             return Err(rusqlite::Error::InvalidQuery);
         }
     } else {
@@ -4158,18 +4158,18 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("schema version should be readable");
-        assert_eq!(schema_version, "4");
+        assert_eq!(schema_version, "1");
     }
 
     #[test]
-    fn rejects_existing_version_three_database_without_migration() {
+    fn rejects_existing_version_two_database_without_migration() {
         let path =
-            std::env::temp_dir().join(format!("cm-modpack-util-v3-{}.sqlite", std::process::id()));
+            std::env::temp_dir().join(format!("cm-modpack-util-v2-{}.sqlite", std::process::id()));
         {
             let connection = rusqlite::Connection::open(&path).expect("database should open");
             connection
                 .execute_batch(
-                    "CREATE TABLE schema_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL); INSERT INTO schema_metadata (key, value) VALUES ('schema_version', '3');",
+                    "CREATE TABLE schema_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL); INSERT INTO schema_metadata (key, value) VALUES ('schema_version', '2');",
                 )
                 .expect("legacy sentinel should be created");
         }

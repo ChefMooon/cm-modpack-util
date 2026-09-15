@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS schema_metadata (
     value TEXT NOT NULL
 );
 
-INSERT OR IGNORE INTO schema_metadata (key, value) VALUES ('schema_version', '4');
+INSERT OR IGNORE INTO schema_metadata (key, value) VALUES ('schema_version', '1');
 
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY NOT NULL,

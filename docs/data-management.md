@@ -22,7 +22,7 @@ Packwiz project directories, Packwiz files, Git metadata/history, and user expor
 
 The alpha database is initialized from the current schema only when it is empty. Existing databases must contain the current schema compatibility sentinel. There is no database migration, replacement, or in-app database rebuild workflow in alpha. Application-data bundles are not raw database backups.
 
-The v0.0.9 schema compatibility sentinel is version 4. Existing version-3 alpha databases are intentionally incompatible and must be reset manually; the app does not migrate or rewrite them.
+The schema compatibility sentinel is version 1. Existing databases with another schema version are intentionally incompatible and must be reset manually; the app does not migrate or rewrite them.
 
 When a clean reset is needed during development, stop the app and delete `cm-modpack-util.sqlite`, `cm-modpack-util.sqlite-wal`, and `cm-modpack-util.sqlite-shm` from Tauri's application data directory. The app recreates the application database on the next launch. Existing alpha installations using `settings.sqlite` must be reset manually; the app does not silently migrate or rename that file. Packwiz modpack files remain outside the database lifecycle and are not deleted by a database reset.
 
