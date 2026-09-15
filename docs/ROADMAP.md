@@ -1,273 +1,92 @@
-# CM Modpack Util Roadmap
+# CM Modpack Util: 0.1.0 Readiness Roadmap
 
-## Purpose
+> This is a temporary release-readiness roadmap for the initial `0.1.0` release. It replaces the historical milestone sequence preserved in [`docs/archive/ROADMAP-v0.0.1-v0.0.9.md`](archive/ROADMAP-v0.0.1-v0.0.9.md). After `0.1.0` ships, replace this document with a post-release product roadmap.
 
-This roadmap orders the initial implementation of CM Modpack Util into small,
-independently plannable milestones. It is a high-level delivery sequence, not a
-replacement for the product specification or the implementation plan for any
-individual version.
+## Current status
 
-The sequence follows three boundaries:
+CM Modpack Util is in final release preparation. The current application version is `0.0.16`, an unreleased development version used while implementing and testing the desktop updater. The version will be bumped to `0.1.0` when the release checklist is complete.
 
-- Packwiz files remain authoritative for the current modpack state.
-- SQLite owns application metadata, decisions, cached data, and history.
-- Rust owns filesystem access, Packwiz processes, network access, persistence,
-  safety checks, and domain-oriented Tauri commands.
+The repository's required local validation currently passes:
 
-Each minor version should have its own plan covering detailed scope, data
-changes, UI work, tests, and acceptance criteria.
+- `npm run check`
+- `npm test`
+- `npm run build`
+- `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`
+- `cargo test --manifest-path src-tauri/Cargo.toml`
+- `git diff --check`
 
-## Release Sequence
+## Implemented product scope
 
-### v0.0.1 - Productize the Existing Template (Complete)
+### Modpack management
 
-Turn the initial desktop shell into the first CM Modpack Util
-application foundation. This milestone should build on the existing starter
-instead of recreating its infrastructure.
+- Register local Packwiz directories with canonical path validation and a review preview.
+- Preserve Packwiz files as the external source of truth.
+- Reopen, refresh, edit application-owned metadata, archive, restore, detach, and reconnect modpacks.
+- Retain disconnected projects and their application history when external directories are unavailable.
 
-#### Already Provided by the Template
+See [modpack registration](modpack-registration.md) and the [product specification](CM-MODPACK-UTIL-SPEC.md).
 
-The starting point already includes:
+### Inventory, discovery, and review
 
-- Tauri 2, SvelteKit, TypeScript, Vite, and Rust integration.
-- A bundled SQLite connection initialized during Tauri startup.
-- Settings persistence through typed `get_settings`, `set_setting`, delete, and
-  reset commands.
-- Window state restoration, tray behavior, autostart, and the opener plugin.
-- Shared Button, Modal, Tooltip, and Toast UI primitives.
-- A settings route with theme, reduced-motion, startup, and tray preferences.
-- `npm run build` and `npm run check` validation scripts.
+- Read current Packwiz inventory and show provider, side, pin, version, validation, and project evidence.
+- Use the tested Packwiz compatibility profile for update discovery through `packwiz update -a` cancellation probing.
+- Preserve immutable discovery snapshots, fingerprints, candidate evidence, decisions, notes, stale detection, retries, and explicit unsafe or indeterminate outcomes.
+- Apply selected targeted updates through verified positional slugs, one bounded process per target, with post-operation verification and partial/cancelled outcomes.
+- Apply verified positional-slug pin and unpin operations. The all-target `packwiz update -a` form remains discovery-only.
 
-#### Remaining Foundation Work
+See [Packwiz compatibility and command safety](packwiz-commands.md).
 
-- Rename the package, Rust crate, Tauri product metadata, window title, tray
-  labels, identifiers, and visible template copy for CM Modpack Util.
-- Connect the first application shell to Packwiz project operations instead of
-  application shell and navigation placeholders for Projects, Activity, and
-  Settings.
-- Preserve and test the existing settings behavior while moving shared app
-  state and Tauri invocation patterns into product-owned modules.
-- Define the first domain contracts for projects, operations, validation
-  results, structured errors, and operation status without implementing project
-  registration yet.
-- Establish the Rust boundary for canonical paths and registered-project
-  scoping so later filesystem and Packwiz work cannot bypass it.
-- Retain the template's no-migration database approach through the initial
-  version. Product tables should continue to be initialized through
-  `CREATE TABLE IF NOT EXISTS`; introducing a migration system is post-initial-
-  release work and must be planned before the schema changes afterward.
-- Add foundation tests for database initialization, settings persistence,
-  command error translation, path-boundary rules, and the initial frontend
-  routing/shell states.
-- Keep network access, Packwiz execution, project registration, and modpack file
-  mutation out of this milestone.
+### Releases and changelogs
 
-**Exit gate:** The renamed CM Modpack Util desktop app starts through
-`npm run tauri dev`, passes `npm run check` and `npm run build`, preserves the
-template settings workflows, exposes a stable product shell, and has tested
-domain/path/database boundaries ready for project registration in `v0.2`.
+- Create independent release workspaces from captured evidence.
+- Observe relevant external changes and preserve recovery evidence.
+- Finalize and compare releases from persisted captures rather than silently rereading the current working tree.
+- Generate, revise, and export Markdown changelogs with bounded Modrinth access, exact cache reuse, durable artifacts, and explicit unresolved or failed provider outcomes.
+- Manage application-owned records, cleanup eligible cache/export observations, and transfer application data through versioned recovery bundles.
 
-### v0.0.2 - Project Registration and Validation (Complete)
+See [release workspace validation](release-workspace-validation.md), [data management](data-management.md), and the detailed plans under [`docs/plans/`](plans/).
 
-Make local Packwiz projects discoverable and safely registerable.
+### Desktop updates
 
-- Select a local directory and validate it without network access or mutation.
-- Parse `pack.toml`, the referenced index, and supported mod metadata files.
-- Show a registration preview containing Packwiz-declared values and validation
-  results.
-- Canonicalize project paths and reject duplicate registrations.
-- Store application-owned project metadata such as display name, theme, tags,
-  favorite state, description, and lifecycle status.
-- Support opening, editing, archiving, restoring, and reconnecting projects without
-  deleting external files; retain unavailable projects as disconnected records.
-- Record refresh timestamps and derived project facts.
+The desktop updater is implemented and has been tested through the GitHub release flow:
 
-**Exit gate:** A valid project can be registered and reopened offline, invalid
-or inaccessible projects produce understandable results, and registration does
-not modify the selected directory.
+- Startup and Settings checks retrieve stable release metadata without downloading installer bytes.
+- The user explicitly starts download and installation.
+- Windows release artifacts are built as signed Tauri updater artifacts in the NSIS workflow.
+- The application presents the tested install/restart flow and handles deferred updates without repeatedly interrupting the same session.
+- Release artifacts have been tested from the GitHub repository and the application successfully updates from that repository.
 
-### v0.0.3 - Inventory and Project Overview
+See [desktop updates](desktop-updates.md) and the [desktop update implementation plan](plans/desktop-updates-plan.md).
 
-Provide a useful read-only view of the current project state.
+## Remaining `0.1.0` work
 
-- Read the current mod inventory from Packwiz metadata.
-- Display local entry identity, name, version, file path, provider, side, pin
-  state, source URL, and unknown values where evidence is missing or malformed.
-- Treat `pin = true` in local metadata as pinned and an absent `pin` field as
-  the current unpinned (`false`) Packwiz observation; keep malformed values
-  explicit and use `packwiz pin` and `packwiz unpin` for changes in a later
-  mutation milestone.
-- Derive provider and client/server-side counts from current files.
-- Add trustworthy **Open mod page** actions without making provider requests
-  just to render the inventory.
-- Show project validation, Minecraft version, loader information, Git status,
-  mod counts, update counts when known, and recent application activity.
-- Add refresh behavior that re-reads local evidence and clearly reports failures.
+1. Confirm the final user-facing scope and known limitations for the release.
+2. Prepare the `0.1.0` changelog entry and release notes from the completed feature set.
+3. Synchronize the final `0.1.0` version across `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`, updater tests, and the current-release example in the updater documentation.
+4. Run the full release validation suite after the version bump.
+5. Create the annotated `v0.1.0` tag and let the Windows release workflow create its draft.
+6. Inspect the generated NSIS installer, updater signature, and `latest.json`, then publish the stable non-prerelease release.
+7. Perform one final clean-install and update rehearsal against the published stable feed.
 
-**Exit gate:** Users can inspect a project and its mod metadata without changing
-files, and the interface never presents inferred provider or side data as fact.
+The version bump and tag should happen only after the release notes and final scope are settled.
 
-### v0.0.4 - Packwiz Compatibility and Safe Update Checks
+## Initial release boundaries
 
-Build the controlled **Check for updates** workflow before allowing updates to
-be applied.
+The initial release remains intentionally local-first and Windows-focused:
 
-- Identify and record the tested Packwiz compatibility profile.
-- Implement observable Packwiz process execution in the registered directory.
-- Run `packwiz update -a` as an interactive cancellation probe.
-- Detect the expected prompt, send only `n`, capture output, and verify the
-  expected cancellation result.
-- Capture before and after project fingerprints and reject changed state.
-- Parse update candidates only when prompt handling, cancellation, compatibility,
-  and post-cancellation validation all succeed.
-- Report unsupported, unsafe, and indeterminate outcomes distinctly from normal
-  update-check results.
+- Packwiz projects, Git metadata, and user export destinations remain external resources and are never silently deleted or rewritten by application management actions.
+- The alpha SQLite database has no migration workflow. Incompatible local databases require the documented stop-app/reset procedure in [data management](data-management.md).
+- GitHub enrichment, CurseForge API access, cloud synchronization, collaboration, user accounts, unattended updates, automatic dependency conflict resolution, and non-Markdown changelog export remain outside `0.1.0`.
+- Microsoft Authenticode signing is not included in the initial Windows release, so SmartScreen or unknown-publisher warnings may occur even though Tauri updater signatures protect updater artifacts.
 
-**Exit gate:** **Check for updates** never sends `y`, never claims authoritative
-candidates without all required evidence, and does not modify the project during
-a normal successful update check.
+## Post-`0.1.0` candidates
 
-### v0.0.5 - Snapshot Review and Decision Tracking
+These are candidates for a future roadmap, not commitments for the initial release:
 
-Turn **Check for updates** into a durable review workflow without applying
-changes yet.
-
-- Create snapshots for update sessions, including review, cancelled, unsafe,
-  and indeterminate outcomes.
-- Persist candidate observations and the before-state fingerprint.
-- Add selected, skipped, blocked, and deferred decisions.
-- Persist project-level and snapshot decision notes.
-- Show pins, existing notes, severity classification, provider identity, side,
-  and compatibility warnings during review.
-- Invalidate a review when relevant project files change externally.
-- Preserve immutable operation history and make retries create new linked work.
-
-**Exit gate:** A user can review and explain every candidate decision, close or
-cancel a session without changing Packwiz files, revisit the session later, and
-start a fresh linked retry when native freshness evidence requires it. Update
-application and pin mutation remain deferred to v0.0.6.
-
-### v0.0.6 - Applying Updates and Pin Management
-
-Add explicitly approved Packwiz mutations with verification and recovery
-warnings.
-
-- Apply only a confirmed update set supported by the compatibility profile.
-- Capture command output, errors, exit status, progress, and cancellation state.
-- Block invalid projects, concurrent operations, active Git conflict states,
-  stale reviews, and missing before-state evidence.
-- Require acknowledgement when Git or another recovery path is unavailable.
-- Re-read and validate Packwiz files after the operation.
-- Classify results as successful, partially successful, failed, or cancelled.
-- Implement exact-file interactive `packwiz pin` and `packwiz unpin` flows.
-- Never use ambiguous `--yes` selection for pinning or unpinning.
-- Record the resulting Packwiz state and preserve failed or partial snapshots.
-
-**Current implementation boundary:** The audited Packwiz binary supports verified
-positional-slug pin/unpin operations, which are delivered with immutable
-operation history, cancellation evidence, confirmation UI, and post-read
-verification. Update application remains explicitly refused because its
-network-backed `update -a` behavior has no fixture-proven affirmative target,
-cancellation, or after-state contract. A future tested apply profile must close
-that gate before the apply exit criterion can be claimed.
-
-**Exit gate:** Updates are applied only from an explicit review, post-operation
-validation determines the outcome, and no operation is reported successful based
-only on process startup or exit status.
-
-### v0.0.7 - Changelog Generation and Markdown Export
-
-Complete the initial update-to-changelog workflow using targeted Modrinth access.
-
-The implementation is being delivered through the phased plan in
-`docs/plans/v0.1.0/v0.0.7.md`. The supported boundary is explicit snapshot
-generation, visible provider evidence, durable artifacts and revisions, and
-native Markdown export. Automatic cache expiration, CurseForge API access,
-Packwiz mutation, releases, and cleanup remain outside this milestone.
-
-- Identify changed mods from a selected snapshot.
-- Resolve Modrinth project and version identities with confidence and evidence.
-- Request only the changelog data required for the selected snapshot.
-- Cache exact provider responses with retrieval and freshness information.
-- Support exact cached data when offline.
-- Make missing, ambiguous, unresolved, stale, and failed lookups visible.
-- Accept an optional changelog introduction.
-- Store generated changelog artifacts and generation status durably.
-- Support editable revisions while preserving the original generated result.
-- Export Markdown and record destination, time, format, and exported content or
-  hash without deleting the stored artifact.
-
-**Exit gate:** A user can generate, review, edit, export, and revisit a
-snapshot changelog, while confirmed and unconfirmed provider information remain
-distinguishable.
-
-### v0.0.8 - Releases and Captured State Comparison
-
-Separate named releases from update sessions and preserve historical evidence.
-
-- Create named releases from captured, validated local state.
-- Support release notes, descriptions, publication status, and optional links
-  to snapshots.
-- Capture the complete relevant Packwiz state independently of current files.
-- Record optional Git repository, branch, commit, tag, cleanliness, and remote
-  provenance.
-- Allow releases without Git and mark unavailable commit reconstruction clearly.
-- Compare two releases using captured state rather than the current working tree.
-- Show added, removed, changed, and metadata-changed mods, loader changes,
-  release notes, changelog information, and available commits.
-- Add optional public GitHub metadata enrichment without making it a dependency.
-
-**Exit gate:** Historical release comparisons remain meaningful after the project
-changes, moves, disconnects, or loses access to GitHub.
-
-### v0.0.9 - Data Management, Cleanup, and Hardening
-
-Make application-owned history manageable and prepare the initial release.
-
-- Add archive, restore, detach, and permanent-delete workflows for supported
-  records.
-- Show dependency and external-reference impact previews before destructive
-  actions.
-- Require typed confirmation for permanent deletion.
-- Preserve external project directories, Git history, and user export files.
-- Identify orphaned records and unavailable export destinations.
-- Add scoped cleanup for cached provider metadata and obsolete export records.
-- Show storage usage and removable data.
-- Complete keyboard, focus, status communication, and non-color accessibility
-  requirements.
-- Exercise Windows path behavior, process cancellation, partial operations,
-  malformed TOML, disconnected projects, offline caches, and recovery warnings.
-- Document supported Packwiz compatibility and known limitations.
-
-**Exit gate:** Application data can be managed without database editing, cleanup
-is explainable and reversible by default, and the critical safety boundaries are
-covered by automated tests.
-
-## Cross-Version Practices
-
-Every version should include the smallest relevant slice of:
-
-- Rust domain contracts and structured error translation.
-- Svelte loading, empty, success, failure, and cancellation states.
-- Unit tests for parsing and business rules.
-- Integration tests for filesystem, SQLite, and Packwiz boundaries where practical.
-- Acceptance checks tied to the corresponding section of
-  `docs/CM-MODPACK-UTIL-SPEC.md`.
-- Documentation updates for user-visible behavior and compatibility limits.
-
-A later version may be split or reordered if implementation evidence exposes a
-strong dependency, but it should preserve the source-of-truth and safety order.
-
-## Deferred Beyond the Initial Sequence
-
-The following remain outside the initial roadmap unless the scope is explicitly
-changed:
-
-- CurseForge API integration and CurseForge-native changelog retrieval.
-- Private GitHub authentication.
-- Cloud synchronization, collaboration, and user accounts.
-- Unattended updates and automatic dependency conflict resolution.
-- Multiplayer server deployment or runtime management.
-- Changelog export formats other than Markdown.
-- Automatic cache expiration policies.
-- Application-created backups as a replacement or supplement for Git.
+- Broader Packwiz compatibility and additional tested command profiles.
+- CurseForge changelog retrieval and other provider integrations.
+- Automatic cache expiration policies and additional export formats.
+- GitHub enrichment and optional authenticated workflows.
+- Cloud synchronization, collaboration, accounts, and multi-user permissions.
+- Application-created backups, rollback assistance, and broader recovery tooling.
+- Additional platform releases beyond Windows.

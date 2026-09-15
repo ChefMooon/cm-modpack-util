@@ -1,6 +1,6 @@
 # Release Workspace Validation
 
-The release workspace watcher is Rust-owned and uses `notify` to observe only the Packwiz fingerprint boundary. Browser-only checks cannot prove native filesystem timing, so validate the following in a Tauri desktop run after resetting an incompatible alpha database as described in `README.md`:
+The release workspace watcher is Rust-owned and uses `notify` to observe only the Packwiz fingerprint boundary. Browser-only checks cannot prove native filesystem timing, so validate the following in a Tauri desktop run after resetting an incompatible alpha database as described in [data management](data-management.md):
 
 1. Check for updates, open a reviewable snapshot, and choose `Start Release Review`.
 2. Confirm the workspace appears in Versions and resumes after closing and reopening the app.

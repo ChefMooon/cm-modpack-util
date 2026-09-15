@@ -59,4 +59,4 @@ Reconnect always requires an explicit directory selection and a fresh validation
 
 Opening and refreshing a modpack read the current local evidence. Refresh is explicit and read-only. A missing, inaccessible, or malformed external modpack is reported as unavailable rather than silently treated as valid.
 
-Registration, opening, refresh, lifecycle changes, and reconnect do not run Packwiz commands or request Modrinth, CurseForge, GitHub, or other network data. Full mod inventory and update workflows are planned for later releases.
+Registration, opening, refresh, lifecycle changes, and reconnect do not run Packwiz commands or request Modrinth, CurseForge, GitHub, or other network data. Inventory inspection, update discovery, review, and targeted update workflows are available after registration through their separate application actions.
