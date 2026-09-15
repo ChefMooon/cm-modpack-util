@@ -5,6 +5,82 @@ versions listed below were published releases. Published release notes should
 be added here only after a release is made. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) conventions.
 
+## v0.0.16
+
+### Added
+
+- Explicit Windows update installation confirmation with separate “Install and
+  restart” and “Later” choices.
+- Deferred updates no longer produce duplicate installation notifications.
+- Release notes are copied into the GitHub release and updater manifest during
+  packaging.
+
+### Changed
+
+- Update installation remains download-first, giving users control over when
+  the application restarts.
+
+## v0.0.15
+
+### Added
+
+- An explicit Windows restart/install choice after an update finishes
+  downloading.
+
+### Changed
+
+- Updater state handling, settings behavior, and release workflow were refined
+  around the new installation decision.
+
+## v0.0.14
+
+### Added
+
+- A synchronized update-test release milestone for validating the updater
+  package and version metadata.
+
+## v0.0.13
+
+### Added
+
+- Stable-feed release metadata for the Windows updater.
+
+## v0.0.12
+
+### Added
+
+- Expanded updater tests covering the release and Tauri integration paths.
+
+### Changed
+
+- Updater and settings behavior were synchronized with the `v0.0.12` release
+  metadata.
+
+## v0.0.11
+
+### Added
+
+- Explicit update lifecycle handling, including download, restart, completion,
+  and failure states.
+- Update status toasts and settings controls for managing the update flow.
+
+### Changed
+
+- Restart behavior is now handled as an explicit user-facing step instead of
+  being implicit.
+
+## v0.0.10
+
+### Added
+
+- The signed Windows release and updater pipeline.
+- Application version visibility and updater settings integration.
+- Documentation for the desktop update workflow.
+
+### Changed
+
+- Windows release artifacts are prepared for signed update distribution.
+
 
 ## v0.0.9
 
