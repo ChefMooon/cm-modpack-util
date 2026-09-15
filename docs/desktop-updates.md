@@ -1,5 +1,9 @@
 # Desktop update release procedure
 
+For a reusable implementation guide covering the Tauri frontend, Rust
+integration, GitHub Actions workflow, signing keys, and Actions secrets, see
+the [Tauri updater setup guide](tauri-updater-guide.md).
+
 CM Modpack Util publishes stable Windows x64 releases as NSIS installers.
 Release tags use the `v<semver>` form, such as `v0.0.16`. The application
 version in `src-tauri/tauri.conf.json` is authoritative and must match
