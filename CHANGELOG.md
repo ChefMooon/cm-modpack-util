@@ -5,6 +5,26 @@ versions listed below were published releases. Published release notes should
 be added here only after a release is made. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) conventions.
 
+## [0.0.17] - 2026-09-16
+
+### Added
+
+- Application data can now be exported and imported through Management controls.
+- Modpack favorites and a favorites-only filter are now available.
+- Added a structured tag editor for managing modpack tags.
+
+### Changed
+
+- Full modpack names now appear in list-item tooltips.
+- Unavailable project tabs hide without collapsing the surrounding layout.
+- Navigation preserves the application shell across route changes.
+- Changelog generation now respects selected snapshot candidates.
+
+### Fixed
+
+- Corrected the snapshot creation label.
+- Removed unwanted spacing above the Summary tab.
+
 ## v0.0.16
 
 ### Added

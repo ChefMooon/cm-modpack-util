@@ -15,7 +15,7 @@ fn updater_configuration_keeps_windows_release_contract() {
     )
     .unwrap();
 
-    assert_eq!(config["version"], "0.0.16");
+    assert_eq!(config["version"], "0.0.17");
     assert_eq!(config["productName"], "CM-Modpack-Util");
     assert_eq!(config["bundle"]["targets"][0], "nsis");
     assert_eq!(config["bundle"]["createUpdaterArtifacts"], true);
