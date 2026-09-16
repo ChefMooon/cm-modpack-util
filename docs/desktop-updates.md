@@ -37,9 +37,9 @@ The workflow also uses GitHub's automatically provided `GITHUB_TOKEN` with
 
 1. Confirm the version is synchronized across the authoritative Tauri config,
    `package.json`, and `src-tauri/Cargo.toml`.
-2. Update `RELEASE_NOTES.md` with the release body before committing and
-   tagging. The workflow copies this file into both the GitHub release body
-   and the updater manifest. Editing the GitHub draft afterward does not
+2. Add the release entry to `CHANGELOG.md` before committing and tagging. The
+   workflow extracts the matching tagged entry into both the GitHub release
+   body and the updater manifest. Editing the GitHub draft afterward does not
    change `latest.json`.
 3. Confirm both signing secrets exist and are repository Actions secrets.
 4. Create and push a `v<semver>` tag.

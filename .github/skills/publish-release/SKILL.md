@@ -1,5 +1,5 @@
 ---
-name: cm-modpack-release
+name: publish-release
 description: 'Prepare and publish a CM Modpack Util Windows release. Use when bumping the application version, updating release notes, creating a v<semver> tag, pushing the release workflow, validating Tauri updater assets, or rehearsing the stable latest-release update flow.'
 ---
 
@@ -13,9 +13,12 @@ The project publishes stable Windows NSIS artifacts through
 
 ## Release Procedure
 
-1. Update `RELEASE_NOTES.md` before changing the version. Its contents are
-   copied into the GitHub release body and Tauri `latest.json`; editing the
-   GitHub draft after the workflow runs does not update updater notes.
+1. Add or update the matching `CHANGELOG.md` release entry before changing the
+   version. The release workflow runs
+   `scripts/extract-release-notes.ps1` for the pushed tag and copies the
+   matching changelog section into the GitHub release body and Tauri
+   `latest.json`; editing the GitHub draft after the workflow runs does not
+   update updater notes.
 2. Synchronize the same SemVer value in:
    - `package.json`
    - `package-lock.json` root metadata
@@ -37,6 +40,23 @@ The project publishes stable Windows NSIS artifacts through
    `.sig`, and `latest.json` before publishing.
 7. Publish the release as non-prerelease when it is intended to drive
    `releases/latest`. The latest feed ignores prereleases.
+
+## Release Notes Check
+
+Before pushing the tag, verify the changelog extractor locally with the exact
+tag. Normal mode prints the release notes; `-ValidateOnly` checks the entry
+without returning its text:
+
+```powershell
+./scripts/extract-release-notes.ps1 -Tag vX.Y.Z
+./scripts/extract-release-notes.ps1 -Tag vX.Y.Z -ValidateOnly
+```
+
+The command must find the matching `## [X.Y.Z]` or `## vX.Y.Z` entry in
+`CHANGELOG.md`, and the entry must contain at least one bullet-point note. The
+validation command outputs `True` only when these checks pass and exits with a
+failure code otherwise. The workflow fails before packaging if the tag format
+or matching changelog entry is invalid.
 
 ## Update Rehearsal
 

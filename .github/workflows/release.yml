@@ -41,13 +41,14 @@ jobs:
             throw "Version mismatch: tauri=$configVersion package=$packageVersion cargo=$cargoVersion tag=$tagVersion"
           }
 
-      - name: Load release notes
+      - name: Extract release notes from changelog
         id: release-notes
         shell: pwsh
         run: |
-          "body<<RELEASE_NOTES" >> $env:GITHUB_OUTPUT
-          Get-Content RELEASE_NOTES.md -Raw >> $env:GITHUB_OUTPUT
-          "RELEASE_NOTES" >> $env:GITHUB_OUTPUT
+          $releaseNotes = ./scripts/extract-release-notes.ps1 -Tag $env:GITHUB_REF_NAME | Out-String
+          "body<<RELEASE_BODY" >> $env:GITHUB_OUTPUT
+          $releaseNotes.TrimEnd() >> $env:GITHUB_OUTPUT
+          "RELEASE_BODY" >> $env:GITHUB_OUTPUT
 
       - name: Build and publish draft release
         uses: tauri-apps/tauri-action@v1

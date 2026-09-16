@@ -365,7 +365,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: My App ${{ github.ref_name }}
-          releaseBody: See RELEASE_NOTES.md or use generated release notes.
+          releaseBody: Use the release entry extracted from CHANGELOG.md.
           releaseDraft: true
           prerelease: false
           uploadUpdaterJson: true
