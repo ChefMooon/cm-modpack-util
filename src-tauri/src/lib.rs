@@ -8,6 +8,7 @@ pub mod safety;
 pub mod watcher;
 
 use std::fs;
+use std::path::{Path, PathBuf};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
@@ -32,8 +33,15 @@ pub fn run() {
         )
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
-            fs::create_dir_all(&app_data_dir)?;
-            let database = db::initialize(&app_data_dir.join("cm-modpack-util.sqlite"))
+            let database_path = application_database_path(&app_data_dir, cfg!(debug_assertions));
+            let database_directory = database_path.parent().ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Application database path has no parent directory",
+                )
+            })?;
+            fs::create_dir_all(database_directory)?;
+            let database = db::initialize(&database_path)
                 .map_err(|error| format!("Failed to initialize application database: {error}"))?;
             let start_minimized = db::bool_setting(&database, "general.startMinimized", false);
             let restore_window_state =
@@ -170,4 +178,36 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn application_database_path(app_data_dir: &Path, is_development: bool) -> PathBuf {
+    let database_directory = if is_development {
+        app_data_dir.join("development")
+    } else {
+        app_data_dir.to_path_buf()
+    };
+
+    database_directory.join("cm-modpack-util.sqlite")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::application_database_path;
+    use std::path::Path;
+
+    #[test]
+    fn development_and_production_use_separate_database_paths() {
+        let app_data_dir = Path::new("app-data");
+        let production_path = application_database_path(app_data_dir, false);
+        let development_path = application_database_path(app_data_dir, true);
+
+        assert_eq!(production_path, app_data_dir.join("cm-modpack-util.sqlite"));
+        assert_eq!(
+            development_path,
+            app_data_dir
+                .join("development")
+                .join("cm-modpack-util.sqlite")
+        );
+        assert_ne!(development_path, production_path);
+    }
 }

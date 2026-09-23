@@ -1,6 +1,6 @@
 # Data Management
 
-CM Modpack Util stores application-owned state in `cm-modpack-util.sqlite` inside Tauri's application data directory. The database contains settings, registered modpacks, observed evidence, snapshots, operations, release workspaces, releases, changelog artifacts, provider cache, export observations, and management state. Rust owns database access and exposes typed Tauri commands to the frontend.
+CM Modpack Util stores application-owned state in SQLite inside Tauri's application data directory. Release builds use `cm-modpack-util.sqlite` directly in that directory; development builds use `development/cm-modpack-util.sqlite`. The database contains settings, registered modpacks, observed evidence, snapshots, operations, release workspaces, releases, changelog artifacts, provider cache, export observations, and management state. Rust owns database access and exposes typed Tauri commands to the frontend.
 
 ## Application data transfer
 
@@ -20,10 +20,12 @@ Packwiz project directories, Packwiz files, Git metadata/history, and user expor
 
 ## Database behavior
 
+Debug-assertion builds, including `npm run tauri dev`, use `development/cm-modpack-util.sqlite` beneath Tauri's application data directory. Release builds, including `npm run tauri build`, continue to use `cm-modpack-util.sqlite` directly in the application data directory. The development database starts independently; the application does not copy, import, or migrate production data into it.
+
 The alpha database is initialized from the current schema only when it is empty. Existing databases must contain the current schema compatibility sentinel. There is no database migration, replacement, or in-app database rebuild workflow in alpha. Application-data bundles are not raw database backups.
 
 The schema compatibility sentinel is version 1. Existing databases with another schema version are intentionally incompatible and must be reset manually; the app does not migrate or rewrite them.
 
-When a clean reset is needed during development, stop the app and delete `cm-modpack-util.sqlite`, `cm-modpack-util.sqlite-wal`, and `cm-modpack-util.sqlite-shm` from Tauri's application data directory. The app recreates the application database on the next launch. Existing alpha installations using `settings.sqlite` must be reset manually; the app does not silently migrate or rename that file. Packwiz modpack files remain outside the database lifecycle and are not deleted by a database reset.
+To reset development data, stop the development app and delete `cm-modpack-util.sqlite`, `cm-modpack-util.sqlite-wal`, and `cm-modpack-util.sqlite-shm` from the `development` subdirectory of Tauri's application data directory. The app recreates the development database on the next launch. Do not delete the files directly in the application data directory when resetting development data; those are the production database and its sidecars. Existing alpha installations using `settings.sqlite` must be reset manually; the app does not silently migrate or rename that file. Packwiz modpack files remain outside the database lifecycle and are not deleted by a database reset.
 
 Settings values are stored as JSON by key, allowing new preferences to be added without changing the table structure. If a future structural schema change is required, document it explicitly and reset or manually upgrade the local database rather than silently deleting user data. The development reset action is available on the Settings page.
