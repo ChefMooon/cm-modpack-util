@@ -118,6 +118,7 @@ pub fn run() {
             db::recheck_snapshot,
             db::open_modpack,
             db::refresh_modpack,
+            db::get_modpack_observation,
             db::get_modpack_inventory,
             db::get_modpack_overview,
             db::update_modpack_metadata,

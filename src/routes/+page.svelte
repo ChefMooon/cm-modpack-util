@@ -35,6 +35,7 @@
     Evidence,
     InventoryEntry,
     ModpackOverview,
+    ObservationFreshness,
     Observation,
     ModpackRecord,
     RegistrationPreview,
@@ -61,7 +62,7 @@
     chooseModpackDirectory,
     listModpacks,
     getModpackInventory,
-    getModpackOverview,
+    getModpackObservation,
     openTrustedPage,
     previewModpack,
     reconnectModpack,
@@ -145,6 +146,8 @@
   let inspected = $state<ModpackRecord | null>(null);
   let inventory = $state<InventoryEntry[]>([]);
   let overview = $state<ModpackOverview | null>(null);
+  let observationAt = $state<string | null>(null);
+  let observationFreshness = $state<ObservationFreshness | null>(null);
   let inventoryFilter = $state("all");
   let inspecting = $state(false);
   let overviewLoading = $state(false);
@@ -371,11 +374,37 @@
   async function refresh(modpack: ModpackRecord) {
     busy = true;
     try {
-      replace(await refreshModpack(modpack.id));
-      if (inspected?.id === modpack.id) await inspectModpack(modpack);
+      const refreshed = await refreshModpack(modpack.id);
+      replace(refreshed);
+      if (inspected?.id === modpack.id) await inspectModpack(refreshed);
       toast({ title: "Modpack refreshed", severity: "success" });
     } catch (cause) {
-      error = commandErrorMessage(cause);
+      const message = commandErrorMessage(cause);
+      if (inspected?.id === modpack.id) await inspectModpack(inspected);
+      error = message;
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function rereadModpack(modpack: ModpackRecord) {
+    busy = true;
+    inspecting = true;
+    overviewLoading = true;
+    inventoryLoading = true;
+    try {
+      const refreshed = await refreshModpack(modpack.id);
+      replace(refreshed);
+      if (inspected?.id === modpack.id) await inspectModpack(refreshed);
+      toast({
+        title: "Local evidence re-read",
+        description: "The saved observation now reflects the current Packwiz files.",
+        severity: "success",
+      });
+    } catch (cause) {
+      const message = commandErrorMessage(cause);
+      if (inspected?.id === modpack.id) await inspectModpack(inspected);
+      error = message;
     } finally {
       busy = false;
     }
@@ -387,33 +416,36 @@
     inspected = modpack;
     inspecting = true;
     error = "";
+    overview = null;
+    inventory = [];
+    observationAt = null;
+    observationFreshness = null;
     overviewLoading = true;
     inventoryLoading = true;
     overviewError = "";
     inventoryError = "";
-    void getModpackOverview(modpack.id).then((result) => {
+    try {
+      const result = await getModpackObservation(modpack.id);
       if (requestId !== summaryRequest) return;
-      overview = result;
-    }).catch((cause) => {
+      overview = result.overview;
+      inventory = result.inventory;
+      observationAt = result.observed_at;
+      observationFreshness = result.freshness;
+    } catch (cause) {
       if (requestId !== summaryRequest) return;
       overview = null;
-      overviewError = commandErrorMessage(cause);
-    }).finally(() => {
-      if (requestId === summaryRequest) overviewLoading = false;
-    });
-    void getModpackInventory(modpack.id).then((result) => {
-      if (requestId !== summaryRequest) return;
-      inventory = result;
-    }).catch((cause) => {
-      if (requestId !== summaryRequest) return;
       inventory = [];
-      inventoryError = commandErrorMessage(cause);
-    }).finally(() => {
+      observationAt = null;
+      observationFreshness = null;
+      overviewError = commandErrorMessage(cause);
+      inventoryError = overviewError;
+    } finally {
       if (requestId === summaryRequest) {
+        overviewLoading = false;
         inventoryLoading = false;
         inspecting = false;
       }
-    });
+    }
   }
 
   function focusModpack(modpack: ModpackRecord) {
@@ -1114,7 +1146,11 @@
       });
       const severity = applyReport.outcome === "complete" ? "success" : applyReport.outcome === "partial" ? "warning" : "error";
       toast({ title: `Update apply ${applyReport.outcome}`, description: "Each selected mod was re-read after its Packwiz command.", severity });
-      if (inspected) inventory = await getModpackInventory(inspected.id);
+      if (discoveryModpack) {
+        const refreshed = await refreshModpack(discoveryModpack.id);
+        replace(refreshed);
+        if (inspected?.id === discoveryModpack.id) await inspectModpack(refreshed);
+      }
     } catch (cause) {
       error = commandErrorMessage(cause);
     } finally {
@@ -1153,9 +1189,12 @@
       const request = { modpack_id: modpackId, workspace_id: workspaceId, entry_id: entry.local_id };
       const attempt = pin ? await pinModpackEntry(request) : await unpinModpackEntry(request);
       if (attempt.verification?.verified) {
-        const refreshedInventory = await getModpackInventory(modpackId);
-        if (inspected?.id === modpackId) inventory = refreshedInventory;
-        if (workspaceRecord?.modpack_id === modpackId) workspaceInventory = refreshedInventory;
+        const refreshed = await refreshModpack(modpackId);
+        replace(refreshed);
+        if (inspected?.id === modpackId) await inspectModpack(refreshed);
+        if (workspaceRecord?.modpack_id === modpackId) {
+          workspaceInventory = await getModpackInventory(modpackId);
+        }
         toast({ title: pin ? "Mod pinned" : "Mod unpinned", description: "Packwiz metadata was verified after the operation.", severity: "success" });
       } else {
         error = attempt.error?.message ?? "Packwiz pin state could not be verified.";
@@ -1482,6 +1521,8 @@
             inspected={inspected}
             overview={overview}
             inventory={inventory}
+            observationAt={observationAt}
+            observationFreshness={observationFreshness}
             bind:inventoryFilter
             overviewLoading={overviewLoading}
             inventoryLoading={inventoryLoading}
@@ -1493,7 +1534,7 @@
             freshnessLabel={freshnessLabel}
             freshnessTitle={freshnessTitle}
             onclose={() => { inspected = null; focusedModpack = null; }}
-            onreread={inspectModpack}
+            onreread={rereadModpack}
             onopenPage={openPage}
             onpin={(entry, pin) => { pinConfirmation = { entry, pin }; pinConfirmationModpackId = focusedModpack?.id ?? null; pinConfirmationWorkspaceId = null; showPinConfirmation = true; }}
             onretry={inspectModpack}

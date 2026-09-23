@@ -3,12 +3,13 @@ pub mod lifecycle;
 
 use crate::domain::{
     inventory, validation, ActivityRecord, ApplicationModpackMetadata, CommandError,
-    DiscoveryResult, InventoryEntry, ModpackLifecycle, ModpackOverview, ModpackRecord,
-    RegistrationPreview, ReleaseRecord, ReleaseWorkspaceObservationRecord, SnapshotCandidateRecord,
-    SnapshotDecision, SnapshotDecisionRecord, SnapshotLifecycle, SnapshotNoteRecord,
-    SnapshotNoteScope, SnapshotRecheckRecord, SnapshotRecord, UpdateCandidate,
+    DiscoveryResult, InventoryEntry, ModpackLifecycle, ModpackObservation, ModpackOverview,
+    ModpackRecord, ObservationFreshness, RegistrationPreview, ReleaseRecord,
+    ReleaseWorkspaceObservationRecord, SnapshotCandidateRecord, SnapshotDecision,
+    SnapshotDecisionRecord, SnapshotLifecycle, SnapshotNoteRecord, SnapshotNoteScope,
+    SnapshotRecheckRecord, SnapshotRecord, UpdateCandidate,
 };
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -3873,6 +3874,101 @@ pub fn get_modpack_overview(
     Ok(overview)
 }
 
+fn cached_modpack_observation(
+    connection: &Connection,
+    id: &str,
+) -> Result<Option<ModpackObservation>, CommandError> {
+    let cached = connection
+        .query_row(
+            "SELECT observed_at, freshness, inventory_json, overview_json FROM inventory_observations WHERE modpack_id = ?1",
+            [id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|error| {
+            CommandError::new(
+                "database_read_failed",
+                "Saved modpack evidence could not be read",
+            )
+            .with_details(error.to_string())
+        })?;
+    let Some((observed_at, freshness, inventory_json, overview_json)) = cached else {
+        return Ok(None);
+    };
+    let freshness: ObservationFreshness =
+        serde_json::from_value(serde_json::Value::String(freshness)).map_err(|error| {
+            CommandError::new(
+                "database_record_invalid",
+                "Saved evidence freshness is invalid",
+            )
+            .with_details(error.to_string())
+        })?;
+    let inventory = serde_json::from_str(&inventory_json).map_err(|error| {
+        CommandError::new("database_record_invalid", "Saved mod inventory is invalid")
+            .with_details(error.to_string())
+    })?;
+    let mut overview: ModpackOverview = serde_json::from_str(&overview_json).map_err(|error| {
+        CommandError::new(
+            "database_record_invalid",
+            "Saved modpack overview is invalid",
+        )
+        .with_details(error.to_string())
+    })?;
+    overview.activity = read_activity(connection, id)?;
+    Ok(Some(ModpackObservation {
+        observed_at,
+        freshness,
+        inventory,
+        overview,
+    }))
+}
+
+fn get_modpack_observation_inner(
+    database: &Database,
+    id: &str,
+) -> Result<ModpackObservation, CommandError> {
+    let connection = database
+        .0
+        .lock()
+        .map_err(|_| CommandError::new("database_unavailable", "Database is unavailable"))?;
+    if let Some(observation) = cached_modpack_observation(&connection, id)? {
+        return Ok(observation);
+    }
+    let path: String = connection
+        .query_row(
+            "SELECT canonical_path FROM modpacks WHERE id = ?1",
+            [id],
+            |row| row.get(0),
+        )
+        .map_err(|error| {
+            CommandError::new("project_not_found", "Project is not registered")
+                .with_details(error.to_string())
+        })?;
+    let preview = validation::preview(&path)?;
+    refresh_record(&connection, id, &preview)?;
+    cached_modpack_observation(&connection, id)?.ok_or_else(|| {
+        CommandError::new(
+            "database_read_failed",
+            "The initial modpack observation could not be loaded",
+        )
+    })
+}
+
+#[tauri::command]
+pub fn get_modpack_observation(
+    state: State<'_, Database>,
+    id: String,
+) -> Result<ModpackObservation, CommandError> {
+    get_modpack_observation_inner(&state, &id)
+}
+
 #[tauri::command]
 pub fn update_modpack_metadata(
     state: State<'_, Database>,
@@ -4553,6 +4649,48 @@ mod tests {
             .unwrap();
         assert_eq!(observation_count, 1);
         assert_eq!(activity_count, 1);
+    }
+
+    #[test]
+    fn modpack_observation_bootstraps_once_and_then_reads_cached_evidence_offline() {
+        let database = initialize(Path::new(":memory:")).expect("database should initialize");
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/packwiz/mixed");
+        let path = fixture.to_string_lossy().into_owned();
+        let registered = super::register_modpack_inner(&database, path, None)
+            .expect("valid fixture should register");
+
+        let first = super::get_modpack_observation_inner(&database, &registered.id)
+            .expect("missing observation should be initialized");
+        assert_eq!(
+            first.freshness,
+            crate::domain::ObservationFreshness::Current
+        );
+        assert_eq!(
+            first.overview.inventory_counts.total as usize,
+            first.inventory.len()
+        );
+
+        {
+            let connection = database.0.lock().unwrap();
+            connection
+                .execute(
+                    "UPDATE modpacks SET canonical_path = ?1 WHERE id = ?2",
+                    ["C:/missing-modpack", registered.id.as_str()],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "UPDATE inventory_observations SET freshness = 'stale' WHERE modpack_id = ?1",
+                    [&registered.id],
+                )
+                .unwrap();
+        }
+
+        let cached = super::get_modpack_observation_inner(&database, &registered.id)
+            .expect("existing observation should load without accessing the project path");
+        assert_eq!(cached.freshness, crate::domain::ObservationFreshness::Stale);
+        assert_eq!(cached.observed_at, first.observed_at);
+        assert_eq!(cached.inventory, first.inventory);
     }
 
     #[test]

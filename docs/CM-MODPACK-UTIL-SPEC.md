@@ -124,7 +124,7 @@ Each mod may expose an **Open mod page** action. The action opens the system bro
 
 ### Modpack Overview
 
-The overview should show the active modpack, favorite state, lifecycle status, current validation state, Minecraft version, mod loader, mod count, download-provider counts, client/server-side counts, Git status when available, available updates, pinned mods, recent snapshots, release workspaces, finalized releases, and the latest operation result. Opening or refreshing a modpack must not modify its files or silently run an update. Opening a finalized or published release is historical review and must not start file observation.
+The overview should show the active modpack, favorite state, lifecycle status, last observed validation state, Minecraft version, mod loader, mod count, download-provider counts, client/server-side counts, Git status when available, available updates, pinned mods, recent snapshots, release workspaces, finalized releases, and the latest operation result. Opening a modpack displays its last saved inventory and overview observation without rereading Packwiz files when one exists; the observation's timestamp and freshness must remain visible. **Re-read** explicitly observes the current local files and persists a new observation. A missing observation may be initialized once on first inspection. Opening or refreshing a modpack must not modify its files or silently run an update. Opening a finalized or published release is historical review and must not start file observation.
 
 ### Update Discovery and Review
 

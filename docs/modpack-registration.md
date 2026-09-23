@@ -57,6 +57,8 @@ Reconnect always requires an explicit directory selection and a fresh validation
 
 ## Refresh and Offline Behavior
 
-Opening and refreshing a modpack read the current local evidence. Refresh is explicit and read-only. A missing, inaccessible, or malformed external modpack is reported as unavailable rather than silently treated as valid.
+Opening a modpack displays its last saved inventory and overview observation from SQLite; it does not reread Packwiz files when an observation is available. The observation's last-read time and freshness are shown in the summary. Cached evidence remains available when the registered directory is temporarily inaccessible. If no saved observation exists yet, including on first inspection after registration or for an older registration, that inspection initializes one; subsequent inspections use the saved observation.
 
-Registration, opening, refresh, lifecycle changes, and reconnect do not run Packwiz commands or request Modrinth, CurseForge, GitHub, or other network data. Inventory inspection, update discovery, review, and targeted update workflows are available after registration through their separate application actions.
+**Re-read** explicitly reads the current local Packwiz evidence and saves a new inventory and overview observation. The modpack list's **Refresh** action also updates the saved observation and Packwiz validation metadata. Both actions are read-only with respect to the external project files. If a refresh fails, the previous observation is retained and marked stale; errors are reported rather than treating cached data as current.
+
+Registration, opening a saved observation, refresh, lifecycle changes, and reconnect do not run Packwiz commands or request Modrinth, CurseForge, GitHub, or other network data. Inventory inspection, update discovery, review, and targeted update workflows are available after registration through their separate application actions.

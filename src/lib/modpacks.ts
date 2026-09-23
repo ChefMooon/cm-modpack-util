@@ -8,6 +8,7 @@ import type {
   ApplyOperationRequest,
   InventoryEntry,
   ModpackOverview,
+  ModpackObservation,
   ModpackRecord,
   RegistrationPreview,
   DiscoveryResult,
@@ -85,6 +86,10 @@ export function getModpackInventory(id: string): Promise<InventoryEntry[]> {
 
 export function getModpackOverview(id: string): Promise<ModpackOverview> {
   return invoke("get_modpack_overview", { id });
+}
+
+export function getModpackObservation(id: string): Promise<ModpackObservation> {
+  return invoke("get_modpack_observation", { id });
 }
 
 export function checkForUpdates(id: string): Promise<DiscoveryResult> {

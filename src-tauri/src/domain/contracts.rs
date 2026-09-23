@@ -189,6 +189,14 @@ pub enum ObservationFreshness {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModpackObservation {
+    pub observed_at: String,
+    pub freshness: ObservationFreshness,
+    pub inventory: Vec<InventoryEntry>,
+    pub overview: ModpackOverview,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RefreshResult {
     pub status: OperationStatus,
     pub freshness: ObservationFreshness,

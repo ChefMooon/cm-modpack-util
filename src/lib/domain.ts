@@ -188,6 +188,8 @@ export type ModpackRecord = {
   last_refreshed_at: string | null;
 };
 
+export type ObservationFreshness = "current" | "stale" | "unavailable";
+
 export type Evidence<T> =
   | { observed: T }
   | "unknown"
@@ -271,7 +273,12 @@ export type ModpackOverview = {
   activity: ActivityRecord[];
 };
 
-export type ObservationFreshness = "current" | "stale" | "unavailable";
+export type ModpackObservation = {
+  observed_at: string;
+  freshness: ObservationFreshness;
+  inventory: InventoryEntry[];
+  overview: ModpackOverview;
+};
 
 export type ReleaseWorkspaceWatcherStatus = "stopped" | "starting" | "observing" | "stopping" | "error";
 
