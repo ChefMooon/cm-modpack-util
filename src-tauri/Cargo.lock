@@ -516,7 +516,7 @@ dependencies = [
 
 [[package]]
 name = "cm-modpack-util"
-version = "0.0.17"
+version = "0.0.18"
 dependencies = [
  "flate2",
  "notify",

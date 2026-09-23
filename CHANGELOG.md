@@ -5,6 +5,13 @@ versions listed below were published releases. Published release notes should
 be added here only after a release is made. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) conventions.
 
+## [0.0.18] - 2026-09-23
+
+### Changed
+
+- Opening a modpack now shows its saved evidence instead of immediately rescanning files. Use an explicit read to refresh it.
+- The application icon now appears in the header brand.
+
 ## [0.0.17] - 2026-09-16
 
 ### Added

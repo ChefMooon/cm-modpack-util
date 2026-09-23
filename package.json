@@ -1,6 +1,6 @@
 {
   "name": "cm-modpack-util",
-  "version": "0.0.17",
+  "version": "0.0.18",
   "description": "A local-first desktop workspace for CM modpack projects.",
   "type": "module",
   "scripts": {

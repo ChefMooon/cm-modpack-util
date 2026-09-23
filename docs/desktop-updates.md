@@ -5,7 +5,7 @@ integration, GitHub Actions workflow, signing keys, and Actions secrets, see
 the [Tauri updater setup guide](tauri-updater-guide.md).
 
 CM Modpack Util publishes stable Windows x64 releases as NSIS installers.
-Release tags use the `v<semver>` form, such as `v0.0.17`. The application
+Release tags use the `v<semver>` form, such as `v0.0.18`. The application
 version in `src-tauri/tauri.conf.json` is authoritative and must match
 `package.json`, `src-tauri/Cargo.toml`, the tag, and the visible application
 version.
