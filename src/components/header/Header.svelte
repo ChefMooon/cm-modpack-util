@@ -7,7 +7,7 @@
 
 <header class="site-header">
   <a class="brand" href="/" aria-label="CM Modpack Util home">
-    <span class="brand-mark" aria-hidden="true">CM</span>
+    <img class="brand-mark" src="/cm-modpack-util-icon.png" alt="" aria-hidden="true" />
     <span>CM Modpack Util</span>
   </a>
 
@@ -52,16 +52,9 @@
   }
 
   .brand-mark {
-    display: grid;
     width: 30px;
     height: 30px;
-    place-items: center;
-    border: 2px solid var(--color-yellow);
-    border-radius: 0;
-    color: var(--color-yellow);
-    background: transparent;
-    font-size: 11px;
-    font-weight: 800;
+    object-fit: contain;
   }
 
   .navigation {
