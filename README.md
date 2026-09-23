@@ -3,9 +3,7 @@
 CM Modpack Util is a local-first Windows desktop workspace for CM modpacks,
 built with **Tauri 2**, **SvelteKit**, **TypeScript**, **Vite**, and **SQLite**.
 
-The project is being prepared for its initial `0.1.0` release. The current
-`0.0.16` version is an unreleased development version used while building and
-testing the updater flow; it is not a published release.
+![dashboard](/img/dash_2026-09-23.png)
 
 ## Current capabilities
 
