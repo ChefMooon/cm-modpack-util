@@ -1,19 +1,11 @@
 # CM Modpack Util: 0.1.0 Readiness Roadmap
 
-> This is a temporary release-readiness roadmap for the initial `0.1.0` release. It replaces the historical milestone sequence preserved in [`docs/archive/ROADMAP-v0.0.1-v0.0.9.md`](archive/ROADMAP-v0.0.1-v0.0.9.md). After `0.1.0` ships, replace this document with a post-release product roadmap.
-
-## Current status
-
-CM Modpack Util is in final release preparation. The current application version is `0.0.16`, an unreleased development version used while implementing and testing the desktop updater. The version will be bumped to `0.1.0` when the release checklist is complete.
-
-The repository's required local validation currently passes:
-
-- `npm run check`
-- `npm test`
-- `npm run build`
-- `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`
-- `cargo test --manifest-path src-tauri/Cargo.toml`
-- `git diff --check`
+> This is a temporary release-readiness roadmap for the planned initial `0.1.0`
+> release; additional development versions may be released before then. It
+> replaces the historical milestone sequence preserved in
+> [`docs/archive/ROADMAP-v0.0.1-v0.0.9.md`](archive/ROADMAP-v0.0.1-v0.0.9.md).
+> After `0.1.0` ships, replace this document with a post-release product
+> roadmap.
 
 ## Implemented product scope
 

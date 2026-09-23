@@ -3,7 +3,7 @@
 CM Modpack Util is a local-first Windows desktop workspace for CM modpacks,
 built with **Tauri 2**, **SvelteKit**, **TypeScript**, **Vite**, and **SQLite**.
 
-![dashboard](/img/dash_2026-09-23.png)
+![CM Modpack Util dashboard](img/dash_2026-09-23.png)
 
 ## Current capabilities
 
@@ -36,12 +36,53 @@ built with **Tauri 2**, **SvelteKit**, **TypeScript**, **Vite**, and **SQLite**.
   collaboration, unattended updates, and non-Markdown export remain outside
   the initial release boundary.
 - The alpha database has no migration workflow. Existing incompatible local
-  databases require the documented stop-app/reset procedure.
+  databases require the documented [stop-app/reset procedure](docs/data-management.md#database-behavior).
 - Windows installers may show SmartScreen or unknown-publisher warnings because
   Microsoft Authenticode signing is not part of the initial release. Tauri
   updater signatures still verify downloaded updater artifacts.
 
-## Getting started
+## Download and install
+
+The initial release targets Windows x64 and is distributed as an NSIS
+installer. Download the latest published release from
+[GitHub Releases](https://github.com/ChefMooon/cm-modpack-util/releases/latest),
+run the setup executable, and follow the installer prompts. The app checks for
+stable updates at startup and in Settings; downloading and installing an update
+remain user-controlled.
+
+Packwiz-powered discovery, updates, pinning, and unpinning require the tested
+Packwiz 1.1.0 Windows x64 executable (`packwiz.exe`) to be available on `PATH`.
+Registration and local inventory inspection do not require running Packwiz.
+See the [supported Packwiz profile](docs/packwiz-commands.md) for compatibility
+details.
+
+## First use
+
+1. Register a local Packwiz modpack folder and review its project details.
+2. Inspect its inventory and refresh local evidence when needed.
+3. Discover available updates, review candidates, and apply only the selected
+   updates.
+4. Create a release workspace, review the captured changes, and generate and
+   export a Markdown changelog when ready.
+
+See the guides for [registration](docs/modpack-registration.md),
+[Packwiz update review](docs/packwiz-commands.md),
+[release workspaces](docs/release-workspace-validation.md), and
+[changelog generation and export](docs/changelog-generation.md).
+
+## Data and network use
+
+Application-owned settings, modpack records, observations, and history are
+stored locally in SQLite. Packwiz project files remain the source of truth for
+external modpack state. The app checks GitHub release metadata at startup and
+from Settings. Explicit changelog generation may request Modrinth data, though
+exact cached responses can be reused offline. Packwiz update discovery and
+selected mod updates may need network access; pin and unpin operations change
+local Packwiz metadata. The app does not provide cloud synchronization. See
+[data management](docs/data-management.md) for storage, transfer, and reset
+details.
+
+## Development setup
 
 ### Prerequisites
 
@@ -49,7 +90,7 @@ built with **Tauri 2**, **SvelteKit**, **TypeScript**, **Vite**, and **SQLite**.
 - [Rust](https://www.rust-lang.org/tools/install) and Cargo
 - Platform dependencies for [Tauri](https://v2.tauri.app/start/prerequisites/)
 
-### Development
+### Run the desktop app
 
 ```bash
 npm install
@@ -58,7 +99,7 @@ npm run tauri dev
 
 The Vite-only frontend can also be run with `npm run dev`.
 
-## Available scripts
+## Development commands
 
 | Command | Description |
 | --- | --- |
@@ -68,11 +109,12 @@ The Vite-only frontend can also be run with `npm run dev`.
 | `npm run build` | Build the static frontend |
 | `npm run check` | Run Svelte and TypeScript checks |
 | `npm test` | Run focused frontend contract checks |
+| `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` | Check Rust formatting |
 | `cargo test --manifest-path src-tauri/Cargo.toml` | Run Rust tests |
 
 ## Documentation
 
-- [Current `0.1.0` readiness roadmap](docs/ROADMAP.md)
+- [`0.1.0` release-readiness roadmap](docs/ROADMAP.md)
 - [Historical milestone roadmap](docs/archive/ROADMAP-v0.0.1-v0.0.9.md)
 - [Product specification](docs/CM-MODPACK-UTIL-SPEC.md)
 - [Packwiz compatibility and command safety](docs/packwiz-commands.md)
